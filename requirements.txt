@@ -1,0 +1,4 @@
+openai
+questionary
+python-dotenv
+Pillow
