@@ -75,14 +75,25 @@ def select_image(provided_path: Optional[str]) -> str:
         sys.exit(0)
     return selected
 
-def process_image_for_api(image_path: str, target_res: str) -> io.BytesIO:
+def process_image_for_api(image_path: str, target_res: str) -> tuple:
     """
-    Checks if the image needs resizing and returns a BytesIO object with the image data.
+    Checks if the image needs resizing and returns a tuple (filename, data, mime_type).
     If the image is larger than the target resolution in any dimension, it is resized.
     """
     # Parse target resolution
     target_width, target_height = map(int, target_res.split('x'))
+    filename = os.path.basename(image_path)
     
+    # Map extensions to MIME types
+    mime_types = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp'
+    }
+    ext = os.path.splitext(image_path)[1].lower()
+    mime_type = mime_types.get(ext, 'image/png') # Default to png if unknown
+
     with Image.open(image_path) as img:
         original_width, original_height = img.size
         
@@ -95,17 +106,18 @@ def process_image_for_api(image_path: str, target_res: str) -> io.BytesIO:
             output = io.BytesIO()
             # Determine format from original file extension
             fmt = img.format if img.format else "PNG"
-            if image_path.lower().endswith(('.jpg', '.jpeg')):
+            if ext in ('.jpg', '.jpeg'):
                 fmt = "JPEG"
+                mime_type = "image/jpeg"
             
             img.save(output, format=fmt)
             output.seek(0)
-            return output
+            return (filename, output, mime_type)
         else:
             # Return original file content as BytesIO
             print(f"Input image {original_width}x{original_height} is within limits. Sending untouched.")
             with open(image_path, "rb") as f:
-                return io.BytesIO(f.read())
+                return (filename, io.BytesIO(f.read()), mime_type)
 
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image-1.5 POC Image Editor")
@@ -177,12 +189,12 @@ def main():
     
     print("\nSending request to OpenAI (gpt-image-1.5)...")
     try:      
-        image_data = process_image_for_api(image_path, res_key)
+        image_tuple = process_image_for_api(image_path, res_key)
         
-        # client.images.edit accepts file-like objects
+        # client.images.edit accepts file-like objects or tuples (filename, content, type)
         response = client.images.edit(
             model="gpt-image-1.5",
-            image=image_data,
+            image=image_tuple,
             prompt=final_prompt,
             n=1,
             size=res_key,
