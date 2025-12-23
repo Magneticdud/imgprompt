@@ -37,6 +37,7 @@ PRESET_PROMPTS = [
     "Outpaint the provided image, maintain all existing details. Preserve the exact composition and identity.",
     "The quality of this logo is poor, recreate it faithfully as if it were vector-based, with sharp edges and limited colors.",
     "Upscale this photo 4x. Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not add or remove objects. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output.",
+    "Object Removal (High Quality)",
     "Convert this photo into a classic oil painting style.",
     "Add a realistic sunset lighting to this landscape.",
     "Remove the background and replace it with a clean minimalist studio setting.",
@@ -164,6 +165,14 @@ def main():
     if prompt_selection == "Custom Prompt":
         final_prompt = questionary.text("Enter your custom prompt:").ask()
         if not final_prompt: sys.exit(0)
+    elif prompt_selection == "Object Removal (High Quality)":
+        base_prompt = "Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output."
+        remove_input = questionary.text("What to remove?").ask()
+        if not remove_input:
+            final_prompt = base_prompt
+        else:
+            final_prompt = f"{base_prompt} Remove {remove_input}."
+
 
     # Summary
     final_cost = COSTS[quality_key][res_key]
