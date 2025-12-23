@@ -16,21 +16,9 @@ load_dotenv()
 
 # Constants for pricing
 COSTS = {
-    "Low": {
-        "1024x1024": 0.009,
-        "1024x1536": 0.013,
-        "1536x1024": 0.013
-    },
-    "Medium": {
-        "1024x1024": 0.034,
-        "1024x1536": 0.05,
-        "1536x1024": 0.05
-    },
-    "High": {
-        "1024x1024": 0.133,
-        "1024x1536": 0.20,
-        "1536x1024": 0.20
-    }
+    "Low": {"1024x1024": 0.009, "1024x1536": 0.013, "1536x1024": 0.013},
+    "Medium": {"1024x1024": 0.034, "1024x1536": 0.05, "1536x1024": 0.05},
+    "High": {"1024x1024": 0.133, "1024x1536": 0.20, "1536x1024": 0.20},
 }
 
 PRESET_PROMPTS = [
@@ -45,13 +33,15 @@ PRESET_PROMPTS = [
     "Change the season of this photo to winter, adding snow and frost.",
     "Give this portrait a 1950s vintage film look.",
     "Modify the colors to follow a warm autumnal palette.",
-    "Custom Prompt"
+    "Custom Prompt",
 ]
+
 
 def get_images_in_cwd() -> List[str]:
     """Returns a list of image files in the current working directory."""
-    extensions = ('.pcx', '.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp')
-    return [f for f in os.listdir('.') if f.lower().endswith(extensions)]
+    extensions = (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+    return [f for f in os.listdir(".") if f.lower().endswith(extensions)]
+
 
 def select_image(provided_path: Optional[str]) -> str:
     """Selects an image either from arguments or from a list of files."""
@@ -61,20 +51,18 @@ def select_image(provided_path: Optional[str]) -> str:
         else:
             print(f"Error: {provided_path} is not a valid file.")
             sys.exit(1)
-    
+
     images = get_images_in_cwd()
     if not images:
         print("No image files found in the current directory.")
         sys.exit(1)
-    
-    selected = questionary.select(
-        "Select an image to edit:",
-        choices=images
-    ).ask()
-    
+
+    selected = questionary.select("Select an image to edit:", choices=images).ask()
+
     if not selected:
         sys.exit(0)
     return selected
+
 
 def process_image_for_api(image_path: str, target_res: str) -> tuple:
     """
@@ -82,43 +70,48 @@ def process_image_for_api(image_path: str, target_res: str) -> tuple:
     If the image is larger than the target resolution in any dimension, it is resized.
     """
     # Parse target resolution
-    target_width, target_height = map(int, target_res.split('x'))
+    target_width, target_height = map(int, target_res.split("x"))
     filename = os.path.basename(image_path)
-    
+
     # Map extensions to MIME types
     mime_types = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.webp': 'image/webp'
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
     }
     ext = os.path.splitext(image_path)[1].lower()
-    mime_type = mime_types.get(ext, 'image/png') # Default to png if unknown
+    mime_type = mime_types.get(ext, "image/png")  # Default to png if unknown
 
     with Image.open(image_path) as img:
         original_width, original_height = img.size
-        
+
         # Check if resizing is needed
         if original_width > target_width or original_height > target_height:
-            print(f"Resizing input image from {original_width}x{original_height} to fit within {target_width}x{target_height}...")
+            print(
+                f"Resizing input image from {original_width}x{original_height} to fit within {target_width}x{target_height}..."
+            )
             # Use thumbnail to maintain aspect ratio while fitting within bounds
             img.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
-            
+
             output = io.BytesIO()
             # Determine format from original file extension
             fmt = img.format if img.format else "PNG"
-            if ext in ('.jpg', '.jpeg'):
+            if ext in (".jpg", ".jpeg"):
                 fmt = "JPEG"
                 mime_type = "image/jpeg"
-            
+
             img.save(output, format=fmt)
             output.seek(0)
             return (filename, output, mime_type)
         else:
             # Return original file content as BytesIO
-            print(f"Input image {original_width}x{original_height} is within limits. Sending untouched.")
+            print(
+                f"Input image {original_width}x{original_height} is within limits. Sending untouched."
+            )
             with open(image_path, "rb") as f:
                 return (filename, io.BytesIO(f.read()), mime_type)
+
 
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image-1.5 POC Image Editor")
@@ -135,10 +128,11 @@ def main():
         choices=[
             "1024x1024 (Square)",
             "1024x1536 (Vertical)",
-            "1536x1024 (Horizontal)"
-        ]
+            "1536x1024 (Horizontal)",
+        ],
     ).ask()
-    if not resolution: sys.exit(0)
+    if not resolution:
+        sys.exit(0)
     res_key = resolution.split(" ")[0]
 
     # 3. Select Quality and show costs
@@ -148,23 +142,24 @@ def main():
         quality_choices.append(f"{q} (${cost:.3f})")
 
     quality_selected = questionary.select(
-        "Select quality:",
-        choices=quality_choices
+        "Select quality:", choices=quality_choices
     ).ask()
-    if not quality_selected: sys.exit(0)
+    if not quality_selected:
+        sys.exit(0)
     quality_key = quality_selected.split(" ")[0]
 
     # 4. Select Prompt
     prompt_selection = questionary.select(
-        "Select a prompt or enter a custom one:",
-        choices=PRESET_PROMPTS
+        "Select a prompt or enter a custom one:", choices=PRESET_PROMPTS
     ).ask()
-    if not prompt_selection: sys.exit(0)
+    if not prompt_selection:
+        sys.exit(0)
 
     final_prompt = prompt_selection
     if prompt_selection == "Custom Prompt":
         final_prompt = questionary.text("Enter your custom prompt:").ask()
-        if not final_prompt: sys.exit(0)
+        if not final_prompt:
+            sys.exit(0)
     elif prompt_selection == "Object Removal (High Quality)":
         base_prompt = "Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output."
         remove_input = questionary.text("What to remove?").ask()
@@ -172,7 +167,6 @@ def main():
             final_prompt = base_prompt
         else:
             final_prompt = f"{base_prompt} Remove {remove_input}."
-
 
     # Summary
     final_cost = COSTS[quality_key][res_key]
@@ -182,7 +176,7 @@ def main():
     print(f"Quality:    {quality_key}")
     print(f"Prompt:     {final_prompt}")
     print(f"Total Cost: ${final_cost:.3f}")
-    
+
     confirm = questionary.confirm("Proceed with API call?").ask()
     if not confirm:
         print("Cancelled.")
@@ -195,11 +189,11 @@ def main():
         sys.exit(1)
 
     client = OpenAI(api_key=api_key)
-    
+
     print("\nSending request to OpenAI (gpt-image-1.5)...")
-    try:      
+    try:
         image_tuple = process_image_for_api(image_path, res_key)
-        
+
         # client.images.edit accepts file-like objects or tuples (filename, content, type)
         response = client.images.edit(
             model="gpt-image-1.5",
@@ -207,24 +201,24 @@ def main():
             prompt=final_prompt,
             n=1,
             size=res_key,
-            quality=quality_key.lower()
+            quality=quality_key.lower(),
         )
 
         # Support both direct URL and base64 response structures
         image_url = None
         image_b64 = None
-        
-        if hasattr(response, 'data') and len(response.data) > 0:
-            image_url = getattr(response.data[0], 'url', None)
-            image_b64 = getattr(response.data[0], 'b64_json', None)
-        elif isinstance(response, dict) and 'data' in response:
-            image_url = response['data'][0].get('url')
-            image_b64 = response['data'][0].get('b64_json')
+
+        if hasattr(response, "data") and len(response.data) > 0:
+            image_url = getattr(response.data[0], "url", None)
+            image_b64 = getattr(response.data[0], "b64_json", None)
+        elif isinstance(response, dict) and "data" in response:
+            image_url = response["data"][0].get("url")
+            image_b64 = response["data"][0].get("b64_json")
 
         if image_url or image_b64:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"edited_{timestamp}_{os.path.basename(image_path)}"
-            
+
             if image_url:
                 print(f"\nSuccess! Edited image available at:\n{image_url}")
                 print(f"Downloading and saving to {filename}...")
@@ -233,16 +227,17 @@ def main():
                 print(f"\nSuccess! Received base64 image data.")
                 print(f"Decoding and saving to {filename}...")
                 img_data = base64.b64decode(image_b64)
-                
-            with open(filename, 'wb') as handler:
+
+            with open(filename, "wb") as handler:
                 handler.write(img_data)
             print(f"File saved successfully as {filename}")
         else:
             print("\nError: Could not retrieve image data from the API response.")
             print(f"Debug Response: {response}")
-        
+
     except Exception as e:
         print(f"\nAn error occurred during the API call: {e}")
+
 
 if __name__ == "__main__":
     main()
