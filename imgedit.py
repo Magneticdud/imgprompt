@@ -6,6 +6,8 @@ import base64
 import questionary
 import requests
 from datetime import datetime
+import io
+from PIL import Image
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -32,13 +34,13 @@ COSTS = {
 }
 
 PRESET_PROMPTS = [
-    "Outpaint the provided image, maintain all existing details.",
+    "Outpaint the provided image, maintain all existing details. Preserve the exact composition and identity.",
     "The quality of this logo is poor, recreate it faithfully as if it were vector-based, with sharp edges and limited colors.",
-    "Transform this scene into a cyberpunk style with neon lights and futuristic elements.",
+    "Upscale this photo 4x. Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not add or remove objects. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output.",
     "Convert this photo into a classic oil painting style.",
     "Add a realistic sunset lighting to this landscape.",
     "Remove the background and replace it with a clean minimalist studio setting.",
-    "Enhance the details and sharpness of this image while keeping it natural.",
+    "Photorealistic restoration. Strictly preserve geometry and identity. No creative reinterpretation. No new details beyond what is implied by the pixels.",
     "Change the season of this photo to winter, adding snow and frost.",
     "Give this portrait a 1950s vintage film look.",
     "Modify the colors to follow a warm autumnal palette.",
@@ -72,6 +74,38 @@ def select_image(provided_path: Optional[str]) -> str:
     if not selected:
         sys.exit(0)
     return selected
+
+def process_image_for_api(image_path: str, target_res: str) -> io.BytesIO:
+    """
+    Checks if the image needs resizing and returns a BytesIO object with the image data.
+    If the image is larger than the target resolution in any dimension, it is resized.
+    """
+    # Parse target resolution
+    target_width, target_height = map(int, target_res.split('x'))
+    
+    with Image.open(image_path) as img:
+        original_width, original_height = img.size
+        
+        # Check if resizing is needed
+        if original_width > target_width or original_height > target_height:
+            print(f"Resizing input image from {original_width}x{original_height} to fit within {target_width}x{target_height}...")
+            # Use thumbnail to maintain aspect ratio while fitting within bounds
+            img.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
+            
+            output = io.BytesIO()
+            # Determine format from original file extension
+            fmt = img.format if img.format else "PNG"
+            if image_path.lower().endswith(('.jpg', '.jpeg')):
+                fmt = "JPEG"
+            
+            img.save(output, format=fmt)
+            output.seek(0)
+            return output
+        else:
+            # Return original file content as BytesIO
+            print(f"Input image {original_width}x{original_height} is within limits. Sending untouched.")
+            with open(image_path, "rb") as f:
+                return io.BytesIO(f.read())
 
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image-1.5 POC Image Editor")
@@ -143,16 +177,17 @@ def main():
     
     print("\nSending request to OpenAI (gpt-image-1.5)...")
     try:      
-        with open(image_path, "rb") as image_file:
-            # Using the edit endpoint (or generation with image input if applicable)
-            response = client.images.edit(
-                model="gpt-image-1.5",
-                image=image_file,
-                prompt=final_prompt,
-                n=1,
-                size=res_key,
-                quality=quality_key.lower()
-            )
+        image_data = process_image_for_api(image_path, res_key)
+        
+        # client.images.edit accepts file-like objects
+        response = client.images.edit(
+            model="gpt-image-1.5",
+            image=image_data,
+            prompt=final_prompt,
+            n=1,
+            size=res_key,
+            quality=quality_key.lower()
+        )
 
         # Support both direct URL and base64 response structures
         image_url = None
