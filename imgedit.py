@@ -2,7 +2,10 @@ import os
 import sys
 import argparse
 from typing import Optional, List
+import base64
 import questionary
+import requests
+from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -141,17 +144,46 @@ def main():
     print("\nSending request to OpenAI (gpt-image-1.5)...")
     try:      
         with open(image_path, "rb") as image_file:
+            # Using the edit endpoint (or generation with image input if applicable)
             response = client.images.edit(
                 model="gpt-image-1.5",
                 image=image_file,
                 prompt=final_prompt,
                 n=1,
                 size=res_key,
-                quality=quality_key.lower() # Standardizing to lowercase for API
+                quality=quality_key.lower()
             )
 
-        image_url = response.data[0].url
-        print(f"\nSuccess! Edited image available at:\n{image_url}")
+        # Support both direct URL and base64 response structures
+        image_url = None
+        image_b64 = None
+        
+        if hasattr(response, 'data') and len(response.data) > 0:
+            image_url = getattr(response.data[0], 'url', None)
+            image_b64 = getattr(response.data[0], 'b64_json', None)
+        elif isinstance(response, dict) and 'data' in response:
+            image_url = response['data'][0].get('url')
+            image_b64 = response['data'][0].get('b64_json')
+
+        if image_url or image_b64:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"edited_{timestamp}_{os.path.basename(image_path)}"
+            
+            if image_url:
+                print(f"\nSuccess! Edited image available at:\n{image_url}")
+                print(f"Downloading and saving to {filename}...")
+                img_data = requests.get(image_url).content
+            else:
+                print(f"\nSuccess! Received base64 image data.")
+                print(f"Decoding and saving to {filename}...")
+                img_data = base64.b64decode(image_b64)
+                
+            with open(filename, 'wb') as handler:
+                handler.write(img_data)
+            print(f"File saved successfully as {filename}")
+        else:
+            print("\nError: Could not retrieve image data from the API response.")
+            print(f"Debug Response: {response}")
         
     except Exception as e:
         print(f"\nAn error occurred during the API call: {e}")
