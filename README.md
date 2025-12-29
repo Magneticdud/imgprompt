@@ -13,7 +13,7 @@ A Proof of Concept tool to edit images using OpenAI's `gpt-image-1.5` model via 
 
 | Quality | 1024×1024 | 1024×1536 | 1536×1024 |
 |--------:|----------:|----------:|----------:|
-| Low     | $0.009    | $0.013    | $0.013    |
+| Low     | $0.009    | $0.07     | $0.07     |
 | Medium  | $0.034    | $0.05     | $0.05     |
 | High    | $0.133    | $0.20     | $0.20     |
 
