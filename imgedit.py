@@ -15,10 +15,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Constants for pricing
+# costs are in USD and are not accurate, they are just for reference
 COSTS = {
-    "Low": {"1024x1024": 0.06, "1024x1536": 0.07, "1536x1024": 0.07},
-    "Medium": {"1024x1024": 0.034, "1024x1536": 0.11, "1536x1024": 0.11},
-    "High": {"1024x1024": 0.133, "1024x1536": 0.26, "1536x1024": 0.26},
+    "gpt-image-1.5": {
+        "Low": {"1024x1024": 0.06, "1024x1536": 0.07, "1536x1024": 0.07},
+        "Medium": {"1024x1024": 0.034, "1024x1536": 0.11, "1536x1024": 0.11},
+        "High": {"1024x1024": 0.133, "1024x1536": 0.26, "1536x1024": 0.26},
+    },
+    "gpt-image-1-mini": {
+        "Low": {"1024x1024": 0.01, "1024x1536": 0.007, "1536x1024": 0.007},
+        "Medium": {"1024x1024": 0.011, "1024x1536": 0.016, "1536x1024": 0.016},
+        "High": {"1024x1024": 0.036, "1024x1536": 0.054, "1536x1024": 0.054},
+    },
 }
 
 PRESET_PROMPTS = [
@@ -122,7 +130,16 @@ def main():
     image_path = select_image(args.image)
     print(f"\nSelected Image: {image_path}")
 
-    # 2. Select Resolution
+    # 2. Select Model
+    model_choice = questionary.select(
+        "Select model (default: gpt-image-1.5):",
+        choices=["gpt-image-1.5", "gpt-image-1-mini"],
+        default="gpt-image-1.5",
+    ).ask()
+    if not model_choice:
+        sys.exit(0)
+
+    # 3. Select Resolution
     resolution = questionary.select(
         "Select resolution:",
         choices=[
@@ -135,10 +152,10 @@ def main():
         sys.exit(0)
     res_key = resolution.split(" ")[0]
 
-    # 3. Select Quality and show costs
+    # 4. Select Quality and show costs
     quality_choices = []
     for q in ["Low", "Medium", "High"]:
-        cost = COSTS[q][res_key]
+        cost = COSTS[model_choice][q][res_key]
         quality_choices.append(f"{q} (${cost:.3f})")
 
     quality_selected = questionary.select(
@@ -148,7 +165,7 @@ def main():
         sys.exit(0)
     quality_key = quality_selected.split(" ")[0]
 
-    # 4. Select Prompt
+    # 5. Select Prompt
     prompt_selection = questionary.select(
         "Select a prompt or enter a custom one:", choices=PRESET_PROMPTS
     ).ask()
@@ -169,9 +186,10 @@ def main():
             final_prompt = f"{base_prompt} Remove {remove_input}."
 
     # Summary
-    final_cost = COSTS[quality_key][res_key]
+    final_cost = COSTS[model_choice][quality_key][res_key]
     print("\n--- Summary ---")
     print(f"Image:      {image_path}")
+    print(f"Model:      {model_choice}")
     print(f"Resolution: {res_key}")
     print(f"Quality:    {quality_key}")
     print(f"Prompt:     {final_prompt}")
@@ -182,7 +200,7 @@ def main():
         print("Cancelled.")
         return
 
-    # 5. API Call
+    # 6. API Call
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         print("Error: OPENAI_API_KEY not found. Please set it in your .env file.")
@@ -190,13 +208,13 @@ def main():
 
     client = OpenAI(api_key=api_key)
 
-    print("\nSending request to OpenAI (gpt-image-1.5)...")
+    print(f"\nSending request to OpenAI ({model_choice})...")
     try:
         image_tuple = process_image_for_api(image_path, res_key)
 
         # client.images.edit accepts file-like objects or tuples (filename, content, type)
         response = client.images.edit(
-            model="gpt-image-1.5",
+            model=model_choice,
             image=image_tuple,
             prompt=final_prompt,
             n=1,

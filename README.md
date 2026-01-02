@@ -1,6 +1,6 @@
 # GPT Image 1.5 POC - Image Editor
 
-A Proof of Concept tool to edit images using OpenAI's `gpt-image-1.5` model via a terminal user interface (TUI).
+A Proof of Concept tool to edit images using OpenAI's `gpt-image-1.5` or `gpt-image-1-mini` models via a terminal user interface (TUI).
 
 ## Features
 - Direct image path input via CLI.
@@ -8,14 +8,6 @@ A Proof of Concept tool to edit images using OpenAI's `gpt-image-1.5` model via 
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.
 - Pre-made and custom prompts.
-
-## Costs (USD)
-
-| Quality | 1024×1024 | 1024×1536 | 1536×1024 |
-|--------:|----------:|----------:|----------:|
-| Low     | $0.06     | $0.07     | $0.07     |
-| Medium  | $0.034    | $0.11     | $0.11     |
-| High    | $0.133    | $0.26     | $0.26     |
 
 ## Setup
 1. Install dependencies:
