@@ -16,7 +16,7 @@ load_dotenv()
 
 # Constants for pricing
 COSTS = {
-    "Low": {"1024x1024": 0.009, "1024x1536": 0.07, "1536x1024": 0.07},
+    "Low": {"1024x1024": 0.06, "1024x1536": 0.07, "1536x1024": 0.07},
     "Medium": {"1024x1024": 0.034, "1024x1536": 0.11, "1536x1024": 0.11},
     "High": {"1024x1024": 0.133, "1024x1536": 0.26, "1536x1024": 0.26},
 }
@@ -217,7 +217,8 @@ def main():
 
         if image_url or image_b64:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"edited_{timestamp}_{os.path.basename(image_path)}"
+            base_name = os.path.splitext(os.path.basename(image_path))[0]
+            filename = f"edited_{timestamp}_{base_name}.png"
 
             if image_url:
                 print(f"\nSuccess! Edited image available at:\n{image_url}")
