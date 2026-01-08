@@ -9,6 +9,8 @@ from datetime import datetime
 import io
 from PIL import Image
 from openai import OpenAI
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -27,6 +29,44 @@ COSTS = {
         "Medium": {"1024x1024": 0.011, "1024x1536": 0.016, "1536x1024": 0.016},
         "High": {"1024x1024": 0.036, "1024x1536": 0.054, "1536x1024": 0.054},
     },
+    "gemini-2.5-flash-image": {
+        "1K": {"fixed": 0.04}, # Fixed price per image
+    },
+    "gemini-3-pro-image-preview": {
+        "1K": {"fixed": 0.14},
+        "2K": {"fixed": 0.14},
+        "4K": {"fixed": 0.25},
+    },
+}
+
+GEMINI_RESOLUTIONS = {
+    "1:1": "1024x1024",
+    "2:3": "832x1248",
+    "3:2": "1248x832",
+    "3:4": "864x1184",
+    "4:3": "1184x864",
+    "4:5": "896x1152",
+    "5:4": "1152x896",
+    "9:16": "768x1344",
+    "16:9": "1344x768",
+    "21:9": "1536x672",
+}
+
+# Mapping of aspect ratio strings to their float values for comparison
+ASPECT_RATIO_VALUES = {
+    "1:1": 1.0,
+    "2:3": 2/3,
+    "3:2": 3/2,
+    "3:4": 3/4,
+    "4:3": 4/3,
+    "4:5": 4/5,
+    "5:4": 5/4,
+    "9:16": 9/16,
+    "16:9": 16/9,
+    "21:9": 21/9,
+    "1024x1024 (Square)": 1.0,
+    "1024x1536 (Vertical)": 1024/1536,
+    "1536x1024 (Horizontal)": 1536/1024,
 }
 
 PRESET_PROMPTS = [
@@ -121,6 +161,26 @@ def process_image_for_api(image_path: str, target_res: str) -> tuple:
                 return (filename, io.BytesIO(f.read()), mime_type)
 
 
+def get_closest_aspect_ratio(image_path: str, supported_ratios: List[str]) -> str:
+    """Calculates the aspect ratio of the image and returns the closest supported ratio."""
+    with Image.open(image_path) as img:
+        w, h = img.size
+        img_ratio = w / h
+
+    closest_ratio = supported_ratios[0]
+    min_diff = float("inf")
+
+    for ratio in supported_ratios:
+        ratio_val = ASPECT_RATIO_VALUES.get(ratio)
+        if ratio_val is not None:
+            diff = abs(img_ratio - ratio_val)
+            if diff < min_diff:
+                min_diff = diff
+                closest_ratio = ratio
+
+    return closest_ratio
+
+
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image-1.5 POC Image Editor")
     parser.add_argument("image", nargs="?", help="Path to the image to edit")
@@ -130,42 +190,95 @@ def main():
     image_path = select_image(args.image)
     print(f"\nSelected Image: {image_path}")
 
-    # 2. Select Model
+    # 2. Select Provider
+    provider = questionary.select(
+        "Select Provider:",
+        choices=["OpenAI", "Google"],
+        default="OpenAI"
+    ).ask()
+    if not provider:
+        sys.exit(0)
+
+    # 3. Select Model
+    if provider == "OpenAI":
+        model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
+        default_model = "gpt-image-1.5"
+    else:
+        model_choices = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
+        default_model = "gemini-2.5-flash-image"
+
     model_choice = questionary.select(
-        "Select model (default: gpt-image-1.5):",
-        choices=["gpt-image-1.5", "gpt-image-1-mini"],
-        default="gpt-image-1.5",
+        f"Select {provider} model:",
+        choices=model_choices,
+        default=default_model,
     ).ask()
     if not model_choice:
         sys.exit(0)
 
-    # 3. Select Resolution
-    resolution = questionary.select(
-        "Select resolution:",
-        choices=[
+    # 4. Select Resolution / Aspect Ratio
+    if provider == "OpenAI":
+        res_options = [
             "1024x1024 (Square)",
             "1024x1536 (Vertical)",
             "1536x1024 (Horizontal)",
-        ],
-    ).ask()
-    if not resolution:
-        sys.exit(0)
-    res_key = resolution.split(" ")[0]
+        ]
+        closest = get_closest_aspect_ratio(image_path, res_options)
+        resolution = questionary.select(
+            "Select resolution:",
+            choices=res_options,
+            default=closest
+        ).ask()
+        if not resolution:
+            sys.exit(0)
+        res_key = resolution.split(" ")[0]
+    else:
+        # Google uses aspect ratio
+        ratio_options = list(GEMINI_RESOLUTIONS.keys())
+        closest = get_closest_aspect_ratio(image_path, ratio_options)
+        aspect_ratio = questionary.select(
+            "Select aspect ratio:",
+            choices=ratio_options,
+            default=closest
+        ).ask()
+        if not aspect_ratio:
+            sys.exit(0)
+        res_key = GEMINI_RESOLUTIONS[aspect_ratio]
 
-    # 4. Select Quality and show costs
-    quality_choices = []
-    for q in ["Low", "Medium", "High"]:
-        cost = COSTS[model_choice][q][res_key]
-        quality_choices.append(f"{q} (${cost:.3f})")
+    # 5. Select Quality / Size and show costs
+    quality_key = "1K"  # Default for Google
+    if provider == "OpenAI":
+        quality_choices = []
+        for q in ["Low", "Medium", "High"]:
+            cost = COSTS[model_choice][q][res_key]
+            quality_choices.append(f"{q} (${cost:.3f})")
 
-    quality_selected = questionary.select(
-        "Select quality:", choices=quality_choices
-    ).ask()
-    if not quality_selected:
-        sys.exit(0)
-    quality_key = quality_selected.split(" ")[0]
+        quality_selected = questionary.select(
+            "Select quality:", choices=quality_choices
+        ).ask()
+        if not quality_selected:
+            sys.exit(0)
+        quality_key = quality_selected.split(" ")[0]
+        final_cost = COSTS[model_choice][quality_key][res_key]
+    else:
+        # Google quality/size selection
+        if model_choice == "gemini-3-pro-image-preview":
+            size_choices = []
+            for s in ["1K", "2K", "4K"]:
+                cost = COSTS[model_choice][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+            
+            size_selected = questionary.select(
+                "Select image size:", choices=size_choices, default=size_choices[0]
+            ).ask()
+            if not size_selected:
+                sys.exit(0)
+            quality_key = size_selected.split(" ")[0]
+        else:
+            quality_key = "1K"
+        
+        final_cost = COSTS[model_choice][quality_key]["fixed"]
 
-    # 5. Select Prompt
+    # 6. Select Prompt
     prompt_selection = questionary.select(
         "Select a prompt or enter a custom one:", choices=PRESET_PROMPTS
     ).ask()
@@ -186,12 +299,16 @@ def main():
             final_prompt = f"{base_prompt} Remove {remove_input}."
 
     # Summary
-    final_cost = COSTS[model_choice][quality_key][res_key]
     print("\n--- Summary ---")
     print(f"Image:      {image_path}")
+    print(f"Provider:   {provider}")
     print(f"Model:      {model_choice}")
-    print(f"Resolution: {res_key}")
-    print(f"Quality:    {quality_key}")
+    if provider == "OpenAI":
+        print(f"Resolution: {res_key}")
+        print(f"Quality:    {quality_key}")
+    else:
+        print(f"Ratio:      {aspect_ratio}")
+        print(f"Size:       {quality_key}")
     print(f"Prompt:     {final_prompt}")
     print(f"Total Cost: ${final_cost:.3f}")
 
@@ -200,62 +317,104 @@ def main():
         print("Cancelled.")
         return
 
-    # 6. API Call
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("Error: OPENAI_API_KEY not found. Please set it in your .env file.")
-        sys.exit(1)
+    # 7. API Call
+    if provider == "OpenAI":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            print("Error: OPENAI_API_KEY not found. Please set it in your .env file.")
+            sys.exit(1)
 
-    client = OpenAI(api_key=api_key)
-
-    print(f"\nSending request to OpenAI ({model_choice})...")
-    try:
-        image_tuple = process_image_for_api(image_path, res_key)
-
-        # client.images.edit accepts file-like objects or tuples (filename, content, type)
-        response = client.images.edit(
-            model=model_choice,
-            image=image_tuple,
-            prompt=final_prompt,
-            n=1,
-            size=res_key,
-            quality=quality_key.lower(),
-        )
-
-        # Support both direct URL and base64 response structures
-        image_url = None
-        image_b64 = None
-
-        if hasattr(response, "data") and len(response.data) > 0:
-            image_url = getattr(response.data[0], "url", None)
-            image_b64 = getattr(response.data[0], "b64_json", None)
-        elif isinstance(response, dict) and "data" in response:
-            image_url = response["data"][0].get("url")
-            image_b64 = response["data"][0].get("b64_json")
-
-        if image_url or image_b64:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_name = os.path.splitext(os.path.basename(image_path))[0]
-            filename = f"edited_{timestamp}_{base_name}.png"
-
-            if image_url:
-                print(f"\nSuccess! Edited image available at:\n{image_url}")
-                print(f"Downloading and saving to {filename}...")
-                img_data = requests.get(image_url).content
+        client_openai = OpenAI(api_key=api_key)
+        print(f"\nSending request to OpenAI ({model_choice})...")
+        try:
+            image_tuple = process_image_for_api(image_path, res_key)
+            response = client_openai.images.edit(
+                model=model_choice,
+                image=image_tuple,
+                prompt=final_prompt,
+                n=1,
+                size=res_key,
+                quality=quality_key.lower(),
+            )
+            # Handle Response (same as before)
+            image_url = None
+            image_b64 = None
+            if hasattr(response, "data") and len(response.data) > 0:
+                image_url = getattr(response.data[0], "url", None)
+                image_b64 = getattr(response.data[0], "b64_json", None)
+            
+            if image_url or image_b64:
+                save_api_image(image_url, image_b64, image_path)
             else:
-                print(f"\nSuccess! Received base64 image data.")
-                print(f"Decoding and saving to {filename}...")
-                img_data = base64.b64decode(image_b64)
+                print("\nError: Could not retrieve image data from the API response.")
+                print(f"Debug Response: {response}")
+        except Exception as e:
+            print(f"\nAn error occurred during OpenAI call: {e}")
 
-            with open(filename, "wb") as handler:
-                handler.write(img_data)
-            print(f"File saved successfully as {filename}")
-        else:
-            print("\nError: Could not retrieve image data from the API response.")
-            print(f"Debug Response: {response}")
+    else:
+        # Google Provider
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("Error: GOOGLE_API_KEY not found. Please set it in your .env file.")
+            sys.exit(1)
 
-    except Exception as e:
-        print(f"\nAn error occurred during the API call: {e}")
+        client_google = genai.Client(api_key=api_key)
+        print(f"\nSending request to Google ({model_choice})...")
+        try:
+            with Image.open(image_path) as img:
+                # Prepare Google Config
+                config_args = {"aspect_ratio": aspect_ratio}
+                if model_choice == "gemini-3-pro-image-preview":
+                    config_args["image_size"] = quality_key
+
+                response = client_google.models.generate_content(
+                    model=model_choice,
+                    contents=[final_prompt, img],
+                    config=types.GenerateContentConfig(
+                        image_config=types.ImageConfig(**config_args)
+                    )
+                )
+
+                saved = False
+                for part in response.parts:
+                    if part.inline_data is not None:
+                        generated_image = part.as_image()
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        base_name = os.path.splitext(os.path.basename(image_path))[0]
+                        filename = f"edited_{timestamp}_{base_name}.png"
+                        generated_image.save(filename)
+                        print(f"\nSuccess! File saved successfully as {filename}")
+                        saved = True
+                        break
+                
+                if not saved:
+                    print("\nError: No image found in Google API response.")
+                    for part in response.parts:
+                        if part.text:
+                            print(f"Response text: {part.text}")
+
+        except Exception as e:
+            print(f"\nAn error occurred during Google call: {e}")
+
+
+def save_api_image(image_url, image_b64, original_path):
+    """Downloads or decodes an image and saves it to disk."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = os.path.splitext(os.path.basename(original_path))[0]
+    filename = f"edited_{timestamp}_{base_name}.png"
+
+    if image_url:
+        print(f"\nSuccess! Edited image available at:\n{image_url}")
+        print(f"Downloading and saving to {filename}...")
+        img_data = requests.get(image_url).content
+    else:
+        print(f"\nSuccess! Received base64 image data.")
+        print(f"Decoding and saving to {filename}...")
+        img_data = base64.b64decode(image_b64)
+
+    with open(filename, "wb") as handler:
+        handler.write(img_data)
+    print(f"File saved successfully as {filename}")
 
 
 if __name__ == "__main__":

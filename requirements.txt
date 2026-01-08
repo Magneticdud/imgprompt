@@ -3,3 +3,4 @@ questionary
 python-dotenv
 Pillow
 requests
+google-genai
