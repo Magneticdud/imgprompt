@@ -91,6 +91,7 @@ PRESET_PROMPTS_GENERATE = [
     "Abstract geometric patterns, vibrant colors, 3d render style.",
     "A serene japanese garden with cherry blossoms, watercolor style.",
     "Isometric view of a cozy coffee shop interior.",
+    "A retro-style BW lettering with thick outline",
     "Custom Prompt",
 ]
 
@@ -333,6 +334,20 @@ def main():
             final_prompt = base_prompt
         else:
             final_prompt = f"{base_prompt} Remove {remove_input}."
+    elif prompt_selection == "A retro-style BW lettering with thick outline":
+        text_input = questionary.text("What text to write?").ask()
+        if not text_input:
+            print("Error: Text input is required for this preset.")
+            sys.exit(0)
+        final_prompt = (
+            f'Create a clean vector-style black and white typographic logo. '
+            f'Text: "{text_input}" on two lines, centered and slightly slanted upward to the right. '
+            f'Use bold retro script lettering (smooth connected cursive, thick strokes), white fill with a thick black outline. '
+            f'Add a large black drop shadow offset down-right to create a strong 3D sticker effect. '
+            f'Add a swoosh underline under the second word, also white with black outline and black shadow. '
+            f'High contrast, crisp edges, no textures, no gradients, bright green background (it will be keyed out), no extra elements. '
+            f'Export as a logo/wordmark.'
+        )
 
     # Summary
     print("\n--- Summary ---")
