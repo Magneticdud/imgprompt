@@ -30,7 +30,7 @@ COSTS = {
         "High": {"1024x1024": 0.036, "1024x1536": 0.054, "1536x1024": 0.054},
     },
     "gemini-2.5-flash-image": {
-        "1K": {"fixed": 0.04}, # Fixed price per image
+        "1K": {"fixed": 0.04},  # Fixed price per image
     },
     "gemini-3-pro-image-preview": {
         "1K": {"fixed": 0.14},
@@ -55,21 +55,21 @@ GEMINI_RESOLUTIONS = {
 # Mapping of aspect ratio strings to their float values for comparison
 ASPECT_RATIO_VALUES = {
     "1:1": 1.0,
-    "2:3": 2/3,
-    "3:2": 3/2,
-    "3:4": 3/4,
-    "4:3": 4/3,
-    "4:5": 4/5,
-    "5:4": 5/4,
-    "9:16": 9/16,
-    "16:9": 16/9,
-    "21:9": 21/9,
+    "2:3": 2 / 3,
+    "3:2": 3 / 2,
+    "3:4": 3 / 4,
+    "4:3": 4 / 3,
+    "4:5": 4 / 5,
+    "5:4": 5 / 4,
+    "9:16": 9 / 16,
+    "16:9": 16 / 9,
+    "21:9": 21 / 9,
     "1024x1024 (Square)": 1.0,
-    "1024x1536 (Vertical)": 1024/1536,
-    "1536x1024 (Horizontal)": 1536/1024,
+    "1024x1536 (Vertical)": 1024 / 1536,
+    "1536x1024 (Horizontal)": 1536 / 1024,
 }
 
-PRESET_PROMPTS = [
+PRESET_PROMPTS_EDIT = [
     "Outpaint the provided image, maintain all existing details. Preserve the exact composition and identity.",
     "The quality of this logo is poor, recreate it faithfully as if it were vector-based, with sharp edges and limited colors.",
     "Upscale this photo 4x. Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not add or remove objects. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output.",
@@ -84,6 +84,16 @@ PRESET_PROMPTS = [
     "Custom Prompt",
 ]
 
+PRESET_PROMPTS_GENERATE = [
+    "A futuristic cyberpunk cityscape at night, neon lights, rain, high detail.",
+    "A cute minimalist vector logo of a fox.",
+    "A photorealistic portrait of an astronaut on Mars, cinematic lighting.",
+    "Abstract geometric patterns, vibrant colors, 3d render style.",
+    "A serene japanese garden with cherry blossoms, watercolor style.",
+    "Isometric view of a cozy coffee shop interior.",
+    "Custom Prompt",
+]
+
 
 def get_images_in_cwd() -> List[str]:
     """Returns a list of image files in the current working directory."""
@@ -91,7 +101,7 @@ def get_images_in_cwd() -> List[str]:
     return [f for f in os.listdir(".") if f.lower().endswith(extensions)]
 
 
-def select_image(provided_path: Optional[str]) -> str:
+def select_image(provided_path: Optional[str]) -> Optional[str]:
     """Selects an image either from arguments or from a list of files."""
     if provided_path:
         if os.path.isfile(provided_path):
@@ -101,14 +111,21 @@ def select_image(provided_path: Optional[str]) -> str:
             sys.exit(1)
 
     images = get_images_in_cwd()
-    if not images:
-        print("No image files found in the current directory.")
-        sys.exit(1)
 
-    selected = questionary.select("Select an image to edit:", choices=images).ask()
+    # Add option for Text-to-Image
+    t2i_option = "Text-to-Image (No input image)"
+    choices = [t2i_option] + images
+
+    selected = questionary.select(
+        "Select an image to edit or mode:", choices=choices
+    ).ask()
 
     if not selected:
         sys.exit(0)
+
+    if selected == t2i_option:
+        return None
+
     return selected
 
 
@@ -184,17 +201,27 @@ def get_closest_aspect_ratio(image_path: str, supported_ratios: List[str]) -> st
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image-1.5 POC Image Editor")
     parser.add_argument("image", nargs="?", help="Path to the image to edit")
+    parser.add_argument(
+        "--free",
+        action="store_true",
+        help="Start in Text-to-Image mode (no base image)",
+    )
     args = parser.parse_args()
 
     # 1. Select Image
-    image_path = select_image(args.image)
-    print(f"\nSelected Image: {image_path}")
+    if args.free:
+        image_path = None
+    else:
+        image_path = select_image(args.image)
+
+    if image_path:
+        print(f"\nSelected Image: {image_path}")
+    else:
+        print(f"\nMode: Text-to-Image (No input image)")
 
     # 2. Select Provider
     provider = questionary.select(
-        "Select Provider:",
-        choices=["OpenAI", "Google"],
-        default="OpenAI"
+        "Select Provider:", choices=["OpenAI", "Google"], default="OpenAI"
     ).ask()
     if not provider:
         sys.exit(0)
@@ -222,11 +249,13 @@ def main():
             "1024x1536 (Vertical)",
             "1536x1024 (Horizontal)",
         ]
-        closest = get_closest_aspect_ratio(image_path, res_options)
+        if image_path:
+            closest = get_closest_aspect_ratio(image_path, res_options)
+        else:
+            closest = res_options[0]  # Default Square
+
         resolution = questionary.select(
-            "Select resolution:",
-            choices=res_options,
-            default=closest
+            "Select resolution:", choices=res_options, default=closest
         ).ask()
         if not resolution:
             sys.exit(0)
@@ -234,11 +263,13 @@ def main():
     else:
         # Google uses aspect ratio
         ratio_options = list(GEMINI_RESOLUTIONS.keys())
-        closest = get_closest_aspect_ratio(image_path, ratio_options)
+        if image_path:
+            closest = get_closest_aspect_ratio(image_path, ratio_options)
+        else:
+            closest = "1:1"  # Default Square
+
         aspect_ratio = questionary.select(
-            "Select aspect ratio:",
-            choices=ratio_options,
-            default=closest
+            "Select aspect ratio:", choices=ratio_options, default=closest
         ).ask()
         if not aspect_ratio:
             sys.exit(0)
@@ -266,7 +297,7 @@ def main():
             for s in ["1K", "2K", "4K"]:
                 cost = COSTS[model_choice][s]["fixed"]
                 size_choices.append(f"{s} (${cost:.2f})")
-            
+
             size_selected = questionary.select(
                 "Select image size:", choices=size_choices, default=size_choices[0]
             ).ask()
@@ -275,12 +306,17 @@ def main():
             quality_key = size_selected.split(" ")[0]
         else:
             quality_key = "1K"
-        
+
         final_cost = COSTS[model_choice][quality_key]["fixed"]
 
     # 6. Select Prompt
+    if image_path:
+        prompt_choices = PRESET_PROMPTS_EDIT
+    else:
+        prompt_choices = PRESET_PROMPTS_GENERATE
+
     prompt_selection = questionary.select(
-        "Select a prompt or enter a custom one:", choices=PRESET_PROMPTS
+        "Select a prompt or enter a custom one:", choices=prompt_choices
     ).ask()
     if not prompt_selection:
         sys.exit(0)
@@ -300,7 +336,10 @@ def main():
 
     # Summary
     print("\n--- Summary ---")
-    print(f"Image:      {image_path}")
+    if image_path:
+        print(f"Image:      {image_path}")
+    else:
+        print(f"Image:      None (Text-to-Image)")
     print(f"Provider:   {provider}")
     print(f"Model:      {model_choice}")
     if provider == "OpenAI":
@@ -327,22 +366,34 @@ def main():
         client_openai = OpenAI(api_key=api_key)
         print(f"\nSending request to OpenAI ({model_choice})...")
         try:
-            image_tuple = process_image_for_api(image_path, res_key)
-            response = client_openai.images.edit(
-                model=model_choice,
-                image=image_tuple,
-                prompt=final_prompt,
-                n=1,
-                size=res_key,
-                quality=quality_key.lower(),
-            )
+            if image_path:
+                # EDIT MODE
+                image_tuple = process_image_for_api(image_path, res_key)
+                response = client_openai.images.edit(
+                    model=model_choice,
+                    image=image_tuple,
+                    prompt=final_prompt,
+                    n=1,
+                    size=res_key,
+                    quality=quality_key.lower(),
+                )
+            else:
+                # GENERATE MODE
+                response = client_openai.images.generate(
+                    model=model_choice,
+                    prompt=final_prompt,
+                    n=1,
+                    size=res_key,
+                    quality=quality_key.lower(),
+                )
+
             # Handle Response (same as before)
             image_url = None
             image_b64 = None
             if hasattr(response, "data") and len(response.data) > 0:
                 image_url = getattr(response.data[0], "url", None)
                 image_b64 = getattr(response.data[0], "b64_json", None)
-            
+
             if image_url or image_b64:
                 save_api_image(image_url, image_b64, image_path)
             else:
@@ -361,37 +412,59 @@ def main():
         client_google = genai.Client(api_key=api_key)
         print(f"\nSending request to Google ({model_choice})...")
         try:
-            with Image.open(image_path) as img:
-                # Prepare Google Config
-                config_args = {"aspect_ratio": aspect_ratio}
-                if model_choice == "gemini-3-pro-image-preview":
-                    config_args["image_size"] = quality_key
+            # Prepare Google Config
+            config_args = {"aspect_ratio": aspect_ratio}
+            if model_choice == "gemini-3-pro-image-preview":
+                config_args["image_size"] = quality_key
 
-                response = client_google.models.generate_content(
-                    model=model_choice,
-                    contents=[final_prompt, img],
-                    config=types.GenerateContentConfig(
-                        image_config=types.ImageConfig(**config_args)
-                    )
-                )
+            req_contents = [final_prompt]
+            img_context = None
 
-                saved = False
+            if image_path:
+                img_context = Image.open(image_path)
+                req_contents.append(img_context)
+
+            response = client_google.models.generate_content(
+                model=model_choice,
+                contents=req_contents,
+                config=types.GenerateContentConfig(
+                    image_config=types.ImageConfig(**config_args)
+                ),
+            )
+
+            # Close image if opened
+            if img_context:
+                img_context.close()
+
+            # Handle Response
+            saved = False
+            if hasattr(response, "parts"):
                 for part in response.parts:
                     if part.inline_data is not None:
                         generated_image = part.as_image()
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        base_name = os.path.splitext(os.path.basename(image_path))[0]
-                        filename = f"edited_{timestamp}_{base_name}.png"
+
+                        if image_path:
+                            base_name = os.path.splitext(os.path.basename(image_path))[
+                                0
+                            ]
+                            filename = f"edited_{timestamp}_{base_name}.png"
+                        else:
+                            filename = f"generated_{timestamp}.png"
+
                         generated_image.save(filename)
                         print(f"\nSuccess! File saved successfully as {filename}")
                         saved = True
                         break
-                
-                if not saved:
-                    print("\nError: No image found in Google API response.")
+
+            if not saved:
+                print("\nError: No image found in Google API response.")
+                if hasattr(response, "parts"):
                     for part in response.parts:
                         if part.text:
                             print(f"Response text: {part.text}")
+                else:
+                    print(f"Debug Response: {response}")
 
         except Exception as e:
             print(f"\nAn error occurred during Google call: {e}")
@@ -400,11 +473,15 @@ def main():
 def save_api_image(image_url, image_b64, original_path):
     """Downloads or decodes an image and saves it to disk."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = os.path.splitext(os.path.basename(original_path))[0]
-    filename = f"edited_{timestamp}_{base_name}.png"
+
+    if original_path:
+        base_name = os.path.splitext(os.path.basename(original_path))[0]
+        filename = f"edited_{timestamp}_{base_name}.png"
+    else:
+        filename = f"generated_{timestamp}.png"
 
     if image_url:
-        print(f"\nSuccess! Edited image available at:\n{image_url}")
+        print(f"\nSuccess! Image available at:\n{image_url}")
         print(f"Downloading and saving to {filename}...")
         img_data = requests.get(image_url).content
     else:
