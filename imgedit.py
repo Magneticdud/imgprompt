@@ -92,6 +92,7 @@ PRESET_PROMPTS_GENERATE = [
     "A serene japanese garden with cherry blossoms, watercolor style.",
     "Isometric view of a cozy coffee shop interior.",
     "A retro-style BW lettering with thick outline",
+    "1990s Memphis Style Logo",
     "Custom Prompt",
 ]
 
@@ -354,6 +355,19 @@ def main():
             f'Add a swoosh underline under the second word, also white with black outline and black shadow. '
             f'High contrast, crisp edges, no textures, no gradients, bright green background (it will be keyed out), no extra elements. '
             f'Export as a logo/wordmark.'
+        )
+    elif prompt_selection == "1990s Memphis Style Logo":
+        text_input = questionary.text("What text to write?").ask()
+        if not text_input:
+            print("Error: Text input is required for this preset.")
+            sys.exit(0)
+        final_prompt = (
+            f'Create a 1990s Memphis-inspired typographic logo that reads: "{text_input}". '
+            f'Style: 90s TV commercial / snack packaging lettering, playful and energetic, slightly italic script with uneven hand-drawn feel, two-tone gradients and airbrushed shading, subtle halftone/print vibe, thin white highlight, no shadow at all, not a thick sticker outline). '
+            f'Add a simple zig-zag / squiggle underline in Memphis style. '
+            f'Background: solid flat chroma key green (#00FF00), perfectly uniform. '
+            f'Strictly avoid: 3D chrome, rainbow neon, glossy metallic look, thick black outline sticker effect, modern esports logo style, glow effects, bevel/emboss, photorealism, extra objects, patterns, textures, collage, food images, shadow. '
+            f'Centered composition, clean edges, high resolution.'
         )
 
     # Summary
