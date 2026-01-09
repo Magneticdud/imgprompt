@@ -263,18 +263,25 @@ def main():
         res_key = resolution.split(" ")[0]
     else:
         # Google uses aspect ratio
-        ratio_options = list(GEMINI_RESOLUTIONS.keys())
-        if image_path:
-            closest = get_closest_aspect_ratio(image_path, ratio_options)
+        # Note: only gemini-3-pro-image-preview supports "Auto" aspect ratio.
+        if model_choice == "gemini-3-pro-image-preview":
+            ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
+            default_ratio = "Auto"
         else:
-            closest = "1:1"  # Default Square
+            ratio_options = list(GEMINI_RESOLUTIONS.keys())
+            default_ratio = "1:1"
+
+        if image_path:
+            closest = get_closest_aspect_ratio(image_path, list(GEMINI_RESOLUTIONS.keys()))
+        else:
+            closest = default_ratio
 
         aspect_ratio = questionary.select(
             "Select aspect ratio:", choices=ratio_options, default=closest
         ).ask()
         if not aspect_ratio:
             sys.exit(0)
-        res_key = GEMINI_RESOLUTIONS[aspect_ratio]
+        res_key = GEMINI_RESOLUTIONS.get(aspect_ratio, "Auto")
 
     # 5. Select Quality / Size and show costs
     quality_key = "1K"  # Default for Google
@@ -428,7 +435,10 @@ def main():
         print(f"\nSending request to Google ({model_choice})...")
         try:
             # Prepare Google Config
-            config_args = {"aspect_ratio": aspect_ratio}
+            config_args = {}
+            if aspect_ratio != "Auto":
+                config_args["aspect_ratio"] = aspect_ratio
+
             if model_choice == "gemini-3-pro-image-preview":
                 config_args["image_size"] = quality_key
 
