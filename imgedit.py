@@ -97,6 +97,14 @@ PRESET_PROMPTS_GENERATE = [
     "Custom Prompt",
 ]
 
+PRESET_PROMPTS_DUAL = [
+    "Combine the contents of IMG_1 and IMG_2 into a coherent scene.",
+    "Use the composition of IMG_1 and the style of IMG_2.",
+    "IMG_1 is the subject, IMG_2 is the background.",
+    "Create a vintage etching / engraved illustration double exposure using two input photos. Use IMG_1 as the main subject silhouette and keep its pose, proportions, and outline faithful. Use IMG_2 as the internal scene, visible only inside the silhouette of IMG_1 (no spill outside the outline). Convert everything to black-and-white ink linework with cross-hatching and etched shading, consistent line weight, high detail. Fit and scale IMG_2 to the silhouette while preserving its aspect ratio; adjust position for a pleasing composition. Clean white background, no text, no frame, no extra objects.The outer area must remain blank white; all texture must be inside the silhouette only.",
+    "Custom Prompt",
+]
+
 
 def get_images_in_cwd() -> List[str]:
     """Returns a list of image files in the current working directory."""
@@ -104,11 +112,11 @@ def get_images_in_cwd() -> List[str]:
     return [f for f in os.listdir(".") if f.lower().endswith(extensions)]
 
 
-def select_image(provided_path: Optional[str]) -> Optional[str]:
-    """Selects an image either from arguments or from a list of files."""
+def select_inputs(provided_path: Optional[str]) -> List[str]:
+    """Selects images either from arguments or from a list of files."""
     if provided_path:
         if os.path.isfile(provided_path):
-            return provided_path
+            return [provided_path]
         else:
             print(f"Error: {provided_path} is not a valid file.")
             sys.exit(1)
@@ -117,7 +125,12 @@ def select_image(provided_path: Optional[str]) -> Optional[str]:
 
     # Add option for Text-to-Image
     t2i_option = "Text-to-Image (No input image)"
-    choices = [t2i_option] + images
+    dual_option = "Two Images (Dual Input)"
+
+    choices = [t2i_option]
+    if len(images) >= 2:
+        choices.append(dual_option)
+    choices.extend(images)
 
     selected = questionary.select(
         "Select an image to edit or mode:", choices=choices
@@ -127,9 +140,24 @@ def select_image(provided_path: Optional[str]) -> Optional[str]:
         sys.exit(0)
 
     if selected == t2i_option:
-        return None
+        return []
 
-    return selected
+    if selected == dual_option:
+        img1 = questionary.select("Select first image (IMG_1):", choices=images).ask()
+        if not img1:
+            sys.exit(0)
+
+        # Remove selected image from options for the second one
+        remaining_images = [img for img in images if img != img1]
+        img2 = questionary.select(
+            "Select second image (IMG_2):", choices=remaining_images
+        ).ask()
+        if not img2:
+            sys.exit(0)
+
+        return [img1, img2]
+
+    return [selected]
 
 
 def process_image_for_api(image_path: str, target_res: str) -> tuple:
@@ -213,12 +241,18 @@ def main():
 
     # 1. Select Image
     if args.free:
-        image_path = None
+        input_images = []
     else:
-        image_path = select_image(args.image)
+        input_images = select_inputs(args.image)
 
-    if image_path:
-        print(f"\nSelected Image: {image_path}")
+    # Legacy support variable
+    image_path = input_images[0] if input_images else None
+
+    if input_images:
+        if len(input_images) == 1:
+            print(f"\nSelected Image: {input_images[0]}")
+        else:
+            print(f"\nSelected Images: {', '.join(input_images)}")
     else:
         print(f"\nMode: Text-to-Image (No input image)")
 
@@ -274,7 +308,9 @@ def main():
             default_ratio = "1:1"
 
         if image_path:
-            closest = get_closest_aspect_ratio(image_path, list(GEMINI_RESOLUTIONS.keys()))
+            closest = get_closest_aspect_ratio(
+                image_path, list(GEMINI_RESOLUTIONS.keys())
+            )
         else:
             closest = default_ratio
 
@@ -320,7 +356,9 @@ def main():
         final_cost = COSTS[model_choice][quality_key]["fixed"]
 
     # 6. Select Prompt
-    if image_path:
+    if len(input_images) > 1:
+        prompt_choices = PRESET_PROMPTS_DUAL
+    elif image_path:
         prompt_choices = PRESET_PROMPTS_EDIT
     else:
         prompt_choices = PRESET_PROMPTS_GENERATE
@@ -349,13 +387,13 @@ def main():
             print("Error: Text input is required for this preset.")
             sys.exit(0)
         final_prompt = (
-            f'Create a clean vector-style black and white typographic logo. '
+            f"Create a clean vector-style black and white typographic logo. "
             f'Text: "{text_input}" on two lines, centered and slightly slanted upward to the right. '
-            f'Use bold retro script lettering (smooth connected cursive, thick strokes), white fill with a thick black outline. '
-            f'Add a large black drop shadow offset down-right to create a strong 3D sticker effect. '
-            f'Add a swoosh underline under the second word, also white with black outline and black shadow. '
-            f'High contrast, crisp edges, no textures, no gradients, bright green background (it will be keyed out), no extra elements. '
-            f'Export as a logo/wordmark.'
+            f"Use bold retro script lettering (smooth connected cursive, thick strokes), white fill with a thick black outline. "
+            f"Add a large black drop shadow offset down-right to create a strong 3D sticker effect. "
+            f"Add a swoosh underline under the second word, also white with black outline and black shadow. "
+            f"High contrast, crisp edges, no textures, no gradients, bright green background (it will be keyed out), no extra elements. "
+            f"Export as a logo/wordmark."
         )
     elif prompt_selection == "1990s Memphis Style Logo":
         text_input = questionary.text("What text to write?").ask()
@@ -364,17 +402,17 @@ def main():
             sys.exit(0)
         final_prompt = (
             f'Create a 1990s Memphis-inspired typographic logo that reads: "{text_input}". '
-            f'Style: 90s TV commercial / snack packaging lettering, playful and energetic, slightly italic script with uneven hand-drawn feel, two-tone gradients and airbrushed shading, subtle halftone/print vibe, thin white highlight, no shadow at all, not a thick sticker outline). '
-            f'Add a simple zig-zag / squiggle underline in Memphis style. '
-            f'Background: solid flat chroma key green (#00FF00), perfectly uniform. '
-            f'Strictly avoid: 3D chrome, rainbow neon, glossy metallic look, thick black outline sticker effect, modern esports logo style, glow effects, bevel/emboss, photorealism, extra objects, patterns, textures, collage, food images, shadow. '
-            f'Centered composition, clean edges, high resolution.'
+            f"Style: 90s TV commercial / snack packaging lettering, playful and energetic, slightly italic script with uneven hand-drawn feel, two-tone gradients and airbrushed shading, subtle halftone/print vibe, thin white highlight, no shadow at all, not a thick sticker outline). "
+            f"Add a simple zig-zag / squiggle underline in Memphis style. "
+            f"Background: solid flat chroma key green (#00FF00), perfectly uniform. "
+            f"Strictly avoid: 3D chrome, rainbow neon, glossy metallic look, thick black outline sticker effect, modern esports logo style, glow effects, bevel/emboss, photorealism, extra objects, patterns, textures, collage, food images, shadow. "
+            f"Centered composition, clean edges, high resolution."
         )
 
     # Summary
     print("\n--- Summary ---")
-    if image_path:
-        print(f"Image:      {image_path}")
+    if input_images:
+        print(f"Images:     {', '.join(input_images)}")
     else:
         print(f"Image:      None (Text-to-Image)")
     print(f"Provider:   {provider}")
@@ -403,12 +441,18 @@ def main():
         client_openai = OpenAI(api_key=api_key)
         print(f"\nSending request to OpenAI ({model_choice})...")
         try:
-            if image_path:
+            if input_images:
                 # EDIT MODE
-                image_tuple = process_image_for_api(image_path, res_key)
+                if len(input_images) == 1:
+                    image_input = process_image_for_api(input_images[0], res_key)
+                else:
+                    image_input = [
+                        process_image_for_api(p, res_key) for p in input_images
+                    ]
+
                 response = client_openai.images.edit(
                     model=model_choice,
-                    image=image_tuple,
+                    image=image_input,
                     prompt=final_prompt,
                     n=1,
                     size=res_key,
@@ -458,11 +502,24 @@ def main():
                 config_args["image_size"] = quality_key
 
             req_contents = [final_prompt]
-            img_context = None
+            img_contexts = []
 
-            if image_path:
-                img_context = Image.open(image_path)
-                req_contents.append(img_context)
+            if input_images:
+                if len(input_images) == 1:
+                    img = Image.open(input_images[0])
+                    img_contexts.append(img)
+                    req_contents.append(img)
+                else:
+                    # Dual mode
+                    req_contents.append("IMG_1:")
+                    img1 = Image.open(input_images[0])
+                    img_contexts.append(img1)
+                    req_contents.append(img1)
+
+                    req_contents.append("IMG_2:")
+                    img2 = Image.open(input_images[1])
+                    img_contexts.append(img2)
+                    req_contents.append(img2)
 
             response = client_google.models.generate_content(
                 model=model_choice,
@@ -472,9 +529,9 @@ def main():
                 ),
             )
 
-            # Close image if opened
-            if img_context:
-                img_context.close()
+            # Close images
+            for img in img_contexts:
+                img.close()
 
             # Handle Response
             saved = False
