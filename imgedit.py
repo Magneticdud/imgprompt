@@ -479,9 +479,16 @@ def main():
                 save_api_image(image_url, image_b64, image_path)
             else:
                 print("\nError: Could not retrieve image data from the API response.")
-                print(f"Debug Response: {response}")
+                # print(f"Debug Response: {response}")
+
         except Exception as e:
-            print(f"\nAn error occurred during OpenAI call: {e}")
+            # Check for OpenAI moderation blocked error
+            error_msg = str(e)
+            if "moderation_blocked" in error_msg:
+                print("\n>> The request was rejected by the OpenAI safety system.")
+                print(">> This typically happens with images of famous people, children, or NSFW content.")
+            else:
+                print(f"\nAn error occurred during OpenAI call: {e}")
 
     else:
         # Google Provider
@@ -535,7 +542,7 @@ def main():
 
             # Handle Response
             saved = False
-            if hasattr(response, "parts"):
+            if hasattr(response, "parts") and response.parts:
                 for part in response.parts:
                     if part.inline_data is not None:
                         generated_image = part.as_image()
@@ -556,12 +563,35 @@ def main():
 
             if not saved:
                 print("\nError: No image found in Google API response.")
-                if hasattr(response, "parts"):
+                
+                # Check for prompt feedback blocks (common in gemini-3-pro-image-preview)
+                if hasattr(response, "prompt_feedback") and response.prompt_feedback:
+                    if hasattr(response.prompt_feedback, "block_reason"):
+                         print(f"Prompt Feedback Block Reason: {response.prompt_feedback.block_reason}")
+                         reason_str = str(response.prompt_feedback.block_reason)
+                         if any(x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]):
+                                print(">> The request was likely blocked due to safety settings or policy violations.")
+                                print(">> This often happens with images of famous people, children, or restricted content.")
+
+                # Check for safety blocks or other finish reasons
+                if hasattr(response, "candidates") and response.candidates:
+                    for i, candidate in enumerate(response.candidates):
+                        if hasattr(candidate, "finish_reason"):
+                            print(f"Candidate {i+1} Finish Reason: {candidate.finish_reason}")
+                            # Convert to string to be safe, though it's likely an enum
+                            reason_str = str(candidate.finish_reason)
+                            if any(x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]):
+                                print(">> The request was likely blocked due to safety settings or policy violations.")
+                                print(">> This often happens with images of famous people, children, or restricted content.")
+
+                if hasattr(response, "parts") and response.parts:
                     for part in response.parts:
                         if part.text:
                             print(f"Response text: {part.text}")
-                else:
-                    print(f"Debug Response: {response}")
+                
+                if not hasattr(response, "parts") or not response.parts:
+                     # print(f"Debug Response (Parts is None/Empty): {response}")
+                     pass
 
         except Exception as e:
             print(f"\nAn error occurred during Google call: {e}")
