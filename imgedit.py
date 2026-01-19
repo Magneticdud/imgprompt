@@ -1,5 +1,23 @@
+#!/usr/bin/env python3
 import os
 import sys
+
+
+# Auto-activate venv if it exists and we aren't using it
+script_dir = os.path.dirname(os.path.abspath(__file__))
+venv_dir = os.path.join(script_dir, ".venv")
+venv_python = os.path.join(venv_dir, "bin", "python")
+
+if os.path.exists(venv_python):
+    # Check if we are running from this venv by comparing sys.prefix
+    if os.path.abspath(sys.prefix) != os.path.abspath(venv_dir):
+        # Re-execute the script with the venv python
+        try:
+            os.execv(venv_python, [venv_python] + sys.argv)
+        except OSError:
+            # Fallback if exec fails
+            print("Warning: Could not auto-activate .venv. Running with system python.")
+
 import argparse
 from typing import Optional, List
 import base64
@@ -94,6 +112,7 @@ PRESET_PROMPTS_GENERATE = [
     "Isometric view of a cozy coffee shop interior.",
     "A retro-style BW lettering with thick outline",
     "1990s Memphis Style Logo",
+    "Business Card",
     "Custom Prompt",
 ]
 
@@ -230,7 +249,7 @@ def get_closest_aspect_ratio(image_path: str, supported_ratios: List[str]) -> st
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GPT-Image-1.5 POC Image Editor")
+    parser = argparse.ArgumentParser(description="GPT-Image & Gemini Image Editor")
     parser.add_argument("image", nargs="?", help="Path to the image to edit")
     parser.add_argument(
         "--free",
@@ -407,6 +426,28 @@ def main():
             f"Background: solid flat chroma key green (#00FF00), perfectly uniform. "
             f"Strictly avoid: 3D chrome, rainbow neon, glossy metallic look, thick black outline sticker effect, modern esports logo style, glow effects, bevel/emboss, photorealism, extra objects, patterns, textures, collage, food images, shadow. "
             f"Centered composition, clean edges, high resolution."
+        )
+    elif prompt_selection == "Business Card":
+        print("Enter ONLY the main title (e.g. 'DJ Set'):")
+        main_title = questionary.text("Main Title:").ask()
+        if not main_title:
+             print("Error: Main title is required.")
+             sys.exit(0)
+        
+        print("Enter the rest of the details (multiline). Press Alt+Enter or Esc+Enter to submit:")
+        details = questionary.text("Details:", multiline=True).ask()
+        if not details:
+             print("Error: Details are required.")
+             sys.exit(0)
+             
+        final_prompt = (
+            f"Create a 2D graphic design for a business card without mockup: no 3D rendering, no scene, no photography, no perspective.\n"
+            f"Canvas: 85x55 mm (aspect ratio 1.545:1), horizontal, equivalent to 300 dpi, 3 mm safety margins, text strictly within the safe area.\n"
+            f"Text Layout: Centered in a single column. Visual hierarchy: “{main_title}” must be very large and bold. The rest smaller but clearly legible.\n"
+            f"Write EXACTLY the following text:\n\n"
+            f"{main_title}\n"
+            f"{details}\n\n"
+            f"Negative constraints: No other text. No QR code. No social media icons. No watermark. No invented logo. Output: flat 2D graphic only."
         )
 
     # Summary
