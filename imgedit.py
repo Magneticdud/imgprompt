@@ -115,6 +115,7 @@ PRESET_PROMPTS_GENERATE = [
     "1990s Memphis Style Logo",
     "Business Card",
     "APPROVED Stamp",
+    "Generic Logotype",
     "Custom Prompt",
 ]
 
@@ -433,15 +434,17 @@ def main():
         print("Enter ONLY the main title (e.g. 'DJ Set'):")
         main_title = questionary.text("Main Title:").ask()
         if not main_title:
-             print("Error: Main title is required.")
-             sys.exit(0)
-        
-        print("Enter the rest of the details (multiline). Press Alt+Enter or Esc+Enter to submit:")
+            print("Error: Main title is required.")
+            sys.exit(0)
+
+        print(
+            "Enter the rest of the details (multiline). Press Alt+Enter or Esc+Enter to submit:"
+        )
         details = questionary.text("Details:", multiline=True).ask()
         if not details:
-             print("Error: Details are required.")
-             sys.exit(0)
-             
+            print("Error: Details are required.")
+            sys.exit(0)
+
         final_prompt = (
             f"Create a 2D graphic design for a business card without mockup: no 3D rendering, no scene, no photography, no perspective.\n"
             f"Canvas: 85x55 mm (aspect ratio 1.545:1), horizontal, equivalent to 300 dpi, 3 mm safety margins, text strictly within the safe area.\n"
@@ -452,17 +455,28 @@ def main():
             f"Negative constraints: No other text. No QR code. No social media icons. No watermark. No invented logo. Output: flat 2D graphic only."
         )
     elif prompt_selection == "APPROVED Stamp":
-        custom_string = questionary.text("Enter the custom text (will be followed by 'APPROVED'):").ask()
+        custom_string = questionary.text(
+            "Enter the custom text (will be followed by 'APPROVED'):"
+        ).ask()
         if not custom_string:
             print("Error: Custom text is required for this preset.")
             sys.exit(0)
-        
+
         final_prompt = (
             f"Create an APPROVED-style rubber stamp graphic, rectangular with slightly rounded corners. "
             f"Text: '{custom_string} APPROVED' on two lines, red, bold, all caps, with a light distressed texture. "
             f"White background. No extra elements, no gradients, no shadows. Vector/flat style, high resolution."
         )
+    elif prompt_selection == "Generic Logotype":
+        print(
+            "Enter the text for the logotype (multiline). Press Alt+Enter or Esc+Enter to submit:"
+        )
+        logo_text = questionary.text("Logotype Text:", multiline=True).ask()
+        if not logo_text:
+            print("Error: Text is required for this preset.")
+            sys.exit(0)
 
+        final_prompt = f"A typographic logo, with centered text, with the following text: {logo_text}"
 
     # Summary
     print("\n--- Summary ---")
@@ -541,7 +555,9 @@ def main():
             error_msg = str(e)
             if "moderation_blocked" in error_msg:
                 print("\n>> The request was rejected by the OpenAI safety system.")
-                print(">> This typically happens with images of famous people, children, or NSFW content.")
+                print(
+                    ">> This typically happens with images of famous people, children, or NSFW content."
+                )
             else:
                 print(f"\nAn error occurred during OpenAI call: {e}")
 
@@ -618,35 +634,49 @@ def main():
 
             if not saved:
                 print("\nError: No image found in Google API response.")
-                
+
                 # Check for prompt feedback blocks (common in gemini-3-pro-image-preview)
                 if hasattr(response, "prompt_feedback") and response.prompt_feedback:
                     if hasattr(response.prompt_feedback, "block_reason"):
-                         print(f"Prompt Feedback Block Reason: {response.prompt_feedback.block_reason}")
-                         reason_str = str(response.prompt_feedback.block_reason)
-                         if any(x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]):
-                                print(">> The request was likely blocked due to safety settings or policy violations.")
-                                print(">> This often happens with images of famous people, children, or restricted content.")
+                        print(
+                            f"Prompt Feedback Block Reason: {response.prompt_feedback.block_reason}"
+                        )
+                        reason_str = str(response.prompt_feedback.block_reason)
+                        if any(x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]):
+                            print(
+                                ">> The request was likely blocked due to safety settings or policy violations."
+                            )
+                            print(
+                                ">> This often happens with images of famous people, children, or restricted content."
+                            )
 
                 # Check for safety blocks or other finish reasons
                 if hasattr(response, "candidates") and response.candidates:
                     for i, candidate in enumerate(response.candidates):
                         if hasattr(candidate, "finish_reason"):
-                            print(f"Candidate {i+1} Finish Reason: {candidate.finish_reason}")
+                            print(
+                                f"Candidate {i+1} Finish Reason: {candidate.finish_reason}"
+                            )
                             # Convert to string to be safe, though it's likely an enum
                             reason_str = str(candidate.finish_reason)
-                            if any(x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]):
-                                print(">> The request was likely blocked due to safety settings or policy violations.")
-                                print(">> This often happens with images of famous people, children, or restricted content.")
+                            if any(
+                                x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]
+                            ):
+                                print(
+                                    ">> The request was likely blocked due to safety settings or policy violations."
+                                )
+                                print(
+                                    ">> This often happens with images of famous people, children, or restricted content."
+                                )
 
                 if hasattr(response, "parts") and response.parts:
                     for part in response.parts:
                         if part.text:
                             print(f"Response text: {part.text}")
-                
+
                 if not hasattr(response, "parts") or not response.parts:
-                     # print(f"Debug Response (Parts is None/Empty): {response}")
-                     pass
+                    # print(f"Debug Response (Parts is None/Empty): {response}")
+                    pass
 
         except Exception as e:
             print(f"\nAn error occurred during Google call: {e}")
