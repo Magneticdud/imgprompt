@@ -114,6 +114,7 @@ PRESET_PROMPTS_GENERATE = [
     "A retro-style BW lettering with thick outline",
     "1990s Memphis Style Logo",
     "Business Card",
+    "APPROVED Stamp",
     "Custom Prompt",
 ]
 
@@ -342,7 +343,7 @@ def main():
         res_key = GEMINI_RESOLUTIONS.get(aspect_ratio, "Auto")
 
     # 5. Select Quality / Size and show costs
-    quality_key = "1K"  # Default for Google
+    quality_key = "2K"  # Default for Google
     if provider == "OpenAI":
         quality_choices = []
         for q in ["Low", "Medium", "High"]:
@@ -371,7 +372,7 @@ def main():
                 sys.exit(0)
             quality_key = size_selected.split(" ")[0]
         else:
-            quality_key = "1K"
+            quality_key = "2K"
 
         final_cost = COSTS[model_choice][quality_key]["fixed"]
 
@@ -450,6 +451,18 @@ def main():
             f"{details}\n\n"
             f"Negative constraints: No other text. No QR code. No social media icons. No watermark. No invented logo. Output: flat 2D graphic only."
         )
+    elif prompt_selection == "APPROVED Stamp":
+        custom_string = questionary.text("Enter the custom text (will be followed by 'APPROVED'):").ask()
+        if not custom_string:
+            print("Error: Custom text is required for this preset.")
+            sys.exit(0)
+        
+        final_prompt = (
+            f"Create an APPROVED-style rubber stamp graphic, rectangular with slightly rounded corners. "
+            f"Text: '{custom_string} APPROVED' on two lines, red, bold, all caps, with a light distressed texture. "
+            f"White background. No extra elements, no gradients, no shadows. Vector/flat style, high resolution."
+        )
+
 
     # Summary
     print("\n--- Summary ---")
