@@ -256,7 +256,11 @@ def get_closest_aspect_ratio(image_path: str, supported_ratios: List[str]) -> st
 
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image & Gemini Image Editor")
-    parser.add_argument("image", nargs="?", help="Path to the image to edit")
+    parser.add_argument(
+        "images",
+        nargs="*",
+        help="Path to one or more images to edit (space-separated, or use glob pattern)",
+    )
     parser.add_argument(
         "--free",
         action="store_true",
@@ -264,11 +268,44 @@ def main():
     )
     args = parser.parse_args()
 
-    # 1. Select Image
+    # Determine if we have multiple images (batch mode)
+    input_images = []
     if args.free:
         input_images = []
+    elif args.images:
+        # Expand glob patterns if any
+        import glob
+
+        all_images = []
+        for pattern in args.images:
+            # Check if it's a glob pattern
+            if "*" in pattern or "?" in pattern:
+                matched = glob.glob(pattern)
+                all_images.extend(matched)
+            elif os.path.isfile(pattern):
+                all_images.append(pattern)
+            elif os.path.isdir(pattern):
+                # If it's a directory, get all images in it
+                for f in os.listdir(pattern):
+                    fpath = os.path.join(pattern, f)
+                    if os.path.isfile(fpath) and f.lower().endswith(
+                        (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+                    ):
+                        all_images.append(fpath)
+            else:
+                print(f"Warning: {pattern} is not a valid file or directory.")
+
+        # Remove duplicates and sort
+        input_images = sorted(list(set(all_images)))
+
+        if not input_images:
+            print("Error: No valid images found from provided arguments.")
+            sys.exit(1)
+
+        if len(input_images) > 1:
+            print(f"\nBatch mode: {len(input_images)} images selected")
     else:
-        input_images = select_inputs(args.image)
+        input_images = select_inputs(None)
 
     # Legacy support variable
     image_path = input_images[0] if input_images else None
@@ -381,7 +418,11 @@ def main():
         final_cost = COSTS[model_choice][quality_key]["fixed"]
 
     # 6. Select Prompt
-    if len(input_images) > 1:
+    # For batch mode (multiple images), always use edit prompts, not dual mode
+    is_batch_mode = len(input_images) > 1
+    if is_batch_mode:
+        prompt_choices = PRESET_PROMPTS_EDIT
+    elif len(input_images) > 1:
         prompt_choices = PRESET_PROMPTS_DUAL
     elif image_path:
         prompt_choices = PRESET_PROMPTS_EDIT
@@ -484,7 +525,10 @@ def main():
     # Summary
     print("\n--- Summary ---")
     if input_images:
-        print(f"Images:     {', '.join(input_images)}")
+        if is_batch_mode:
+            print(f"Images:     {len(input_images)} images (batch mode)")
+        else:
+            print(f"Images:     {', '.join(input_images)}")
     else:
         print(f"Image:      None (Text-to-Image)")
     print(f"Provider:   {provider}")
@@ -496,7 +540,17 @@ def main():
         print(f"Ratio:      {aspect_ratio}")
         print(f"Size:       {quality_key}")
     print(f"Prompt:     {final_prompt}")
-    print(f"Total Cost: ${final_cost:.3f}")
+
+    # Calculate total cost for batch mode
+    if is_batch_mode:
+        if provider == "OpenAI":
+            total_cost = final_cost * len(input_images)
+        else:
+            total_cost = final_cost * len(input_images)
+        print(f"Per Image:  ${final_cost:.3f}")
+        print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
+    else:
+        print(f"Total Cost: ${final_cost:.3f}")
 
     confirm = questionary.confirm("Proceed with API call?").ask()
     if not confirm:
@@ -511,9 +565,63 @@ def main():
             sys.exit(1)
 
         client_openai = OpenAI(api_key=api_key)
-        print(f"\nSending request to OpenAI ({model_choice})...")
-        try:
-            if input_images:
+
+        if is_batch_mode:
+            # BATCH MODE: Process each image separately
+            print(f"\nStarting batch processing: {len(input_images)} images...")
+            success_count = 0
+            fail_count = 0
+
+            for idx, img_path in enumerate(input_images, 1):
+                print(
+                    f"\n--- Processing image {idx}/{len(input_images)}: {os.path.basename(img_path)} ---"
+                )
+                try:
+                    image_input = process_image_for_api(img_path, res_key)
+
+                    response = client_openai.images.edit(
+                        model=model_choice,
+                        image=image_input,
+                        prompt=final_prompt,
+                        n=1,
+                        size=res_key,
+                        quality=quality_key.lower(),
+                    )
+
+                    # Handle Response
+                    image_url = None
+                    image_b64 = None
+                    if hasattr(response, "data") and len(response.data) > 0:
+                        image_url = getattr(response.data[0], "url", None)
+                        image_b64 = getattr(response.data[0], "b64_json", None)
+
+                    if image_url or image_b64:
+                        save_api_image(image_url, image_b64, img_path)
+                        success_count += 1
+                    else:
+                        print(
+                            f"Error: Could not retrieve image data from the API response."
+                        )
+                        fail_count += 1
+
+                except Exception as e:
+                    error_msg = str(e)
+                    if "moderation_blocked" in error_msg:
+                        print(
+                            f">> The request was rejected by the OpenAI safety system."
+                        )
+                    else:
+                        print(f"An error occurred during OpenAI call: {e}")
+                    fail_count += 1
+
+            print(
+                f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
+            )
+
+        elif input_images:
+            # Single image or dual mode (original logic)
+            print(f"\nSending request to OpenAI ({model_choice})...")
+            try:
                 # EDIT MODE
                 if len(input_images) == 1:
                     image_input = process_image_for_api(input_images[0], res_key)
@@ -530,39 +638,31 @@ def main():
                     size=res_key,
                     quality=quality_key.lower(),
                 )
-            else:
-                # GENERATE MODE
-                response = client_openai.images.generate(
-                    model=model_choice,
-                    prompt=final_prompt,
-                    n=1,
-                    size=res_key,
-                    quality=quality_key.lower(),
-                )
+                # Handle Response (same as before)
+                image_url = None
+                image_b64 = None
+                if hasattr(response, "data") and len(response.data) > 0:
+                    image_url = getattr(response.data[0], "url", None)
+                    image_b64 = getattr(response.data[0], "b64_json", None)
 
-            # Handle Response (same as before)
-            image_url = None
-            image_b64 = None
-            if hasattr(response, "data") and len(response.data) > 0:
-                image_url = getattr(response.data[0], "url", None)
-                image_b64 = getattr(response.data[0], "b64_json", None)
+                if image_url or image_b64:
+                    save_api_image(image_url, image_b64, image_path)
+                else:
+                    print(
+                        "\nError: Could not retrieve image data from the API response."
+                    )
+                    # print(f"Debug Response: {response}")
 
-            if image_url or image_b64:
-                save_api_image(image_url, image_b64, image_path)
-            else:
-                print("\nError: Could not retrieve image data from the API response.")
-                # print(f"Debug Response: {response}")
-
-        except Exception as e:
-            # Check for OpenAI moderation blocked error
-            error_msg = str(e)
-            if "moderation_blocked" in error_msg:
-                print("\n>> The request was rejected by the OpenAI safety system.")
-                print(
-                    ">> This typically happens with images of famous people, children, or NSFW content."
-                )
-            else:
-                print(f"\nAn error occurred during OpenAI call: {e}")
+            except Exception as e:
+                # Check for OpenAI moderation blocked error
+                error_msg = str(e)
+                if "moderation_blocked" in error_msg:
+                    print("\n>> The request was rejected by the OpenAI safety system.")
+                    print(
+                        ">> This typically happens with images of famous people, children, or NSFW content."
+                    )
+                else:
+                    print(f"\nAn error occurred during OpenAI call: {e}")
 
     else:
         # Google Provider
@@ -572,96 +672,155 @@ def main():
             sys.exit(1)
 
         client_google = genai.Client(api_key=api_key)
-        print(f"\nSending request to Google ({model_choice})...")
-        try:
-            # Prepare Google Config
-            config_args = {}
-            if aspect_ratio != "Auto":
-                config_args["aspect_ratio"] = aspect_ratio
 
-            if model_choice == "gemini-3-pro-image-preview":
-                config_args["image_size"] = quality_key
+        # Prepare Google Config (same for all images in batch mode)
+        config_args = {}
+        if aspect_ratio != "Auto":
+            config_args["aspect_ratio"] = aspect_ratio
 
-            req_contents = [final_prompt]
-            img_contexts = []
+        if model_choice == "gemini-3-pro-image-preview":
+            config_args["image_size"] = quality_key
 
-            if input_images:
-                if len(input_images) == 1:
-                    img = Image.open(input_images[0])
+        if is_batch_mode:
+            # BATCH MODE: Process each image separately
+            print(f"\nStarting batch processing: {len(input_images)} images...")
+            success_count = 0
+            fail_count = 0
+
+            for idx, img_path in enumerate(input_images, 1):
+                print(
+                    f"\n--- Processing image {idx}/{len(input_images)}: {os.path.basename(img_path)} ---"
+                )
+                try:
+                    req_contents = [final_prompt]
+                    img_contexts = []
+
+                    # Single image for this iteration
+                    img = Image.open(img_path)
                     img_contexts.append(img)
                     req_contents.append(img)
-                else:
-                    # Dual mode
-                    req_contents.append("IMG_1:")
-                    img1 = Image.open(input_images[0])
-                    img_contexts.append(img1)
-                    req_contents.append(img1)
 
-                    req_contents.append("IMG_2:")
-                    img2 = Image.open(input_images[1])
-                    img_contexts.append(img2)
-                    req_contents.append(img2)
+                    response = client_google.models.generate_content(
+                        model=model_choice,
+                        contents=req_contents,
+                        config=types.GenerateContentConfig(
+                            image_config=types.ImageConfig(**config_args)
+                        ),
+                    )
 
-            response = client_google.models.generate_content(
-                model=model_choice,
-                contents=req_contents,
-                config=types.GenerateContentConfig(
-                    image_config=types.ImageConfig(**config_args)
-                ),
+                    # Close images
+                    for img in img_contexts:
+                        img.close()
+
+                    # Handle Response
+                    saved = False
+                    if hasattr(response, "parts") and response.parts:
+                        for part in response.parts:
+                            if part.inline_data is not None:
+                                generated_image = part.as_image()
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                base_name = os.path.splitext(
+                                    os.path.basename(img_path)
+                                )[0]
+                                filename = f"edited_{timestamp}_{base_name}.png"
+
+                                generated_image.save(filename)
+                                print(f"Success! File saved successfully as {filename}")
+                                saved = True
+                                success_count += 1
+                                break
+
+                    if not saved:
+                        print("Error: No image found in Google API response.")
+                        # Check for errors
+                        if (
+                            hasattr(response, "prompt_feedback")
+                            and response.prompt_feedback
+                        ):
+                            if hasattr(response.prompt_feedback, "block_reason"):
+                                print(
+                                    f"Prompt Feedback Block Reason: {response.prompt_feedback.block_reason}"
+                                )
+                        fail_count += 1
+
+                except Exception as e:
+                    print(f"An error occurred during Google call: {e}")
+                    fail_count += 1
+
+            print(
+                f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
             )
 
-            # Close images
-            for img in img_contexts:
-                img.close()
+        else:
+            # Single image or dual mode (original logic)
+            print(f"\nSending request to Google ({model_choice})...")
+            try:
+                req_contents = [final_prompt]
+                img_contexts = []
 
-            # Handle Response
-            saved = False
-            if hasattr(response, "parts") and response.parts:
-                for part in response.parts:
-                    if part.inline_data is not None:
-                        generated_image = part.as_image()
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                if input_images:
+                    if len(input_images) == 1:
+                        img = Image.open(input_images[0])
+                        img_contexts.append(img)
+                        req_contents.append(img)
+                    else:
+                        # Dual mode
+                        req_contents.append("IMG_1:")
+                        img1 = Image.open(input_images[0])
+                        img_contexts.append(img1)
+                        req_contents.append(img1)
 
-                        if image_path:
-                            base_name = os.path.splitext(os.path.basename(image_path))[
-                                0
-                            ]
-                            filename = f"edited_{timestamp}_{base_name}.png"
-                        else:
-                            filename = f"generated_{timestamp}.png"
+                        req_contents.append("IMG_2:")
+                        img2 = Image.open(input_images[1])
+                        img_contexts.append(img2)
+                        req_contents.append(img2)
 
-                        generated_image.save(filename)
-                        print(f"\nSuccess! File saved successfully as {filename}")
-                        saved = True
-                        break
+                response = client_google.models.generate_content(
+                    model=model_choice,
+                    contents=req_contents,
+                    config=types.GenerateContentConfig(
+                        image_config=types.ImageConfig(**config_args)
+                    ),
+                )
 
-            if not saved:
-                print("\nError: No image found in Google API response.")
+                # Close images
+                for img in img_contexts:
+                    img.close()
 
-                # Check for prompt feedback blocks (common in gemini-3-pro-image-preview)
-                if hasattr(response, "prompt_feedback") and response.prompt_feedback:
-                    if hasattr(response.prompt_feedback, "block_reason"):
-                        print(
-                            f"Prompt Feedback Block Reason: {response.prompt_feedback.block_reason}"
-                        )
-                        reason_str = str(response.prompt_feedback.block_reason)
-                        if any(x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]):
+                # Handle Response
+                saved = False
+                if hasattr(response, "parts") and response.parts:
+                    for part in response.parts:
+                        if part.inline_data is not None:
+                            generated_image = part.as_image()
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                            if image_path:
+                                base_name = os.path.splitext(
+                                    os.path.basename(image_path)
+                                )[0]
+                                filename = f"edited_{timestamp}_{base_name}.png"
+                            else:
+                                filename = f"generated_{timestamp}.png"
+
+                            generated_image.save(filename)
+                            print(f"\nSuccess! File saved successfully as {filename}")
+                            saved = True
+                            break
+
+                if not saved:
+                    print("\nError: No image found in Google API response.")
+
+                    # Check for prompt feedback blocks (common in gemini-3-pro-image_preview)
+                    if (
+                        hasattr(response, "prompt_feedback")
+                        and response.prompt_feedback
+                    ):
+                        if hasattr(response.prompt_feedback, "block_reason"):
                             print(
-                                ">> The request was likely blocked due to safety settings or policy violations."
+                                f"Prompt Feedback Block Reason: {response.prompt_feedback.block_reason}"
                             )
-                            print(
-                                ">> This often happens with images of famous people, children, or restricted content."
-                            )
-
-                # Check for safety blocks or other finish reasons
-                if hasattr(response, "candidates") and response.candidates:
-                    for i, candidate in enumerate(response.candidates):
-                        if hasattr(candidate, "finish_reason"):
-                            print(
-                                f"Candidate {i+1} Finish Reason: {candidate.finish_reason}"
-                            )
-                            # Convert to string to be safe, though it's likely an enum
-                            reason_str = str(candidate.finish_reason)
+                            reason_str = str(response.prompt_feedback.block_reason)
                             if any(
                                 x in reason_str for x in ["SAFETY", "BLOCK", "OTHER"]
                             ):
@@ -672,17 +831,37 @@ def main():
                                     ">> This often happens with images of famous people, children, or restricted content."
                                 )
 
-                if hasattr(response, "parts") and response.parts:
-                    for part in response.parts:
-                        if part.text:
-                            print(f"Response text: {part.text}")
+                    # Check for safety blocks or other finish reasons
+                    if hasattr(response, "candidates") and response.candidates:
+                        for i, candidate in enumerate(response.candidates):
+                            if hasattr(candidate, "finish_reason"):
+                                print(
+                                    f"Candidate {i+1} Finish Reason: {candidate.finish_reason}"
+                                )
+                                # Convert to string to be safe, though it's likely an enum
+                                reason_str = str(candidate.finish_reason)
+                                if any(
+                                    x in reason_str
+                                    for x in ["SAFETY", "BLOCK", "OTHER"]
+                                ):
+                                    print(
+                                        ">> The request was likely blocked due to safety settings or policy violations."
+                                    )
+                                    print(
+                                        ">> This often happens with images of famous people, children, or restricted content."
+                                    )
 
-                if not hasattr(response, "parts") or not response.parts:
-                    # print(f"Debug Response (Parts is None/Empty): {response}")
-                    pass
+                    if hasattr(response, "parts") and response.parts:
+                        for part in response.parts:
+                            if part.text:
+                                print(f"Response text: {part.text}")
 
-        except Exception as e:
-            print(f"\nAn error occurred during Google call: {e}")
+                    if not hasattr(response, "parts") or not response.parts:
+                        # print(f"Debug Response (Parts is None/Empty): {response}")
+                        pass
+
+            except Exception as e:
+                print(f"\nAn error occurred during Google call: {e}")
 
 
 def save_api_image(image_url, image_b64, original_path):
