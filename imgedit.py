@@ -50,6 +50,11 @@ COSTS = {
     "gemini-2.5-flash-image": {
         "1K": {"fixed": 0.04},  # Fixed price per image
     },
+    "gemini-3.1-flash-image-preview": {
+        "1K": {"fixed": 0.07},
+        "2K": {"fixed": 0.10},
+        "4K": {"fixed": 0.15},
+    },
     "gemini-3-pro-image-preview": {
         "1K": {"fixed": 0.14},
         "2K": {"fixed": 0.14},
@@ -330,7 +335,11 @@ def main():
         model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
         default_model = "gpt-image-1.5"
     else:
-        model_choices = ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
+        model_choices = [
+            "gemini-2.5-flash-image",
+            "gemini-3.1-flash-image-preview",
+            "gemini-3-pro-image-preview",
+        ]
         default_model = "gemini-2.5-flash-image"
 
     model_choice = questionary.select(
@@ -362,7 +371,10 @@ def main():
     else:
         # Google uses aspect ratio
         # Note: only gemini-3-pro-image-preview supports "Auto" aspect ratio.
-        if model_choice == "gemini-3-pro-image-preview":
+        if model_choice in [
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview",
+        ]:
             ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
             default_ratio = "Auto"
         else:
@@ -400,7 +412,10 @@ def main():
         final_cost = COSTS[model_choice][quality_key][res_key]
     else:
         # Google quality/size selection
-        if model_choice == "gemini-3-pro-image-preview":
+        if model_choice in [
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview",
+        ]:
             size_choices = []
             for s in ["1K", "2K", "4K"]:
                 cost = COSTS[model_choice][s]["fixed"]
@@ -678,7 +693,10 @@ def main():
         if aspect_ratio != "Auto":
             config_args["aspect_ratio"] = aspect_ratio
 
-        if model_choice == "gemini-3-pro-image-preview":
+        if model_choice in [
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview",
+        ]:
             config_args["image_size"] = quality_key
 
         if is_batch_mode:
