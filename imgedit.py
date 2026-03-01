@@ -106,8 +106,8 @@ PRESET_PROMPTS_EDIT = [
     "Transform the uploaded photo into a black-and-white graphite pencil drawing. Use clean line art with cross-hatching for shadows and volume, visible paper texture, and no solid black fills. Keep the exact composition, subject identity, pose, proportions, and camera framing from the original photo. Simplify the background slightly but keep it consistent. No color. Avoid: color, watercolor, oil paint, digital painting, CGI/3D, cartoon/anime, vector-clean outlines, automatic sketch filter look, blur, noisy artifacts, soft airbrushed shading, heavy solid blacks.",
     "Convert the photo into a classic pencil illustration style: precise ink-like pencil outlines, diagonal and cross-hatching for skies/shadows, graphite-only shading (no smooth airbrush gradients), detailed textures on hair/clothing, and a sketchbook look. Maintain the original photo composition and subject identity exactly. Monochrome only. Avoid: color, watercolor, oil paint, digital painting, CGI/3D, cartoon/anime, vector-clean outlines, automatic sketch filter look, blur, noisy artifacts, soft airbrushed shading, heavy solid blacks.",
     "Restore this scanned page with maximum fidelity. Only perform non-destructive cleanup: remove dust/specks, scan noise, paper texture and stains; normalize the halftone/screen pattern to be uniform; correct slight skew. Do NOT redraw, reinterpret, or invent any content. Preserve all original linework, shapes, proportions, fonts, and text exactly. No style changes. Output a clean, flat, high-resolution image that matches the original as closely as possible.",
-    "Rebuild the business card as a flat print file. Canvas size: 91×61 mm including 3 mm bleed on all sides (final trim 85×55 mm). Keep all text inside a 4 mm safe margin from the trim edge.Match the original layout from the reference photo. Output: 300 DPI.",
-    "Perform conservative color restoration only on the provided 1970s photo. Correct color cast (yellow/magenta/green), restore faded colors, and rebalance white balance to a natural analog-photo look.Do not change any details: keep identical geometry, composition, crop, perspective, faces, skin texture, hair, edges, background, text, film grain, dust, scratches, stains, and any imperfections.No enhancement: no denoise, no sharpening, no deblur, no upscaling, no HDR, no relighting, no beautification. Output must match the original framing and resolution; only chroma/tonal color values may change.",
+    "Rebuild the business card as a flat print file. Canvas size: 91×61 mm including 3 mm bleed on all sides (final trim 85×55 mm). Keep all text inside a 4 mm safe margin from the trim edge. Match the original layout from the reference photo. Output: 300 DPI.",
+    "Perform conservative color restoration only on the provided 1970s photo. Correct color cast (yellow/magenta/green), restore faded colors, and rebalance white balance to a natural analog-photo look. Do not change any details: keep identical geometry, composition, crop, perspective, faces, skin texture, hair, edges, background, text, film grain, dust, scratches, stains, and any imperfections. No enhancement: no denoise, no sharpening, no deblur, no upscaling, no HDR, no relighting, no beautification. Output must match the original framing and resolution; only chroma/tonal color values may change.",
     "Convert this image into a clean, black and white line art. Use sharp black outlines on a pure white background. Remove all shading, colors, and gradients. It must look like a high-quality adult coloring book page, staying faithful to the original subject and background details.",
     "Custom Prompt",
 ]
@@ -718,12 +718,21 @@ def main():
                     img_contexts.append(img)
                     req_contents.append(img)
 
+                    config_kwargs = {
+                        "image_config": types.ImageConfig(**config_args),
+                    }
+                    
+                    # Only gemini-3 models support response_modalities and thinking_config
+                    if "gemini-3.1" in model_choice:
+                        config_kwargs["response_modalities"] = ["IMAGE"]
+                        config_kwargs["thinking_config"] = types.ThinkingConfig(
+                            thinking_level="MINIMAL"
+                        )
+
                     response = client_google.models.generate_content(
                         model=model_choice,
                         contents=req_contents,
-                        config=types.GenerateContentConfig(
-                            image_config=types.ImageConfig(**config_args)
-                        ),
+                        config=types.GenerateContentConfig(**config_kwargs),
                     )
 
                     # Close images
@@ -793,12 +802,21 @@ def main():
                         img_contexts.append(img2)
                         req_contents.append(img2)
 
+                config_kwargs = {
+                    "image_config": types.ImageConfig(**config_args),
+                }
+
+                # Only gemini-3 models support response_modalities and thinking_config
+                if "gemini-3.1" in model_choice:
+                    config_kwargs["response_modalities"] = ["IMAGE"]
+                    config_kwargs["thinking_config"] = types.ThinkingConfig(
+                        thinking_level="MINIMAL"
+                    )
+
                 response = client_google.models.generate_content(
                     model=model_choice,
                     contents=req_contents,
-                    config=types.GenerateContentConfig(
-                        image_config=types.ImageConfig(**config_args)
-                    ),
+                    config=types.GenerateContentConfig(**config_kwargs),
                 )
 
                 # Close images
@@ -824,7 +842,9 @@ def main():
                             generated_image.save(filename)
                             print(f"\nSuccess! File saved successfully as {filename}")
                             saved = True
-                            break
+                        elif part.text:
+                            # Print text if present (new models might return text + image)
+                            print(f"Response text: {part.text}")
 
                 if not saved:
                     print("\nError: No image found in Google API response.")
