@@ -109,6 +109,11 @@ PRESET_PROMPTS_EDIT = [
     "Rebuild the business card as a flat print file. Canvas size: 91×61 mm including 3 mm bleed on all sides (final trim 85×55 mm). Keep all text inside a 4 mm safe margin from the trim edge. Match the original layout from the reference photo. Output: 300 DPI.",
     "Perform conservative color restoration only on the provided 1970s photo. Correct color cast (yellow/magenta/green), restore faded colors, and rebalance white balance to a natural analog-photo look. Do not change any details: keep identical geometry, composition, crop, perspective, faces, skin texture, hair, edges, background, text, film grain, dust, scratches, stains, and any imperfections. No enhancement: no denoise, no sharpening, no deblur, no upscaling, no HDR, no relighting, no beautification. Output must match the original framing and resolution; only chroma/tonal color values may change.",
     "Convert this image into a clean, black and white line art. Use sharp black outlines on a pure white background. Remove all shading, colors, and gradients. It must look like a high-quality adult coloring book page, staying faithful to the original subject and background details.",
+    """Perform a strictly conservative photo restoration on the provided image. Goal: improve readability while maintaining absolute faithfulness to the original photo. Allowed adjustments only:
+1. neutralize the strong blue/purple color cast with a realistic daylight white balance
+2. exposure and contrast correction (no HDR, no dramatic changes)
+3. gentle noise/grain reduction while preserving natural film grain
+Hard constraints: do not add, remove, move, or alter any real objects or people; do not change faces, bodies, clothing, background, geometry, perspective, cropping, or composition. Do not invent missing details. No style transfer. Output must look like the same photograph, only corrected.""",
     "Custom Prompt",
 ]
 
@@ -436,13 +441,20 @@ def main():
     # For batch mode (multiple images), always use edit prompts, not dual mode
     is_batch_mode = len(input_images) > 1
     if is_batch_mode:
-        prompt_choices = PRESET_PROMPTS_EDIT
+        prompt_list = PRESET_PROMPTS_EDIT
     elif len(input_images) > 1:
-        prompt_choices = PRESET_PROMPTS_DUAL
+        prompt_list = PRESET_PROMPTS_DUAL
     elif image_path:
-        prompt_choices = PRESET_PROMPTS_EDIT
+        prompt_list = PRESET_PROMPTS_EDIT
     else:
-        prompt_choices = PRESET_PROMPTS_GENERATE
+        prompt_list = PRESET_PROMPTS_GENERATE
+
+    prompt_choices = []
+    for p in prompt_list:
+        title = p.replace("\n", " ").strip()
+        if len(title) > 100:
+            title = title[:97] + "..."
+        prompt_choices.append(questionary.Choice(title=title, value=p))
 
     prompt_selection = questionary.select(
         "Select a prompt or enter a custom one:", choices=prompt_choices
