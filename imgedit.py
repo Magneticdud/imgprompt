@@ -69,6 +69,11 @@ COSTS = {
         "2K": {"fixed": 0.15},  # $0.15 per 1K/2K output image
         "4K": {"fixed": 0.33},  # $0.33 per 4K output image
     },
+    "bytedance-seed/seedream-4.5": {
+        "1K": {"fixed": 0.04},  # $0.04 per output image, regardless of size
+        "2K": {"fixed": 0.04},
+        "4K": {"fixed": 0.04},
+    },
 }
 
 GEMINI_RESOLUTIONS = {
@@ -363,8 +368,12 @@ def main():
         model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
         default_model = "gpt-image-1.5"
     elif provider == "OpenRouter":
-        model_choices = ["sourceful/riverflow-v2-fast", "sourceful/riverflow-v2-pro"]
-        default_model = "sourceful/riverflow-v2-fast"
+        model_choices = [
+            "bytedance-seed/seedream-4.5",
+            "sourceful/riverflow-v2-fast",
+            "sourceful/riverflow-v2-pro",
+        ]
+        default_model = "bytedance-seed/seedream-4.5"
     else:
         model_choices = [
             "gemini-2.5-flash-image",
