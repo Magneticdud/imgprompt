@@ -64,6 +64,11 @@ COSTS = {
         "2K": {"fixed": 0.04},  # $0.04 per 2K output image
         # 4K not supported
     },
+    "sourceful/riverflow-v2-pro": {
+        "1K": {"fixed": 0.15},  # $0.15 per 1K/2K output image
+        "2K": {"fixed": 0.15},  # $0.15 per 1K/2K output image
+        "4K": {"fixed": 0.33},  # $0.33 per 4K output image
+    },
 }
 
 GEMINI_RESOLUTIONS = {
@@ -358,7 +363,7 @@ def main():
         model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
         default_model = "gpt-image-1.5"
     elif provider == "OpenRouter":
-        model_choices = ["sourceful/riverflow-v2-fast"]
+        model_choices = ["sourceful/riverflow-v2-fast", "sourceful/riverflow-v2-pro"]
         default_model = "sourceful/riverflow-v2-fast"
     else:
         model_choices = [
@@ -456,10 +461,17 @@ def main():
         final_cost = COSTS[model_choice][quality_key][res_key]
     elif provider == "OpenRouter":
         # Riverflow-v2-fast: 1K ($0.02) or 2K ($0.04). No 4K.
-        size_choices = []
-        for s in ["1K", "2K"]:
-            cost = COSTS[model_choice][s]["fixed"]
-            size_choices.append(f"{s} (${cost:.2f})")
+        # Riverflow-v2-pro: 1K/2K ($0.15) or 4K ($0.33)
+        if model_choice == "sourceful/riverflow-v2-pro":
+            size_choices = []
+            for s in ["1K", "2K", "4K"]:
+                cost = COSTS[model_choice][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+        else:
+            size_choices = []
+            for s in ["1K", "2K"]:
+                cost = COSTS[model_choice][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
 
         size_selected = questionary.select(
             "Select image size:", choices=size_choices, default=size_choices[0]
@@ -762,7 +774,8 @@ def main():
         )
 
         def _img_to_data_url(img_path: str) -> str:
-            """Reads an image file and returns a base64 data URL."""
+            """Reads an image file, compresses if needed to stay under 4.5MB, and returns a base64 data URL."""
+            MAX_REQUEST_SIZE = 4.5 * 1024 * 1024  # 4.5MB in bytes
             mime_types = {
                 ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg",
@@ -771,9 +784,62 @@ def main():
             }
             ext = os.path.splitext(img_path)[1].lower()
             mime = mime_types.get(ext, "image/png")
+
+            # First, check original file size
             with open(img_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            return f"data:{mime};base64,{b64}"
+                original_data = f.read()
+
+            if len(original_data) <= MAX_REQUEST_SIZE:
+                print(
+                    f"Image {os.path.basename(img_path)} is {len(original_data)/1024:.1f}KB, within 4.5MB limit."
+                )
+                b64 = base64.b64encode(original_data).decode()
+                return f"data:{mime};base64,{b64}"
+
+            # If too large, compress/resize
+            print(
+                f"Image {os.path.basename(img_path)} is {len(original_data)/1024:.1f}KB, exceeding 4.5MB limit. Compressing..."
+            )
+
+            with Image.open(img_path) as img:
+                # Try compressing first
+                output = io.BytesIO()
+                quality = 85
+                img.save(
+                    output, format=img.format if img.format else "JPEG", quality=quality
+                )
+                compressed_data = output.getvalue()
+
+                # If still too large, resize
+                if len(compressed_data) > MAX_REQUEST_SIZE:
+                    print("Compression not enough, resizing...")
+                    # Calculate target size to get under limit (estimate)
+                    scale_factor = (MAX_REQUEST_SIZE / len(compressed_data)) ** 0.5
+                    new_width = int(img.width * scale_factor * 0.9)  # Add 10% buffer
+                    new_height = int(img.height * scale_factor * 0.9)
+
+                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    output = io.BytesIO()
+                    img.save(
+                        output,
+                        format=img.format if img.format else "JPEG",
+                        quality=quality,
+                    )
+                    compressed_data = output.getvalue()
+
+                # If still too large, try lower quality
+                if len(compressed_data) > MAX_REQUEST_SIZE:
+                    print("Resizing not enough, reducing quality...")
+                    output = io.BytesIO()
+                    img.save(
+                        output, format=img.format if img.format else "JPEG", quality=50
+                    )
+                    compressed_data = output.getvalue()
+
+                b64 = base64.b64encode(compressed_data).decode()
+                print(f"Compressed image to {len(compressed_data)/1024:.1f}KB")
+
+                return f"data:{mime};base64,{b64}"
 
         def _call_openrouter(
             prompt_text: str, img_paths: list[str] | None = None
@@ -783,8 +849,8 @@ def main():
             If img_paths is provided, images are included as multimodal content.
             """
             image_config = {"aspect_ratio": aspect_ratio}
-            if quality_key == "2K":
-                image_config["image_size"] = "2K"
+            if quality_key in ["2K", "4K"]:
+                image_config["image_size"] = quality_key
 
             # Build message content
             if img_paths:
