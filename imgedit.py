@@ -74,6 +74,25 @@ COSTS = {
         "2K": {"fixed": 0.04},
         "4K": {"fixed": 0.04},
     },
+    "black-forest-labs/flux.2-klein-4b": {
+        "1K": {"fixed": 0.014},  # First MP $0.014, each subsequent MP $0.001
+        "2K": {"fixed": 0.017},  # 4MP: $0.014 + $0.001*3
+    },
+    "black-forest-labs/flux.2-flex": {
+        "1K": {"fixed": 0.06},  # $0.06 per MP
+        "2K": {"fixed": 0.24},  # 4MP
+        "input_mp_rate": 0.06,  # $0.06 per MP input
+    },
+    "black-forest-labs/flux.2-pro": {
+        "1K": {"fixed": 0.03},  # First MP $0.03
+        "2K": {"fixed": 0.075},  # 4MP: $0.03 + $0.015*3
+        "input_mp_rate": 0.015,  # $0.015 per MP input
+    },
+    "black-forest-labs/flux.2-max": {
+        "1K": {"fixed": 0.07},  # First MP $0.07
+        "2K": {"fixed": 0.16},  # 4MP: $0.07 + $0.03*3
+        "input_mp_rate": 0.03,  # $0.03 per MP input
+    },
 }
 
 GEMINI_RESOLUTIONS = {
@@ -100,7 +119,6 @@ OPENROUTER_RESOLUTIONS = {
     "5:4": "1152x896",
     "9:16": "768x1344",
     "16:9": "1344x768",
-    "21:9": "1536x672",
 }
 
 # Mapping of aspect ratio strings to their float values for comparison
@@ -370,6 +388,10 @@ def main():
     elif provider == "OpenRouter":
         model_choices = [
             "bytedance-seed/seedream-4.5",
+            "black-forest-labs/flux.2-klein-4b",
+            "black-forest-labs/flux.2-flex",
+            "black-forest-labs/flux.2-pro",
+            "black-forest-labs/flux.2-max",
             "sourceful/riverflow-v2-fast",
             "sourceful/riverflow-v2-pro",
         ]
@@ -471,24 +493,48 @@ def main():
     elif provider == "OpenRouter":
         # Riverflow-v2-fast: 1K ($0.02) or 2K ($0.04). No 4K.
         # Riverflow-v2-pro: 1K/2K ($0.15) or 4K ($0.33)
+        # black-forest-labs models: 1K/2K only (4K images are resized to 4MP anyway)
+        # seedream-4.5: any size, fixed price
         if model_choice == "sourceful/riverflow-v2-pro":
             size_choices = []
             for s in ["1K", "2K", "4K"]:
                 cost = COSTS[model_choice][s]["fixed"]
                 size_choices.append(f"{s} (${cost:.2f})")
-        else:
+
+            size_selected = questionary.select(
+                "Select image size:", choices=size_choices, default=size_choices[0]
+            ).ask()
+            if not size_selected:
+                sys.exit(0)
+            quality_key = size_selected.split(" ")[0]
+            final_cost = COSTS[model_choice][quality_key]["fixed"]
+        elif model_choice.startswith("black-forest-labs/"):
             size_choices = []
             for s in ["1K", "2K"]:
                 cost = COSTS[model_choice][s]["fixed"]
                 size_choices.append(f"{s} (${cost:.2f})")
 
-        size_selected = questionary.select(
-            "Select image size:", choices=size_choices, default=size_choices[0]
-        ).ask()
-        if not size_selected:
-            sys.exit(0)
-        quality_key = size_selected.split(" ")[0]
-        final_cost = COSTS[model_choice][quality_key]["fixed"]
+            size_selected = questionary.select(
+                "Select image size:", choices=size_choices, default=size_choices[0]
+            ).ask()
+            if not size_selected:
+                sys.exit(0)
+            quality_key = size_selected.split(" ")[0]
+            final_cost = COSTS[model_choice][quality_key]["fixed"]
+        else:
+            # riverflow-v2-fast and seedream-4.5
+            size_choices = []
+            for s in ["1K", "2K"]:
+                cost = COSTS[model_choice][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+
+            size_selected = questionary.select(
+                "Select image size:", choices=size_choices, default=size_choices[0]
+            ).ask()
+            if not size_selected:
+                sys.exit(0)
+            quality_key = size_selected.split(" ")[0]
+            final_cost = COSTS[model_choice][quality_key]["fixed"]
     else:
         # Google quality/size selection
         if model_choice in [
@@ -647,15 +693,42 @@ def main():
     print(f"Prompt:     {final_prompt}")
 
     # Calculate total cost for batch mode
+    input_cost = 0
+    if (
+        provider == "OpenRouter"
+        and model_choice
+        in [
+            "black-forest-labs/flux.2-flex",
+            "black-forest-labs/flux.2-pro",
+            "black-forest-labs/flux.2-max",
+        ]
+        and "input_mp_rate" in COSTS[model_choice]
+    ):
+        input_mp_rate = COSTS[model_choice]["input_mp_rate"]
+        if image_path:
+            with Image.open(image_path) as img:
+                mp = (img.width * img.height) / 1_000_000
+            input_cost = mp * input_mp_rate
+        elif is_batch_mode and input_images:
+            for inp_img in input_images:
+                with Image.open(inp_img) as img:
+                    mp = (img.width * img.height) / 1_000_000
+                input_cost += mp * input_mp_rate
+
+    total_cost = final_cost + input_cost
+
     if is_batch_mode:
         if provider == "OpenAI":
             total_cost = final_cost * len(input_images)
         else:
-            total_cost = final_cost * len(input_images)
-        print(f"Per Image:  ${final_cost:.3f}")
+            total_cost = (final_cost + input_cost) * len(input_images)
+        print(f"Per Image:  ${final_cost + input_cost:.3f}")
         print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
     else:
-        print(f"Total Cost: ${final_cost:.3f}")
+        if input_cost > 0:
+            print(f"Output Cost: ${final_cost:.3f}")
+            print(f"Input Cost:  ${input_cost:.3f}")
+        print(f"Total Cost: ${final_cost + input_cost:.3f}")
 
     confirm = questionary.confirm("Proceed with API call?").ask()
     if not confirm:
@@ -785,6 +858,7 @@ def main():
         def _img_to_data_url(img_path: str) -> str:
             """Reads an image file, compresses if needed to stay under 4.5MB, and returns a base64 data URL."""
             MAX_REQUEST_SIZE = 4.5 * 1024 * 1024  # 4.5MB in bytes
+            MAX_MP = 4  # black-forest-labs models resize images >4MP anyway
             mime_types = {
                 ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg",
@@ -794,9 +868,34 @@ def main():
             ext = os.path.splitext(img_path)[1].lower()
             mime = mime_types.get(ext, "image/png")
 
+            # Downscale large images for black-forest-labs models (they resize to 4MP anyway)
+            use_resized = False
+            resized_data = None
+            if model_choice.startswith("black-forest-labs/"):
+                with Image.open(img_path) as img:
+                    mp = (img.width * img.height) / 1_000_000
+                    if mp > MAX_MP:
+                        print(
+                            f"Image {os.path.basename(img_path)} is {mp:.1f}MP, downscaling to 4MP for {model_choice}..."
+                        )
+                        scale = (MAX_MP / mp) ** 0.5
+                        new_width = int(img.width * scale)
+                        new_height = int(img.height * scale)
+                        img = img.resize(
+                            (new_width, new_height), Image.Resampling.LANCZOS
+                        )
+                        output = io.BytesIO()
+                        img.save(output, format="JPEG", quality=95)
+                        resized_data = output.getvalue()
+                        use_resized = True
+                        mime = "image/jpeg"
+
             # First, check original file size
-            with open(img_path, "rb") as f:
-                original_data = f.read()
+            if use_resized and resized_data:
+                original_data = resized_data
+            else:
+                with open(img_path, "rb") as f:
+                    original_data = f.read()
 
             if len(original_data) <= MAX_REQUEST_SIZE:
                 print(

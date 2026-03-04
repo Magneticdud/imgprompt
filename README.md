@@ -71,6 +71,16 @@ When you provide 2+ images, the script automatically enters **batch mode**:
   - `gemini-2.5-flash-image`: $0.04 per image.
   - `gemini-3.1-flash-image-preview`: $0.07 (1K), $0.10 (2K), $0.15 (4K).
   - `gemini-3-pro-image-preview`: $0.15 (1K/2K) or $0.25 (4K).
+- **OpenRouter**:
+  - `bytedance-seed/seedream-4.5`: $0.04 per image (any size).
+  - `black-forest-labs/flux.2-klein-4b`: $0.014 (1K), $0.017 (2K).
+  - `black-forest-labs/flux.2-flex`: Output $0.06 (1K), $0.24 (2K); Input $0.06/MP.
+  - `black-forest-labs/flux.2-pro`: Output $0.03 (1K), $0.075 (2K); Input $0.015/MP.
+  - `black-forest-labs/flux.2-max`: Output $0.07 (1K), $0.16 (2K); Input $0.03/MP.
+  - `sourceful/riverflow-v2-fast`: $0.02 (1K), $0.04 (2K).
+  - `sourceful/riverflow-v2-pro`: $0.15 (1K/2K), $0.33 (4K).
+
+Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
 
 ## License
 This is licensed under GPL-3.0-or-later
