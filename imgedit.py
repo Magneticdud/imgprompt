@@ -2,7 +2,6 @@
 import os
 import sys
 
-
 # Auto-activate venv if it exists and we aren't using it
 script_dir = os.path.dirname(os.path.abspath(__file__))
 venv_dir = os.path.join(script_dir, ".venv")
@@ -60,9 +59,28 @@ COSTS = {
         "2K": {"fixed": 0.14},
         "4K": {"fixed": 0.25},
     },
+    "sourceful/riverflow-v2-fast": {
+        "1K": {"fixed": 0.02},  # $0.02 per 1K output image
+        "2K": {"fixed": 0.04},  # $0.04 per 2K output image
+        # 4K not supported
+    },
 }
 
 GEMINI_RESOLUTIONS = {
+    "1:1": "1024x1024",
+    "2:3": "832x1248",
+    "3:2": "1248x832",
+    "3:4": "864x1184",
+    "4:3": "1184x864",
+    "4:5": "896x1152",
+    "5:4": "1152x896",
+    "9:16": "768x1344",
+    "16:9": "1344x768",
+    "21:9": "1536x672",
+}
+
+# OpenRouter / Riverflow supported aspect ratios (same grid as Gemini)
+OPENROUTER_RESOLUTIONS = {
     "1:1": "1024x1024",
     "2:3": "832x1248",
     "3:2": "1248x832",
@@ -330,7 +348,7 @@ def main():
 
     # 2. Select Provider
     provider = questionary.select(
-        "Select Provider:", choices=["OpenAI", "Google"], default="OpenAI"
+        "Select Provider:", choices=["OpenAI", "Google", "OpenRouter"], default="OpenAI"
     ).ask()
     if not provider:
         sys.exit(0)
@@ -339,6 +357,9 @@ def main():
     if provider == "OpenAI":
         model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
         default_model = "gpt-image-1.5"
+    elif provider == "OpenRouter":
+        model_choices = ["sourceful/riverflow-v2-fast"]
+        default_model = "sourceful/riverflow-v2-fast"
     else:
         model_choices = [
             "gemini-2.5-flash-image",
@@ -356,6 +377,7 @@ def main():
         sys.exit(0)
 
     # 4. Select Resolution / Aspect Ratio
+    aspect_ratio = None  # used by Google and OpenRouter branches
     if provider == "OpenAI":
         res_options = [
             "1024x1024 (Square)",
@@ -373,6 +395,23 @@ def main():
         if not resolution:
             sys.exit(0)
         res_key = resolution.split(" ")[0]
+    elif provider == "OpenRouter":
+        ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
+        default_ratio = "1:1"
+
+        if image_path:
+            closest = get_closest_aspect_ratio(
+                image_path, list(OPENROUTER_RESOLUTIONS.keys())
+            )
+        else:
+            closest = default_ratio
+
+        aspect_ratio = questionary.select(
+            "Select aspect ratio:", choices=ratio_options, default=closest
+        ).ask()
+        if not aspect_ratio:
+            sys.exit(0)
+        res_key = OPENROUTER_RESOLUTIONS.get(aspect_ratio, "1024x1024")
     else:
         # Google uses aspect ratio
         # Note: only gemini-3-pro-image-preview supports "Auto" aspect ratio.
@@ -401,7 +440,7 @@ def main():
         res_key = GEMINI_RESOLUTIONS.get(aspect_ratio, "Auto")
 
     # 5. Select Quality / Size and show costs
-    quality_key = "2K"  # Default for Google
+    quality_key = "2K"  # Default for Google/OpenRouter
     if provider == "OpenAI":
         quality_choices = []
         for q in ["Low", "Medium", "High"]:
@@ -415,6 +454,20 @@ def main():
             sys.exit(0)
         quality_key = quality_selected.split(" ")[0]
         final_cost = COSTS[model_choice][quality_key][res_key]
+    elif provider == "OpenRouter":
+        # Riverflow-v2-fast: 1K ($0.02) or 2K ($0.04). No 4K.
+        size_choices = []
+        for s in ["1K", "2K"]:
+            cost = COSTS[model_choice][s]["fixed"]
+            size_choices.append(f"{s} (${cost:.2f})")
+
+        size_selected = questionary.select(
+            "Select image size:", choices=size_choices, default=size_choices[0]
+        ).ask()
+        if not size_selected:
+            sys.exit(0)
+        quality_key = size_selected.split(" ")[0]
+        final_cost = COSTS[model_choice][quality_key]["fixed"]
     else:
         # Google quality/size selection
         if model_choice in [
@@ -563,6 +616,10 @@ def main():
     if provider == "OpenAI":
         print(f"Resolution: {res_key}")
         print(f"Quality:    {quality_key}")
+    elif provider == "OpenRouter":
+        print(f"Ratio:      {aspect_ratio}")
+        print(f"Resolution: {res_key}")
+        print(f"Size:       {quality_key}")
     else:
         print(f"Ratio:      {aspect_ratio}")
         print(f"Size:       {quality_key}")
@@ -691,6 +748,124 @@ def main():
                 else:
                     print(f"\nAn error occurred during OpenAI call: {e}")
 
+    elif provider == "OpenRouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            print(
+                "Error: OPENROUTER_API_KEY not found. Please set it in your .env file."
+            )
+            sys.exit(1)
+
+        client_openrouter = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+
+        def _img_to_data_url(img_path: str) -> str:
+            """Reads an image file and returns a base64 data URL."""
+            mime_types = {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".webp": "image/webp",
+            }
+            ext = os.path.splitext(img_path)[1].lower()
+            mime = mime_types.get(ext, "image/png")
+            with open(img_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            return f"data:{mime};base64,{b64}"
+
+        def _call_openrouter(
+            prompt_text: str, img_paths: list[str] | None = None
+        ) -> str | None:
+            """
+            Calls OpenRouter image generation and returns a base64 data URL or None.
+            If img_paths is provided, images are included as multimodal content.
+            """
+            image_config = {"aspect_ratio": aspect_ratio}
+            if quality_key == "2K":
+                image_config["image_size"] = "2K"
+
+            # Build message content
+            if img_paths:
+                content = []
+                for p in img_paths:
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": _img_to_data_url(p)},
+                        }
+                    )
+                content.append({"type": "text", "text": prompt_text})
+            else:
+                content = prompt_text
+
+            resp = client_openrouter.chat.completions.create(
+                model=model_choice,
+                messages=[{"role": "user", "content": content}],
+                extra_body={
+                    "modalities": ["image"],
+                    "image_config": image_config,
+                },
+            )
+            msg = resp.choices[0].message
+            images = getattr(msg, "images", None)
+            if images:
+                return images[0]["image_url"]["url"]
+            return None
+
+        def _save_openrouter_image(data_url: str, original_path: str | None):
+            """Saves a base64 data URL image to disk."""
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if original_path:
+                base_name = os.path.splitext(os.path.basename(original_path))[0]
+                filename = f"edited_{timestamp}_{base_name}.png"
+            else:
+                filename = f"generated_{timestamp}.png"
+            # data_url is like "data:image/png;base64,<data>"
+            if "," in data_url:
+                _, b64_data = data_url.split(",", 1)
+            else:
+                b64_data = data_url
+            img_bytes = base64.b64decode(b64_data)
+            with open(filename, "wb") as f:
+                f.write(img_bytes)
+            print(f"\nSuccess! File saved successfully as {filename}")
+
+        if is_batch_mode:
+            print(f"\nStarting batch processing: {len(input_images)} images...")
+            success_count = 0
+            fail_count = 0
+            for idx, img_path in enumerate(input_images, 1):
+                print(
+                    f"\n--- Processing image {idx}/{len(input_images)}: {os.path.basename(img_path)} ---"
+                )
+                try:
+                    data_url = _call_openrouter(final_prompt, img_paths=[img_path])
+                    if data_url:
+                        _save_openrouter_image(data_url, img_path)
+                        success_count += 1
+                    else:
+                        print("Error: No image returned by OpenRouter API.")
+                        fail_count += 1
+                except Exception as e:
+                    print(f"An error occurred during OpenRouter call: {e}")
+                    fail_count += 1
+            print(
+                f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
+            )
+        else:
+            print(f"\nSending request to OpenRouter ({model_choice})...")
+            try:
+                img_paths = input_images if input_images else None
+                data_url = _call_openrouter(final_prompt, img_paths=img_paths)
+                if data_url:
+                    _save_openrouter_image(data_url, image_path)
+                else:
+                    print("\nError: No image returned by OpenRouter API.")
+            except Exception as e:
+                print(f"\nAn error occurred during OpenRouter call: {e}")
+
     else:
         # Google Provider
         api_key = os.getenv("GOOGLE_API_KEY")
@@ -733,7 +908,7 @@ def main():
                     config_kwargs = {
                         "image_config": types.ImageConfig(**config_args),
                     }
-                    
+
                     # Only gemini-3 models support response_modalities and thinking_config
                     if "gemini-3.1" in model_choice:
                         config_kwargs["response_modalities"] = ["IMAGE"]
