@@ -30,6 +30,8 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
+BACK_OPTION = "← Go back"
+
 # Load environment variables
 load_dotenv()
 
@@ -310,6 +312,349 @@ def get_closest_aspect_ratio(image_path: str, supported_ratios: List[str]) -> st
     return closest_ratio
 
 
+def step_provider() -> str | None:
+    """Step 1: Select provider. Returns provider name or BACK_OPTION."""
+    provider = questionary.select(
+        "Select Provider:",
+        choices=[BACK_OPTION, "OpenAI", "Google", "OpenRouter"],
+        default="OpenAI",
+    ).ask()
+    if provider == BACK_OPTION or not provider:
+        return BACK_OPTION
+    return provider
+
+
+def step_model(provider: str, current_model: str | None = None) -> str | None:
+    """Step 2: Select model based on provider. Returns model name or BACK_OPTION."""
+    if provider == "OpenAI":
+        model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
+        default_model = "gpt-image-1.5"
+    elif provider == "OpenRouter":
+        model_choices = [
+            "bytedance-seed/seedream-4.5",
+            "black-forest-labs/flux.2-klein-4b",
+            "black-forest-labs/flux.2-flex",
+            "black-forest-labs/flux.2-pro",
+            "black-forest-labs/flux.2-max",
+            "sourceful/riverflow-v2-fast",
+            "sourceful/riverflow-v2-pro",
+        ]
+        default_model = "bytedance-seed/seedream-4.5"
+    else:  # Google
+        model_choices = [
+            "gemini-2.5-flash-image",
+            "gemini-3.1-flash-image-preview",
+            "gemini-3-pro-image-preview",
+        ]
+        default_model = "gemini-2.5-flash-image"
+
+    default_idx = model_choices.index(default_model)
+    choices_with_back = [BACK_OPTION] + model_choices
+    default_idx += 1  # Account for BACK_OPTION at index 0
+
+    model = questionary.select(
+        f"Select {provider} model:",
+        choices=choices_with_back,
+        default=choices_with_back[default_idx],
+    ).ask()
+    if model == BACK_OPTION or not model:
+        return BACK_OPTION
+    return model
+
+
+def step_resolution(
+    provider: str, model: str, image_path: str | None
+) -> tuple[str | None, str | None]:
+    """Step 3: Select resolution/aspect ratio. Returns (selection, res_key) or (BACK_OPTION, None)."""
+    choices_with_back = [BACK_OPTION]
+
+    if provider == "OpenAI":
+        res_options = [
+            "1024x1024 (Square)",
+            "1024x1536 (Vertical)",
+            "1536x1024 (Horizontal)",
+        ]
+        if image_path:
+            closest = get_closest_aspect_ratio(image_path, res_options)
+        else:
+            closest = res_options[0]
+
+        resolution = questionary.select(
+            "Select resolution:",
+            choices=choices_with_back + res_options,
+            default=closest,
+        ).ask()
+        if resolution == BACK_OPTION or not resolution:
+            return BACK_OPTION, None
+        res_key = resolution.split(" ")[0]
+        return resolution, res_key
+
+    elif provider == "OpenRouter":
+        ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
+        default_ratio = "1:1"
+
+        if image_path:
+            closest = get_closest_aspect_ratio(image_path, ratio_options)
+        else:
+            closest = default_ratio
+
+        aspect_ratio = questionary.select(
+            "Select aspect ratio:",
+            choices=choices_with_back + ratio_options,
+            default=closest,
+        ).ask()
+        if aspect_ratio == BACK_OPTION or not aspect_ratio:
+            return BACK_OPTION, None
+        res_key = OPENROUTER_RESOLUTIONS.get(aspect_ratio, "1024x1024")
+        return aspect_ratio, res_key
+
+    else:  # Google
+        if model in [
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview",
+        ]:
+            ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
+            default_ratio = "Auto"
+        else:
+            ratio_options = list(GEMINI_RESOLUTIONS.keys())
+            default_ratio = "1:1"
+
+        if image_path:
+            closest = get_closest_aspect_ratio(image_path, ratio_options)
+        else:
+            closest = default_ratio
+
+        aspect_ratio = questionary.select(
+            "Select aspect ratio:",
+            choices=choices_with_back + ratio_options,
+            default=closest,
+        ).ask()
+        if aspect_ratio == BACK_OPTION or not aspect_ratio:
+            return BACK_OPTION, None
+        res_key = GEMINI_RESOLUTIONS.get(aspect_ratio, "Auto")
+        return aspect_ratio, res_key
+
+
+def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, float]:
+    """Step 4: Select quality/size. Returns (quality_key, cost) or (BACK_OPTION, 0)."""
+    choices_with_back = [BACK_OPTION]
+
+    if provider == "OpenAI":
+        quality_choices = []
+        for q in ["Low", "Medium", "High"]:
+            cost = COSTS[model][q][res_key]
+            quality_choices.append(f"{q} (${cost:.3f})")
+
+        quality_selected = questionary.select(
+            "Select quality:",
+            choices=choices_with_back + quality_choices,
+            default=quality_choices[1],  # Default to Medium
+        ).ask()
+        if quality_selected == BACK_OPTION or not quality_selected:
+            return BACK_OPTION, 0
+        quality_key = quality_selected.split(" ")[0]
+        final_cost = COSTS[model][quality_key][res_key]
+        return quality_key, final_cost
+
+    elif provider == "OpenRouter":
+        if model == "sourceful/riverflow-v2-pro":
+            size_choices = []
+            for s in ["1K", "2K", "4K"]:
+                cost = COSTS[model][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+        elif model.startswith("black-forest-labs/"):
+            size_choices = []
+            for s in ["1K", "2K"]:
+                cost = COSTS[model][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+        else:
+            size_choices = []
+            for s in ["1K", "2K"]:
+                cost = COSTS[model][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+
+        size_selected = questionary.select(
+            "Select image size:",
+            choices=choices_with_back + size_choices,
+            default=size_choices[0],
+        ).ask()
+        if size_selected == BACK_OPTION or not size_selected:
+            return BACK_OPTION, 0
+        quality_key = size_selected.split(" ")[0]
+        final_cost = COSTS[model][quality_key]["fixed"]
+        return quality_key, final_cost
+
+    else:  # Google
+        if model in [
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image-preview",
+        ]:
+            size_choices = []
+            for s in ["1K", "2K", "4K"]:
+                cost = COSTS[model][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+
+            size_selected = questionary.select(
+                "Select image size:",
+                choices=choices_with_back + size_choices,
+                default=size_choices[0],
+            ).ask()
+            if size_selected == BACK_OPTION or not size_selected:
+                return BACK_OPTION, 0
+            quality_key = size_selected.split(" ")[0]
+        else:
+            quality_key = "1K"
+
+        final_cost = COSTS[model][quality_key]["fixed"]
+        return quality_key, final_cost
+
+
+def step_prompt(input_images: list, image_path: str | None) -> tuple[str | None, str]:
+    """Step 5: Select prompt. Returns (final_prompt or BACK_OPTION, original_selection)."""
+    is_batch_mode = len(input_images) > 1
+
+    if is_batch_mode:
+        prompt_list = PRESET_PROMPTS_EDIT
+    elif len(input_images) > 1:
+        prompt_list = PRESET_PROMPTS_DUAL
+    elif image_path:
+        prompt_list = PRESET_PROMPTS_EDIT
+    else:
+        prompt_list = PRESET_PROMPTS_GENERATE
+
+    prompt_choices = []
+    for p in prompt_list:
+        title = p.replace("\n", " ").strip()
+        if len(title) > 100:
+            title = title[:97] + "..."
+        prompt_choices.append(questionary.Choice(title=title, value=p))
+
+    prompt_selection = questionary.select(
+        "Select a prompt or enter a custom one:", choices=prompt_choices
+    ).ask()
+    if prompt_selection is None:
+        return BACK_OPTION, ""
+
+    # For prompts that need text input, ask confirmation first (with Go back option)
+    prompts_needing_input = [
+        "Custom Prompt",
+        "Object Removal (High Quality)",
+        "A retro-style BW lettering with thick outline",
+        "1990s Memphis Style Logo",
+        "Business Card",
+        "APPROVED Stamp",
+        "Generic Logotype",
+    ]
+
+    if prompt_selection in prompts_needing_input:
+        confirm_prompt = questionary.select(
+            f"Use '{prompt_selection}'?",
+            choices=[BACK_OPTION, "Yes", "No"],
+            default="Yes",
+        ).ask()
+        if confirm_prompt == BACK_OPTION or confirm_prompt == "No":
+            return BACK_OPTION, prompt_selection
+
+    final_prompt = prompt_selection
+    if prompt_selection == "Custom Prompt":
+        final_prompt = questionary.text("Enter your custom prompt:").ask()
+        if not final_prompt:
+            return BACK_OPTION, prompt_selection
+    elif prompt_selection == "Object Removal (High Quality)":
+        base_prompt = "Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output."
+        remove_input = questionary.text("What to remove?").ask()
+        if not remove_input:
+            final_prompt = base_prompt
+        else:
+            final_prompt = f"{base_prompt} Remove {remove_input}."
+    elif prompt_selection == "A retro-style BW lettering with thick outline":
+        text_input = questionary.text("What text to write?").ask()
+        if not text_input:
+            print("Error: Text input is required for this preset.")
+            return BACK_OPTION, prompt_selection
+        final_prompt = (
+            f"Create a clean vector-style black and white typographic logo. "
+            f'Text: "{text_input}" on two lines, centered and slightly slanted upward to the right. '
+            f"Use bold retro script lettering (smooth connected cursive, thick strokes), white fill with a thick black outline. "
+            f"Add a large black drop shadow offset down-right to create a strong 3D sticker effect. "
+            f"Add a swoosh underline under the second word, also white with black outline and black shadow. "
+            f"High contrast, crisp edges, no textures, no gradients, bright green background (it will be keyed out), no extra elements. "
+            f"Export as a logo/wordmark."
+        )
+    elif prompt_selection == "1990s Memphis Style Logo":
+        text_input = questionary.text("What text to write?").ask()
+        if not text_input:
+            print("Error: Text input is required for this preset.")
+            return BACK_OPTION, prompt_selection
+        final_prompt = (
+            f'Create a 1990s Memphis-inspired typographic logo that reads: "{text_input}". '
+            f"Style: 90s TV commercial / snack packaging lettering, playful and energetic, slightly italic script with uneven hand-drawn feel, two-tone gradients and airbrushed shading, subtle halftone/print vibe, thin white highlight, no shadow at all, not a thick sticker outline). "
+            f"Add a simple zig-zag / squiggle underline in Memphis style. "
+            f"Background: solid flat chroma key green (#00FF00), perfectly uniform. "
+            f"Strictly avoid: 3D chrome, rainbow neon, glossy metallic look, thick black outline sticker effect, modern esports logo style, glow effects, bevel/emboss, photorealism, extra objects, patterns, textures, collage, food images, shadow. "
+            f"Centered composition, clean edges, high resolution."
+        )
+    elif prompt_selection == "Business Card":
+        print("Enter ONLY the main title (e.g. 'DJ Set'):")
+        main_title = questionary.text("Main Title:").ask()
+        if not main_title:
+            print("Error: Main title is required.")
+            return BACK_OPTION, prompt_selection
+
+        print(
+            "Enter the rest of the details (multiline). Press Alt+Enter or Esc+Enter to submit:"
+        )
+        details = questionary.text("Details:", multiline=True).ask()
+        if not details:
+            print("Error: Details are required.")
+            return BACK_OPTION, prompt_selection
+
+        final_prompt = (
+            f"Create a 2D graphic design for a business card without mockup: no 3D rendering, no scene, no photography, no perspective.\n"
+            f"Canvas: 85x55 mm (aspect ratio 1.545:1), horizontal, equivalent to 300 dpi, 3 mm safety margins, text strictly within the safe area.\n"
+            f"Text Layout: Centered in a single column. Visual hierarchy: '{main_title}' must be very large and bold. The rest smaller but clearly legible.\n"
+            f"Write EXACTLY the following text:\n\n"
+            f"{main_title}\n"
+            f"{details}\n\n"
+            f"Negative constraints: No other text. No QR code. No social media icons. No watermark. No invented logo. Output: flat 2D graphic only."
+        )
+    elif prompt_selection == "APPROVED Stamp":
+        custom_string = questionary.text(
+            "Enter the custom text (will be followed by 'APPROVED'):"
+        ).ask()
+        if not custom_string:
+            print("Error: Custom text is required for this preset.")
+            return BACK_OPTION, prompt_selection
+
+        final_prompt = (
+            f"Create an APPROVED-style rubber stamp graphic, rectangular with slightly rounded corners. "
+            f"Text: '{custom_string} APPROVED' on two lines, red, bold, all caps, with a light distressed texture. "
+            f"White background. No extra elements, no gradients, no shadows. Vector/flat style, high resolution."
+        )
+    elif prompt_selection == "Generic Logotype":
+        print(
+            "Enter the text for the logotype (multiline). Press Alt+Enter or Esc+Enter to submit:"
+        )
+        logo_text = questionary.text("Logotype Text:", multiline=True).ask()
+        if not logo_text:
+            print("Error: Text is required for this preset.")
+            return BACK_OPTION, prompt_selection
+
+        final_prompt = f"A typographic logo, with centered text, with the following text: {logo_text}"
+
+    return final_prompt, prompt_selection
+
+
+def step_confirm() -> str | None:
+    """Step 6: Confirm. Returns 'Yes', 'No', or BACK_OPTION."""
+    confirm = questionary.select(
+        "Proceed with API call?", choices=[BACK_OPTION, "Yes", "No"], default="No"
+    ).ask()
+    if confirm == BACK_OPTION:
+        return BACK_OPTION
+    return confirm
+
+
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image & Gemini Image Editor")
     parser.add_argument(
@@ -374,300 +719,79 @@ def main():
     else:
         print(f"\nMode: Text-to-Image (No input image)")
 
-    # 2. Select Provider
-    provider = questionary.select(
-        "Select Provider:", choices=["OpenAI", "Google", "OpenRouter"], default="OpenAI"
-    ).ask()
-    if not provider:
-        sys.exit(0)
+    # State machine for navigation
+    # step 0=provider, 1=model, 2=resolution, 3=quality, 4=prompt, 5=confirm
+    current_step = 0
 
-    # 3. Select Model
-    if provider == "OpenAI":
-        model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
-        default_model = "gpt-image-1.5"
-    elif provider == "OpenRouter":
-        model_choices = [
-            "bytedance-seed/seedream-4.5",
-            "black-forest-labs/flux.2-klein-4b",
-            "black-forest-labs/flux.2-flex",
-            "black-forest-labs/flux.2-pro",
-            "black-forest-labs/flux.2-max",
-            "sourceful/riverflow-v2-fast",
-            "sourceful/riverflow-v2-pro",
-        ]
-        default_model = "bytedance-seed/seedream-4.5"
-    else:
-        model_choices = [
-            "gemini-2.5-flash-image",
-            "gemini-3.1-flash-image-preview",
-            "gemini-3-pro-image-preview",
-        ]
-        default_model = "gemini-2.5-flash-image"
+    # Initialize all variables
+    provider = None
+    model_choice = None
+    aspect_ratio = None
+    res_key = None
+    quality_key = None
+    final_cost = 0.0
+    final_prompt = None
 
-    model_choice = questionary.select(
-        f"Select {provider} model:",
-        choices=model_choices,
-        default=default_model,
-    ).ask()
-    if not model_choice:
-        sys.exit(0)
+    while current_step >= 0:
+        if current_step == 0:
+            # Step 1: Select Provider
+            result = step_provider()
+            if result == BACK_OPTION:
+                print("Cancelled.")
+                return
+            provider = result
+            current_step = 1
 
-    # 4. Select Resolution / Aspect Ratio
-    aspect_ratio = None  # used by Google and OpenRouter branches
-    if provider == "OpenAI":
-        res_options = [
-            "1024x1024 (Square)",
-            "1024x1536 (Vertical)",
-            "1536x1024 (Horizontal)",
-        ]
-        if image_path:
-            closest = get_closest_aspect_ratio(image_path, res_options)
-        else:
-            closest = res_options[0]  # Default Square
+        elif current_step == 1:
+            # Step 2: Select Model
+            result = step_model(provider)
+            if result == BACK_OPTION:
+                current_step = 0
+                continue
+            model_choice = result
+            current_step = 2
 
-        resolution = questionary.select(
-            "Select resolution:", choices=res_options, default=closest
-        ).ask()
-        if not resolution:
-            sys.exit(0)
-        res_key = resolution.split(" ")[0]
-    elif provider == "OpenRouter":
-        ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
-        default_ratio = "1:1"
+        elif current_step == 2:
+            # Step 3: Select Resolution
+            result_res, result_key = step_resolution(provider, model_choice, image_path)
+            if result_res == BACK_OPTION:
+                current_step = 1
+                continue
+            aspect_ratio = result_res
+            res_key = result_key
+            current_step = 3
 
-        if image_path:
-            closest = get_closest_aspect_ratio(
-                image_path, list(OPENROUTER_RESOLUTIONS.keys())
-            )
-        else:
-            closest = default_ratio
+        elif current_step == 3:
+            # Step 4: Select Quality
+            result_quality, final_cost = step_quality(provider, model_choice, res_key)
+            if result_quality == BACK_OPTION:
+                current_step = 2
+                continue
+            quality_key = result_quality
+            current_step = 4
 
-        aspect_ratio = questionary.select(
-            "Select aspect ratio:", choices=ratio_options, default=closest
-        ).ask()
-        if not aspect_ratio:
-            sys.exit(0)
-        res_key = OPENROUTER_RESOLUTIONS.get(aspect_ratio, "1024x1024")
-    else:
-        # Google uses aspect ratio
-        # Note: only gemini-3-pro-image-preview supports "Auto" aspect ratio.
-        if model_choice in [
-            "gemini-3-pro-image-preview",
-            "gemini-3.1-flash-image-preview",
-        ]:
-            ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
-            default_ratio = "Auto"
-        else:
-            ratio_options = list(GEMINI_RESOLUTIONS.keys())
-            default_ratio = "1:1"
+        elif current_step == 4:
+            # Step 5: Select Prompt
+            result_prompt, prompt_selection = step_prompt(input_images, image_path)
+            if result_prompt == BACK_OPTION:
+                current_step = 3
+                continue
+            final_prompt = result_prompt
+            current_step = 5
 
-        if image_path:
-            closest = get_closest_aspect_ratio(
-                image_path, list(GEMINI_RESOLUTIONS.keys())
-            )
-        else:
-            closest = default_ratio
+        elif current_step == 5:
+            # Step 6: Confirm
+            result = step_confirm()
+            if result == BACK_OPTION:
+                current_step = 4
+                continue
+            if result == "No":
+                print("Cancelled.")
+                return
+            break  # Proceed to API call
 
-        aspect_ratio = questionary.select(
-            "Select aspect ratio:", choices=ratio_options, default=closest
-        ).ask()
-        if not aspect_ratio:
-            sys.exit(0)
-        res_key = GEMINI_RESOLUTIONS.get(aspect_ratio, "Auto")
-
-    # 5. Select Quality / Size and show costs
-    quality_key = "2K"  # Default for Google/OpenRouter
-    if provider == "OpenAI":
-        quality_choices = []
-        for q in ["Low", "Medium", "High"]:
-            cost = COSTS[model_choice][q][res_key]
-            quality_choices.append(f"{q} (${cost:.3f})")
-
-        quality_selected = questionary.select(
-            "Select quality:", choices=quality_choices
-        ).ask()
-        if not quality_selected:
-            sys.exit(0)
-        quality_key = quality_selected.split(" ")[0]
-        final_cost = COSTS[model_choice][quality_key][res_key]
-    elif provider == "OpenRouter":
-        # Riverflow-v2-fast: 1K ($0.02) or 2K ($0.04). No 4K.
-        # Riverflow-v2-pro: 1K/2K ($0.15) or 4K ($0.33)
-        # black-forest-labs models: 1K/2K only (4K images are resized to 4MP anyway)
-        # seedream-4.5: any size, fixed price
-        if model_choice == "sourceful/riverflow-v2-pro":
-            size_choices = []
-            for s in ["1K", "2K", "4K"]:
-                cost = COSTS[model_choice][s]["fixed"]
-                size_choices.append(f"{s} (${cost:.2f})")
-
-            size_selected = questionary.select(
-                "Select image size:", choices=size_choices, default=size_choices[0]
-            ).ask()
-            if not size_selected:
-                sys.exit(0)
-            quality_key = size_selected.split(" ")[0]
-            final_cost = COSTS[model_choice][quality_key]["fixed"]
-        elif model_choice.startswith("black-forest-labs/"):
-            size_choices = []
-            for s in ["1K", "2K"]:
-                cost = COSTS[model_choice][s]["fixed"]
-                size_choices.append(f"{s} (${cost:.2f})")
-
-            size_selected = questionary.select(
-                "Select image size:", choices=size_choices, default=size_choices[0]
-            ).ask()
-            if not size_selected:
-                sys.exit(0)
-            quality_key = size_selected.split(" ")[0]
-            final_cost = COSTS[model_choice][quality_key]["fixed"]
-        else:
-            # riverflow-v2-fast and seedream-4.5
-            size_choices = []
-            for s in ["1K", "2K"]:
-                cost = COSTS[model_choice][s]["fixed"]
-                size_choices.append(f"{s} (${cost:.2f})")
-
-            size_selected = questionary.select(
-                "Select image size:", choices=size_choices, default=size_choices[0]
-            ).ask()
-            if not size_selected:
-                sys.exit(0)
-            quality_key = size_selected.split(" ")[0]
-            final_cost = COSTS[model_choice][quality_key]["fixed"]
-    else:
-        # Google quality/size selection
-        if model_choice in [
-            "gemini-3-pro-image-preview",
-            "gemini-3.1-flash-image-preview",
-        ]:
-            size_choices = []
-            for s in ["1K", "2K", "4K"]:
-                cost = COSTS[model_choice][s]["fixed"]
-                size_choices.append(f"{s} (${cost:.2f})")
-
-            size_selected = questionary.select(
-                "Select image size:", choices=size_choices, default=size_choices[0]
-            ).ask()
-            if not size_selected:
-                sys.exit(0)
-            quality_key = size_selected.split(" ")[0]
-        else:
-            quality_key = "1K"
-
-        final_cost = COSTS[model_choice][quality_key]["fixed"]
-
-    # 6. Select Prompt
-    # For batch mode (multiple images), always use edit prompts, not dual mode
+    # Determine batch mode
     is_batch_mode = len(input_images) > 1
-    if is_batch_mode:
-        prompt_list = PRESET_PROMPTS_EDIT
-    elif len(input_images) > 1:
-        prompt_list = PRESET_PROMPTS_DUAL
-    elif image_path:
-        prompt_list = PRESET_PROMPTS_EDIT
-    else:
-        prompt_list = PRESET_PROMPTS_GENERATE
-
-    prompt_choices = []
-    for p in prompt_list:
-        title = p.replace("\n", " ").strip()
-        if len(title) > 100:
-            title = title[:97] + "..."
-        prompt_choices.append(questionary.Choice(title=title, value=p))
-
-    prompt_selection = questionary.select(
-        "Select a prompt or enter a custom one:", choices=prompt_choices
-    ).ask()
-    if not prompt_selection:
-        sys.exit(0)
-
-    final_prompt = prompt_selection
-    if prompt_selection == "Custom Prompt":
-        final_prompt = questionary.text("Enter your custom prompt:").ask()
-        if not final_prompt:
-            sys.exit(0)
-    elif prompt_selection == "Object Removal (High Quality)":
-        base_prompt = "Preserve the exact composition and identity. Remove JPEG artifacts and noise, enhance real details only. Do not change facial features. Do not hallucinate text or logos; if unreadable, keep it unreadable. High-resolution output."
-        remove_input = questionary.text("What to remove?").ask()
-        if not remove_input:
-            final_prompt = base_prompt
-        else:
-            final_prompt = f"{base_prompt} Remove {remove_input}."
-    elif prompt_selection == "A retro-style BW lettering with thick outline":
-        text_input = questionary.text("What text to write?").ask()
-        if not text_input:
-            print("Error: Text input is required for this preset.")
-            sys.exit(0)
-        final_prompt = (
-            f"Create a clean vector-style black and white typographic logo. "
-            f'Text: "{text_input}" on two lines, centered and slightly slanted upward to the right. '
-            f"Use bold retro script lettering (smooth connected cursive, thick strokes), white fill with a thick black outline. "
-            f"Add a large black drop shadow offset down-right to create a strong 3D sticker effect. "
-            f"Add a swoosh underline under the second word, also white with black outline and black shadow. "
-            f"High contrast, crisp edges, no textures, no gradients, bright green background (it will be keyed out), no extra elements. "
-            f"Export as a logo/wordmark."
-        )
-    elif prompt_selection == "1990s Memphis Style Logo":
-        text_input = questionary.text("What text to write?").ask()
-        if not text_input:
-            print("Error: Text input is required for this preset.")
-            sys.exit(0)
-        final_prompt = (
-            f'Create a 1990s Memphis-inspired typographic logo that reads: "{text_input}". '
-            f"Style: 90s TV commercial / snack packaging lettering, playful and energetic, slightly italic script with uneven hand-drawn feel, two-tone gradients and airbrushed shading, subtle halftone/print vibe, thin white highlight, no shadow at all, not a thick sticker outline). "
-            f"Add a simple zig-zag / squiggle underline in Memphis style. "
-            f"Background: solid flat chroma key green (#00FF00), perfectly uniform. "
-            f"Strictly avoid: 3D chrome, rainbow neon, glossy metallic look, thick black outline sticker effect, modern esports logo style, glow effects, bevel/emboss, photorealism, extra objects, patterns, textures, collage, food images, shadow. "
-            f"Centered composition, clean edges, high resolution."
-        )
-    elif prompt_selection == "Business Card":
-        print("Enter ONLY the main title (e.g. 'DJ Set'):")
-        main_title = questionary.text("Main Title:").ask()
-        if not main_title:
-            print("Error: Main title is required.")
-            sys.exit(0)
-
-        print(
-            "Enter the rest of the details (multiline). Press Alt+Enter or Esc+Enter to submit:"
-        )
-        details = questionary.text("Details:", multiline=True).ask()
-        if not details:
-            print("Error: Details are required.")
-            sys.exit(0)
-
-        final_prompt = (
-            f"Create a 2D graphic design for a business card without mockup: no 3D rendering, no scene, no photography, no perspective.\n"
-            f"Canvas: 85x55 mm (aspect ratio 1.545:1), horizontal, equivalent to 300 dpi, 3 mm safety margins, text strictly within the safe area.\n"
-            f"Text Layout: Centered in a single column. Visual hierarchy: “{main_title}” must be very large and bold. The rest smaller but clearly legible.\n"
-            f"Write EXACTLY the following text:\n\n"
-            f"{main_title}\n"
-            f"{details}\n\n"
-            f"Negative constraints: No other text. No QR code. No social media icons. No watermark. No invented logo. Output: flat 2D graphic only."
-        )
-    elif prompt_selection == "APPROVED Stamp":
-        custom_string = questionary.text(
-            "Enter the custom text (will be followed by 'APPROVED'):"
-        ).ask()
-        if not custom_string:
-            print("Error: Custom text is required for this preset.")
-            sys.exit(0)
-
-        final_prompt = (
-            f"Create an APPROVED-style rubber stamp graphic, rectangular with slightly rounded corners. "
-            f"Text: '{custom_string} APPROVED' on two lines, red, bold, all caps, with a light distressed texture. "
-            f"White background. No extra elements, no gradients, no shadows. Vector/flat style, high resolution."
-        )
-    elif prompt_selection == "Generic Logotype":
-        print(
-            "Enter the text for the logotype (multiline). Press Alt+Enter or Esc+Enter to submit:"
-        )
-        logo_text = questionary.text("Logotype Text:", multiline=True).ask()
-        if not logo_text:
-            print("Error: Text is required for this preset.")
-            sys.exit(0)
-
-        final_prompt = f"A typographic logo, with centered text, with the following text: {logo_text}"
 
     # Summary
     print("\n--- Summary ---")
@@ -730,10 +854,51 @@ def main():
             print(f"Input Cost:  ${input_cost:.3f}")
         print(f"Total Cost: ${final_cost + input_cost:.3f}")
 
-    confirm = questionary.confirm("Proceed with API call?").ask()
-    if not confirm:
-        print("Cancelled.")
-        return
+    # Step 6: Confirm (loop with back navigation)
+    while True:
+        result = step_confirm()
+        if result == BACK_OPTION:
+            # Go back to prompt
+            while True:
+                result_prompt, prompt_selection = step_prompt(input_images, image_path)
+                if result_prompt == BACK_OPTION:
+                    # Go back to quality
+                    while True:
+                        result_quality, final_cost = step_quality(
+                            provider, model_choice, res_key
+                        )
+                        if result_quality == BACK_OPTION:
+                            # Go back to resolution
+                            while True:
+                                result_res, result_key = step_resolution(
+                                    provider, model_choice, image_path
+                                )
+                                if result_res == BACK_OPTION:
+                                    # Go back to model
+                                    while True:
+                                        result = step_model(provider)
+                                        if result == BACK_OPTION:
+                                            # Go back to provider
+                                            while True:
+                                                result = step_provider()
+                                                if result == BACK_OPTION:
+                                                    print("Cancelled.")
+                                                    return
+                                                provider = result
+                                                break
+                                            continue
+                                        model_choice = result
+                                        break
+                                continue
+                            continue
+                        quality_key = result_quality
+                        break
+                continue  # Re-do prompt selection
+            continue  # Re-do confirm
+        if result == "No":
+            print("Cancelled.")
+            return
+        break
 
     # 7. API Call
     if provider == "OpenAI":
