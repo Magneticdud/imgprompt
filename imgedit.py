@@ -107,6 +107,9 @@ COSTS = {
         "2K": {"fixed": 0.14},
         "4K": {"fixed": 0.25},
     },
+    "stabilityai/stable-diffusion-xl-base-1.0": {
+        "1K": {"fixed": 0.0},  # Free
+    },
 }
 
 GEMINI_RESOLUTIONS = {
@@ -390,10 +393,18 @@ def main():
 
     # 2. Select Provider
     provider = questionary.select(
-        "Select Provider:", choices=["OpenAI", "Google", "OpenRouter"], default="OpenAI"
+        "Select Provider:",
+        choices=["OpenAI", "Google", "OpenRouter", "OVH"],
+        default="OpenAI",
     ).ask()
     if not provider:
         sys.exit(0)
+
+    # OVH restriction: Only text-to-image
+    if provider == "OVH" and input_images:
+        print("\nError: OVH provider only supports Text-to-Image mode.")
+        print("Please run the script again and select 'Text-to-Image' or use --free.")
+        sys.exit(1)
 
     # 3. Select Model
     if provider == "OpenAI":
@@ -413,6 +424,9 @@ def main():
             "google/gemini-3-pro-image-preview",
         ]
         default_model = "bytedance-seed/seedream-4.5"
+    elif provider == "OVH":
+        model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
+        default_model = "stabilityai/stable-diffusion-xl-base-1.0"
     else:
         model_choices = [
             "gemini-2.5-flash-image",
@@ -465,6 +479,9 @@ def main():
         if not aspect_ratio:
             sys.exit(0)
         res_key = OPENROUTER_RESOLUTIONS.get(aspect_ratio, "1024x1024")
+    elif provider == "OVH":
+        res_key = "1024x1024"
+        aspect_ratio = "1:1"
     else:
         # Google uses aspect ratio
         # Note: only gemini-3-pro-image-preview supports "Auto" aspect ratio.
@@ -568,6 +585,9 @@ def main():
                 sys.exit(0)
             quality_key = size_selected.split(" ")[0]
             final_cost = COSTS[model_choice][quality_key]["fixed"]
+    elif provider == "OVH":
+        quality_key = "1K"
+        final_cost = 0.0
     else:
         # Google quality/size selection
         if model_choice in [
@@ -1087,6 +1107,53 @@ def main():
                     print("\nError: No image returned by OpenRouter API.")
             except Exception as e:
                 print(f"\nAn error occurred during OpenRouter call: {e}")
+
+    elif provider == "OVH":
+        api_key = os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")
+
+        # Determine if we should send an authorization header
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        # Check if the token is valid (not empty and not a placeholder)
+        is_placeholder = api_key and api_key.startswith("your_")
+        if api_key and not is_placeholder:
+            headers["Authorization"] = f"Bearer {api_key}"
+            print("Using authenticated OVH access (400 rpm).")
+        else:
+            print("Using anonymous OVH access (2 rpm).")
+
+        url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/images/generations"
+        payload = {
+            "model": model_choice,
+            "prompt": final_prompt,
+            "size": res_key,
+            "response_format": "b64_json",
+        }
+
+        print(f"\nSending request to OVH ({model_choice})...")
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+
+            if response.status_code == 200:
+                resp_json = response.json()
+                image_b64 = None
+                if "data" in resp_json and len(resp_json["data"]) > 0:
+                    image_b64 = resp_json["data"][0].get("b64_json")
+
+                if image_b64:
+                    save_api_image(None, image_b64, None)
+                else:
+                    print(
+                        "\nError: Could not retrieve image data from the OVH API response."
+                    )
+            else:
+                print(f"Error: {response.status_code} {response.text}")
+
+        except Exception as e:
+            print(f"\nAn error occurred during OVH call: {e}")
 
     else:
         # Google Provider

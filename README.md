@@ -1,6 +1,6 @@
 # Multi-Model Image Editor
 
-A simple tool to edit or create images using various models via API (OpenAI, Google, Black Forest Labs, Bytedance, Sourceful, etc.) via a terminal user interface (TUI).
+A simple tool to edit or create images using various models via API (OpenAI, Google, Black Forest Labs, Bytedance, Sourceful, Stable Diffusion XL, etc.) via a terminal user interface (TUI).
 
 ## Features
 - Direct image path input via CLI.
@@ -20,6 +20,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
    OPENAI_API_KEY=your_openai_key
    GOOGLE_API_KEY=your_google_key
    OPENROUTER_API_KEY=your_openrouter_key
+   OVH_AI_ENDPOINTS_ACCESS_TOKEN=your_ovh_token
    ```
 
 ## Usage
@@ -80,6 +81,8 @@ When you provide 2+ images, the script automatically enters **batch mode**:
   - `black-forest-labs/flux.2-max`: Output $0.07 (1K), $0.16 (2K); Input $0.03/MP.
   - `sourceful/riverflow-v2-fast`: $0.02 (1K), $0.04 (2K).
   - `sourceful/riverflow-v2-pro`: $0.15 (1K/2K), $0.33 (4K).
+- **OVH AI Endpoints**:
+  - `stabilityai/stable-diffusion-xl-base-1.0`: Free (Rate limited: 2 per minute without API key, 400 per minute with API key). Fixed 1024x1024. With such generous rate limits it does not need API keys, but if needed you can [read how to get one](https://help.ovhcloud.com/csm/en-gb-public-cloud-ai-endpoints-getting-started?id=kb_article_view&sysparm_article=KB0065401)
 
 Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
 
