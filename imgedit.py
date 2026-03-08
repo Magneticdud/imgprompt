@@ -93,6 +93,20 @@ COSTS = {
         "2K": {"fixed": 0.16},  # 4MP: $0.07 + $0.03*3
         "input_mp_rate": 0.03,  # $0.03 per MP input
     },
+    "google/gemini-2.5-flash-image": {
+        "1K": {"fixed": 0.04},  # Fixed price per image
+        "2K": {"fixed": 0.04},
+    },
+    "google/gemini-3.1-flash-image-preview": {
+        "1K": {"fixed": 0.07},
+        "2K": {"fixed": 0.10},
+        "4K": {"fixed": 0.15},
+    },
+    "google/gemini-3-pro-image-preview": {
+        "1K": {"fixed": 0.14},
+        "2K": {"fixed": 0.14},
+        "4K": {"fixed": 0.25},
+    },
 }
 
 GEMINI_RESOLUTIONS = {
@@ -394,6 +408,9 @@ def main():
             "black-forest-labs/flux.2-max",
             "sourceful/riverflow-v2-fast",
             "sourceful/riverflow-v2-pro",
+            "google/gemini-2.5-flash-image",
+            "google/gemini-3.1-flash-image-preview",
+            "google/gemini-3-pro-image-preview",
         ]
         default_model = "bytedance-seed/seedream-4.5"
     else:
@@ -521,8 +538,24 @@ def main():
                 sys.exit(0)
             quality_key = size_selected.split(" ")[0]
             final_cost = COSTS[model_choice][quality_key]["fixed"]
+        elif model_choice in [
+            "google/gemini-3-pro-image-preview",
+            "google/gemini-3.1-flash-image-preview",
+        ]:
+            size_choices = []
+            for s in ["1K", "2K", "4K"]:
+                cost = COSTS[model_choice][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
+
+            size_selected = questionary.select(
+                "Select image size:", choices=size_choices, default=size_choices[0]
+            ).ask()
+            if not size_selected:
+                sys.exit(0)
+            quality_key = size_selected.split(" ")[0]
+            final_cost = COSTS[model_choice][quality_key]["fixed"]
         else:
-            # riverflow-v2-fast and seedream-4.5
+            # riverflow-v2-fast, seedream-4.5, gemini-2.5-flash
             size_choices = []
             for s in ["1K", "2K"]:
                 cost = COSTS[model_choice][s]["fixed"]

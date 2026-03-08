@@ -1,6 +1,6 @@
-# Multi-Model POC Image Editor
+# Multi-Model Image Editor
 
-A Proof of Concept tool to edit images using OpenAI's `gpt-image-1.5` / `gpt-image-1-mini` or Google's `gemini-2.5-flash-image` / `gemini-3.1-flash-image-preview` / `gemini-3-pro-image-preview` models via a terminal user interface (TUI).
+A simple tool to edit or create images using various models via API (OpenAI, Google, Black Forest Labs, Bytedance, Sourceful, etc.) via a terminal user interface (TUI).
 
 ## Features
 - Direct image path input via CLI.
@@ -19,6 +19,7 @@ A Proof of Concept tool to edit images using OpenAI's `gpt-image-1.5` / `gpt-ima
    ```env
    OPENAI_API_KEY=your_openai_key
    GOOGLE_API_KEY=your_google_key
+   OPENROUTER_API_KEY=your_openrouter_key
    ```
 
 ## Usage
@@ -67,7 +68,7 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 
 ## Supported Models & Costs
 - **OpenAI**: `gpt-image-1.5`, `gpt-image-1-mini`. Official documentation lists prices that don't match reality (like 2-3x more expensive than what's supposed to be), so I'm doing trial&error to find the actual prices.
-- **Google (Nano Banana)**: 
+- **Google (Nano Banana)** (direct or via OpenRouter): 
   - `gemini-2.5-flash-image`: $0.04 per image.
   - `gemini-3.1-flash-image-preview`: $0.07 (1K), $0.10 (2K), $0.15 (4K).
   - `gemini-3-pro-image-preview`: $0.15 (1K/2K) or $0.25 (4K).
