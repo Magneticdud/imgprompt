@@ -702,71 +702,86 @@ def main():
 
         final_prompt = f"A typographic logo, with centered text, with the following text: {logo_text}"
 
-    # Summary
-    print("\n--- Summary ---")
-    if input_images:
-        if is_batch_mode:
-            print(f"Images:     {len(input_images)} images (batch mode)")
+    # Summary & Confirmation Loop
+    while True:
+        print("\n--- Summary ---")
+        if input_images:
+            if is_batch_mode:
+                print(f"Images:     {len(input_images)} images (batch mode)")
+            else:
+                print(f"Images:     {', '.join(input_images)}")
         else:
-            print(f"Images:     {', '.join(input_images)}")
-    else:
-        print(f"Image:      None (Text-to-Image)")
-    print(f"Provider:   {provider}")
-    print(f"Model:      {model_choice}")
-    if provider == "OpenAI":
-        print(f"Resolution: {res_key}")
-        print(f"Quality:    {quality_key}")
-    elif provider == "OpenRouter":
-        print(f"Ratio:      {aspect_ratio}")
-        print(f"Resolution: {res_key}")
-        print(f"Size:       {quality_key}")
-    else:
-        print(f"Ratio:      {aspect_ratio}")
-        print(f"Size:       {quality_key}")
-    print(f"Prompt:     {final_prompt}")
-
-    # Calculate total cost for batch mode
-    input_cost = 0
-    if (
-        provider == "OpenRouter"
-        and model_choice
-        in [
-            "black-forest-labs/flux.2-flex",
-            "black-forest-labs/flux.2-pro",
-            "black-forest-labs/flux.2-max",
-        ]
-        and "input_mp_rate" in COSTS[model_choice]
-    ):
-        input_mp_rate = COSTS[model_choice]["input_mp_rate"]
-        if image_path:
-            with Image.open(image_path) as img:
-                mp = (img.width * img.height) / 1_000_000
-            input_cost = mp * input_mp_rate
-        elif is_batch_mode and input_images:
-            for inp_img in input_images:
-                with Image.open(inp_img) as img:
-                    mp = (img.width * img.height) / 1_000_000
-                input_cost += mp * input_mp_rate
-
-    total_cost = final_cost + input_cost
-
-    if is_batch_mode:
+            print(f"Image:      None (Text-to-Image)")
+        print(f"Provider:   {provider}")
+        print(f"Model:      {model_choice}")
         if provider == "OpenAI":
-            total_cost = final_cost * len(input_images)
+            print(f"Resolution: {res_key}")
+            print(f"Quality:    {quality_key}")
+        elif provider == "OpenRouter":
+            print(f"Ratio:      {aspect_ratio}")
+            print(f"Resolution: {res_key}")
+            print(f"Size:       {quality_key}")
         else:
-            total_cost = (final_cost + input_cost) * len(input_images)
-        print(f"Per Image:  ${final_cost + input_cost:.3f}")
-        print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
-    else:
-        if input_cost > 0:
-            print(f"Output Cost: ${final_cost:.3f}")
-            print(f"Input Cost:  ${input_cost:.3f}")
-        print(f"Total Cost: ${final_cost + input_cost:.3f}")
+            print(f"Ratio:      {aspect_ratio}")
+            print(f"Size:       {quality_key}")
+        print(f"Prompt:     {final_prompt}")
 
-    confirm = questionary.confirm("Proceed with API call?").ask()
-    if not confirm:
-        print("Cancelled.")
-        return
+        # Calculate total cost for batch mode
+        input_cost = 0
+        if (
+            provider == "OpenRouter"
+            and model_choice
+            in [
+                "black-forest-labs/flux.2-flex",
+                "black-forest-labs/flux.2-pro",
+                "black-forest-labs/flux.2-max",
+            ]
+            and "input_mp_rate" in COSTS[model_choice]
+        ):
+            input_mp_rate = COSTS[model_choice]["input_mp_rate"]
+            if image_path:
+                with Image.open(image_path) as img:
+                    mp = (img.width * img.height) / 1_000_000
+                input_cost = mp * input_mp_rate
+            elif is_batch_mode and input_images:
+                for inp_img in input_images:
+                    with Image.open(inp_img) as img:
+                        mp = (img.width * img.height) / 1_000_000
+                    input_cost += mp * input_mp_rate
+
+        total_cost = final_cost + input_cost
+
+        if is_batch_mode:
+            if provider == "OpenAI":
+                total_cost = final_cost * len(input_images)
+            else:
+                total_cost = (final_cost + input_cost) * len(input_images)
+            print(f"Per Image:  ${final_cost + input_cost:.3f}")
+            print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
+        else:
+            if input_cost > 0:
+                print(f"Output Cost: ${final_cost:.3f}")
+                print(f"Input Cost:  ${input_cost:.3f}")
+            print(f"Total Cost: ${final_cost + input_cost:.3f}")
+
+        action = questionary.select(
+            "What would you like to do?",
+            choices=["Proceed with API call", "Edit Prompt", "Cancel"],
+            default="Proceed with API call",
+        ).ask()
+
+        if action == "Proceed with API call":
+            break
+        elif action == "Edit Prompt":
+            new_prompt = questionary.text(
+                "Edit your prompt:", default=final_prompt
+            ).ask()
+            if new_prompt:
+                final_prompt = new_prompt
+            continue
+        else:
+            print("Cancelled.")
+            return
 
     # 7. API Call
     if provider == "OpenAI":
