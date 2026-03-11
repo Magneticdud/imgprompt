@@ -316,7 +316,7 @@ def step_provider() -> str | None:
     """Step 1: Select provider. Returns provider name or BACK_OPTION."""
     provider = questionary.select(
         "Select Provider:",
-        choices=[BACK_OPTION, "OpenAI", "Google", "OpenRouter"],
+        choices=[BACK_OPTION, "OpenAI", "Google", "OpenRouter", "OVH"],
         default="OpenAI",
     ).ask()
     if provider == BACK_OPTION or not provider:
@@ -338,8 +338,18 @@ def step_model(provider: str, current_model: str | None = None) -> str | None:
             "black-forest-labs/flux.2-max",
             "sourceful/riverflow-v2-fast",
             "sourceful/riverflow-v2-pro",
+            "google/gemini-2.5-flash-image",
+            "google/gemini-3.1-flash-image-preview",
+            "google/gemini-3-pro-image-preview",
         ]
         default_model = "bytedance-seed/seedream-4.5"
+    elif provider == "OVH":
+        model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
+        default_model = "stabilityai/stable-diffusion-xl-base-1.0"
+    elif provider == "OVH":
+        return "1:1", "1024x1024"
+    elif provider == "OVH":
+        return "1K", 0.0
     else:  # Google
         model_choices = [
             "gemini-2.5-flash-image",
@@ -408,6 +418,13 @@ def step_resolution(
         res_key = OPENROUTER_RESOLUTIONS.get(aspect_ratio, "1024x1024")
         return aspect_ratio, res_key
 
+    elif provider == "OVH":
+        model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
+        default_model = "stabilityai/stable-diffusion-xl-base-1.0"
+    elif provider == "OVH":
+        return "1:1", "1024x1024"
+    elif provider == "OVH":
+        return "1K", 0.0
     else:  # Google
         if model in [
             "gemini-3-pro-image-preview",
@@ -484,6 +501,13 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
         final_cost = COSTS[model][quality_key]["fixed"]
         return quality_key, final_cost
 
+    elif provider == "OVH":
+        model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
+        default_model = "stabilityai/stable-diffusion-xl-base-1.0"
+    elif provider == "OVH":
+        return "1:1", "1024x1024"
+    elif provider == "OVH":
+        return "1K", 0.0
     else:  # Google
         if model in [
             "gemini-3-pro-image-preview",
@@ -740,6 +764,10 @@ def main():
                 print("Cancelled.")
                 return
             provider = result
+            if provider == "OVH" and input_images:
+                print("\nError: OVH provider only supports Text-to-Image mode.")
+                print("Please run the script again and select 'Text-to-Image' or use --free.")
+                sys.exit(1)
             current_step = 1
 
         elif current_step == 1:
@@ -780,125 +808,92 @@ def main():
             current_step = 5
 
         elif current_step == 5:
-            # Step 6: Confirm
-            result = step_confirm()
-            if result == BACK_OPTION:
+            # Step 6: Summary & Confirm
+            is_batch_mode = len(input_images) > 1
+
+            print("\\n--- Summary ---")
+            if input_images:
+                if is_batch_mode:
+                    print(f"Images:     {len(input_images)} images (batch mode)")
+                else:
+                    print(f"Images:     {', '.join(input_images)}")
+            else:
+                print(f"Image:      None (Text-to-Image)")
+            print(f"Provider:   {provider}")
+            print(f"Model:      {model_choice}")
+            if provider == "OpenAI":
+                print(f"Resolution: {res_key}")
+                print(f"Quality:    {quality_key}")
+            elif provider == "OpenRouter":
+                print(f"Ratio:      {aspect_ratio}")
+                print(f"Resolution: {res_key}")
+                print(f"Size:       {quality_key}")
+            else:
+                print(f"Ratio:      {aspect_ratio}")
+                print(f"Size:       {quality_key}")
+            print(f"Prompt:     {final_prompt}")
+
+            # Calculate total cost for batch mode
+            input_cost = 0
+            if (
+                provider == "OpenRouter"
+                and model_choice
+                in [
+                    "black-forest-labs/flux.2-flex",
+                    "black-forest-labs/flux.2-pro",
+                    "black-forest-labs/flux.2-max",
+                ]
+                and "input_mp_rate" in COSTS[model_choice]
+            ):
+                input_mp_rate = COSTS[model_choice]["input_mp_rate"]
+                if image_path:
+                    with Image.open(image_path) as img:
+                        mp = (img.width * img.height) / 1_000_000
+                    input_cost = mp * input_mp_rate
+                elif is_batch_mode and input_images:
+                    for inp_img in input_images:
+                        with Image.open(inp_img) as img:
+                            mp = (img.width * img.height) / 1_000_000
+                        input_cost += mp * input_mp_rate
+
+            total_cost = final_cost + input_cost
+
+            if is_batch_mode:
+                if provider == "OpenAI":
+                    total_cost = final_cost * len(input_images)
+                else:
+                    total_cost = (final_cost + input_cost) * len(input_images)
+                print(f"Per Image:  ${final_cost + input_cost:.3f}")
+                print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
+            else:
+                if input_cost > 0:
+                    print(f"Output Cost: ${final_cost:.3f}")
+                    print(f"Input Cost:  ${input_cost:.3f}")
+                print(f"Total Cost: ${final_cost + input_cost:.3f}")
+
+            action = questionary.select(
+                "What would you like to do?",
+                choices=["Proceed with API call", "Edit Prompt", BACK_OPTION, "Cancel"],
+                default="Proceed with API call",
+            ).ask()
+
+            if action == "Proceed with API call":
+                break
+            elif action == "Edit Prompt":
+                new_prompt = questionary.text(
+                    "Edit your prompt:", default=final_prompt
+                ).ask()
+                if new_prompt:
+                    final_prompt = new_prompt
+                continue # Will show summary again
+            elif action == BACK_OPTION:
                 current_step = 4
                 continue
-            if result == "No":
+            else:
                 print("Cancelled.")
                 return
-            break  # Proceed to API call
 
-    # Determine batch mode
     is_batch_mode = len(input_images) > 1
-
-    # Summary
-    print("\n--- Summary ---")
-    if input_images:
-        if is_batch_mode:
-            print(f"Images:     {len(input_images)} images (batch mode)")
-        else:
-            print(f"Images:     {', '.join(input_images)}")
-    else:
-        print(f"Image:      None (Text-to-Image)")
-    print(f"Provider:   {provider}")
-    print(f"Model:      {model_choice}")
-    if provider == "OpenAI":
-        print(f"Resolution: {res_key}")
-        print(f"Quality:    {quality_key}")
-    elif provider == "OpenRouter":
-        print(f"Ratio:      {aspect_ratio}")
-        print(f"Resolution: {res_key}")
-        print(f"Size:       {quality_key}")
-    else:
-        print(f"Ratio:      {aspect_ratio}")
-        print(f"Size:       {quality_key}")
-    print(f"Prompt:     {final_prompt}")
-
-    # Calculate total cost for batch mode
-    input_cost = 0
-    if (
-        provider == "OpenRouter"
-        and model_choice
-        in [
-            "black-forest-labs/flux.2-flex",
-            "black-forest-labs/flux.2-pro",
-            "black-forest-labs/flux.2-max",
-        ]
-        and "input_mp_rate" in COSTS[model_choice]
-    ):
-        input_mp_rate = COSTS[model_choice]["input_mp_rate"]
-        if image_path:
-            with Image.open(image_path) as img:
-                mp = (img.width * img.height) / 1_000_000
-            input_cost = mp * input_mp_rate
-        elif is_batch_mode and input_images:
-            for inp_img in input_images:
-                with Image.open(inp_img) as img:
-                    mp = (img.width * img.height) / 1_000_000
-                input_cost += mp * input_mp_rate
-
-    total_cost = final_cost + input_cost
-
-    if is_batch_mode:
-        if provider == "OpenAI":
-            total_cost = final_cost * len(input_images)
-        else:
-            total_cost = (final_cost + input_cost) * len(input_images)
-        print(f"Per Image:  ${final_cost + input_cost:.3f}")
-        print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
-    else:
-        if input_cost > 0:
-            print(f"Output Cost: ${final_cost:.3f}")
-            print(f"Input Cost:  ${input_cost:.3f}")
-        print(f"Total Cost: ${final_cost + input_cost:.3f}")
-
-    # Step 6: Confirm (loop with back navigation)
-    while True:
-        result = step_confirm()
-        if result == BACK_OPTION:
-            # Go back to prompt
-            while True:
-                result_prompt, prompt_selection = step_prompt(input_images, image_path)
-                if result_prompt == BACK_OPTION:
-                    # Go back to quality
-                    while True:
-                        result_quality, final_cost = step_quality(
-                            provider, model_choice, res_key
-                        )
-                        if result_quality == BACK_OPTION:
-                            # Go back to resolution
-                            while True:
-                                result_res, result_key = step_resolution(
-                                    provider, model_choice, image_path
-                                )
-                                if result_res == BACK_OPTION:
-                                    # Go back to model
-                                    while True:
-                                        result = step_model(provider)
-                                        if result == BACK_OPTION:
-                                            # Go back to provider
-                                            while True:
-                                                result = step_provider()
-                                                if result == BACK_OPTION:
-                                                    print("Cancelled.")
-                                                    return
-                                                provider = result
-                                                break
-                                            continue
-                                        model_choice = result
-                                        break
-                                continue
-                            continue
-                        quality_key = result_quality
-                        break
-                continue  # Re-do prompt selection
-            continue  # Re-do confirm
-        if result == "No":
-            print("Cancelled.")
-            return
-        break
 
     # 7. API Call
     if provider == "OpenAI":
@@ -1208,6 +1203,53 @@ def main():
                     print("\nError: No image returned by OpenRouter API.")
             except Exception as e:
                 print(f"\nAn error occurred during OpenRouter call: {e}")
+
+    elif provider == "OVH":
+        api_key = os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")
+
+        # Determine if we should send an authorization header
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        # Check if the token is valid (not empty and not a placeholder)
+        is_placeholder = api_key and api_key.startswith("your_")
+        if api_key and not is_placeholder:
+            headers["Authorization"] = f"Bearer {api_key}"
+            print("Using authenticated OVH access (400 rpm).")
+        else:
+            print("Using anonymous OVH access (2 rpm).")
+
+        url = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/images/generations"
+        payload = {
+            "model": model_choice,
+            "prompt": final_prompt,
+            "size": res_key,
+            "response_format": "b64_json",
+        }
+
+        print(f"\\nSending request to OVH ({model_choice})...")
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+
+            if response.status_code == 200:
+                resp_json = response.json()
+                image_b64 = None
+                if "data" in resp_json and len(resp_json["data"]) > 0:
+                    image_b64 = resp_json["data"][0].get("b64_json")
+
+                if image_b64:
+                    save_api_image(None, image_b64, None)
+                else:
+                    print(
+                        "\\nError: Could not retrieve image data from the OVH API response."
+                    )
+            else:
+                print(f"Error: {response.status_code} {response.text}")
+
+        except Exception as e:
+            print(f"\\nAn error occurred during OVH call: {e}")
 
     else:
         # Google Provider
