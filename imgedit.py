@@ -1156,17 +1156,21 @@ def main():
         def _save_openrouter_image(data_url: str, original_path: str | None):
             """Saves a base64 data URL image to disk."""
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if "," in data_url:
+                header, b64_data = data_url.split(",", 1)
+            else:
+                header = ""
+                b64_data = data_url
+            
+            img_bytes = base64.b64decode(b64_data)
+            ext = get_image_extension(img_bytes)
+
             if original_path:
                 base_name = os.path.splitext(os.path.basename(original_path))[0]
-                filename = f"edited_{timestamp}_{base_name}.png"
+                filename = f"edited_{timestamp}_{base_name}{ext}"
             else:
-                filename = f"generated_{timestamp}.png"
-            # data_url is like "data:image/png;base64,<data>"
-            if "," in data_url:
-                _, b64_data = data_url.split(",", 1)
-            else:
-                b64_data = data_url
-            img_bytes = base64.b64decode(b64_data)
+                filename = f"generated_{timestamp}{ext}"
+            
             with open(filename, "wb") as f:
                 f.write(img_bytes)
             print(f"\nSuccess! File saved successfully as {filename}")
@@ -1275,9 +1279,16 @@ def main():
                                 base_name = os.path.splitext(
                                     os.path.basename(img_path)
                                 )[0]
-                                filename = f"edited_{timestamp}_{base_name}.png"
-
-                                generated_image.save(filename)
+                                
+                                temp_filename = f"edited_{timestamp}_{base_name}_temp.png"
+                                generated_image.save(temp_filename)
+                                
+                                with open(temp_filename, "rb") as f:
+                                    img_data = f.read()
+                                ext = get_image_extension(img_data)
+                                filename = f"edited_{timestamp}_{base_name}{ext}"
+                                
+                                os.replace(temp_filename, filename)
                                 print(f"Success! File saved successfully as {filename}")
                                 saved = True
                                 success_count += 1
@@ -1361,11 +1372,22 @@ def main():
                                 base_name = os.path.splitext(
                                     os.path.basename(image_path)
                                 )[0]
-                                filename = f"edited_{timestamp}_{base_name}.png"
+                                temp_filename = f"edited_{timestamp}_{base_name}_temp.png"
                             else:
-                                filename = f"generated_{timestamp}.png"
-
-                            generated_image.save(filename)
+                                temp_filename = f"generated_{timestamp}_temp.png"
+                            
+                            generated_image.save(temp_filename)
+                            
+                            with open(temp_filename, "rb") as f:
+                                img_data = f.read()
+                            ext = get_image_extension(img_data)
+                            
+                            if image_path:
+                                filename = f"edited_{timestamp}_{base_name}{ext}"
+                            else:
+                                filename = f"generated_{timestamp}{ext}"
+                            
+                            os.replace(temp_filename, filename)
                             print(f"\nSuccess! File saved successfully as {filename}")
                             saved = True
                         elif part.text:
@@ -1428,24 +1450,44 @@ def main():
                 print(f"\nAn error occurred during Google call: {e}")
 
 
+def get_image_extension(img_data: bytes) -> str:
+    """Detects the image format from bytes and returns the appropriate extension."""
+    try:
+        img = Image.open(io.BytesIO(img_data))
+        fmt = img.format
+        if fmt:
+            fmt = fmt.upper()
+            if fmt in ("JPEG", "JPG", "MPO"):
+                return ".jpg"
+            elif fmt == "PNG":
+                return ".png"
+            elif fmt == "WEBP":
+                return ".webp"
+    except Exception:
+        pass
+    return ".png"
+
+
 def save_api_image(image_url, image_b64, original_path):
     """Downloads or decodes an image and saves it to disk."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    if original_path:
-        base_name = os.path.splitext(os.path.basename(original_path))[0]
-        filename = f"edited_{timestamp}_{base_name}.png"
-    else:
-        filename = f"generated_{timestamp}.png"
-
     if image_url:
         print(f"\nSuccess! Image available at:\n{image_url}")
-        print(f"Downloading and saving to {filename}...")
+        print(f"Downloading image...")
         img_data = requests.get(image_url).content
     else:
         print(f"\nSuccess! Received base64 image data.")
-        print(f"Decoding and saving to {filename}...")
+        print(f"Decoding image...")
         img_data = base64.b64decode(image_b64)
+
+    ext = get_image_extension(img_data)
+
+    if original_path:
+        base_name = os.path.splitext(os.path.basename(original_path))[0]
+        filename = f"edited_{timestamp}_{base_name}{ext}"
+    else:
+        filename = f"generated_{timestamp}{ext}"
 
     with open(filename, "wb") as handler:
         handler.write(img_data)
