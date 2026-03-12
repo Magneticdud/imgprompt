@@ -97,6 +97,11 @@ COSTS = {
     },
 }
 
+# Add OpenRouter prefixed versions for Gemini models (they use google/ prefix)
+COSTS["google/gemini-2.5-flash-image"] = COSTS["gemini-2.5-flash-image"]
+COSTS["google/gemini-3.1-flash-image-preview"] = COSTS["gemini-3.1-flash-image-preview"]
+COSTS["google/gemini-3-pro-image-preview"] = COSTS["gemini-3-pro-image-preview"]
+
 GEMINI_RESOLUTIONS = {
     "1:1": "1024x1024",
     "2:3": "832x1248",
