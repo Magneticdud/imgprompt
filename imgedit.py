@@ -489,6 +489,14 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
             for s in ["1K", "2K"]:
                 cost = COSTS[model][s]["fixed"]
                 size_choices.append(f"{s} (${cost:.2f})")
+        elif model in [
+            "google/gemini-3-pro-image-preview",
+            "google/gemini-3.1-flash-image-preview",
+        ]:
+            size_choices = []
+            for s in ["1K", "2K", "4K"]:
+                cost = COSTS[model][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
         else:
             size_choices = []
             for s in ["1K", "2K"]:
@@ -771,7 +779,9 @@ def main():
             provider = result
             if provider == "OVH" and input_images:
                 print("\nError: OVH provider only supports Text-to-Image mode.")
-                print("Please run the script again and select 'Text-to-Image' or use --free.")
+                print(
+                    "Please run the script again and select 'Text-to-Image' or use --free."
+                )
                 sys.exit(1)
             current_step = 1
 
@@ -890,7 +900,7 @@ def main():
                 ).ask()
                 if new_prompt:
                     final_prompt = new_prompt
-                continue # Will show summary again
+                continue  # Will show summary again
             elif action == BACK_OPTION:
                 current_step = 4
                 continue
@@ -1161,7 +1171,7 @@ def main():
             else:
                 header = ""
                 b64_data = data_url
-            
+
             img_bytes = base64.b64decode(b64_data)
             ext = get_image_extension(img_bytes)
 
@@ -1170,7 +1180,7 @@ def main():
                 filename = f"edited_{timestamp}_{base_name}{ext}"
             else:
                 filename = f"generated_{timestamp}{ext}"
-            
+
             with open(filename, "wb") as f:
                 f.write(img_bytes)
             print(f"\nSuccess! File saved successfully as {filename}")
@@ -1326,15 +1336,17 @@ def main():
                                 base_name = os.path.splitext(
                                     os.path.basename(img_path)
                                 )[0]
-                                
-                                temp_filename = f"edited_{timestamp}_{base_name}_temp.png"
+
+                                temp_filename = (
+                                    f"edited_{timestamp}_{base_name}_temp.png"
+                                )
                                 generated_image.save(temp_filename)
-                                
+
                                 with open(temp_filename, "rb") as f:
                                     img_data = f.read()
                                 ext = get_image_extension(img_data)
                                 filename = f"edited_{timestamp}_{base_name}{ext}"
-                                
+
                                 os.replace(temp_filename, filename)
                                 print(f"Success! File saved successfully as {filename}")
                                 saved = True
@@ -1419,21 +1431,23 @@ def main():
                                 base_name = os.path.splitext(
                                     os.path.basename(image_path)
                                 )[0]
-                                temp_filename = f"edited_{timestamp}_{base_name}_temp.png"
+                                temp_filename = (
+                                    f"edited_{timestamp}_{base_name}_temp.png"
+                                )
                             else:
                                 temp_filename = f"generated_{timestamp}_temp.png"
-                            
+
                             generated_image.save(temp_filename)
-                            
+
                             with open(temp_filename, "rb") as f:
                                 img_data = f.read()
                             ext = get_image_extension(img_data)
-                            
+
                             if image_path:
                                 filename = f"edited_{timestamp}_{base_name}{ext}"
                             else:
                                 filename = f"generated_{timestamp}{ext}"
-                            
+
                             os.replace(temp_filename, filename)
                             print(f"\nSuccess! File saved successfully as {filename}")
                             saved = True
