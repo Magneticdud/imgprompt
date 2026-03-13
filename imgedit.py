@@ -497,6 +497,14 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
             for s in ["1K", "2K", "4K"]:
                 cost = COSTS[model][s]["fixed"]
                 size_choices.append(f"{s} (${cost:.2f})")
+        elif model in [
+            "google/gemini-2.5-flash-image",
+            "gemini-2.5-flash-image",
+        ]:
+            size_choices = []
+            for s in ["1K"]:
+                cost = COSTS[model][s]["fixed"]
+                size_choices.append(f"{s} (${cost:.2f})")
         else:
             size_choices = []
             for s in ["1K", "2K"]:
