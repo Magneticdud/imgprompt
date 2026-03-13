@@ -2,6 +2,7 @@
 *.jpeg
 *.png
 *.JPG
+*.webp
 __pycache__
 .venv/
 .env
