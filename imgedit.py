@@ -351,10 +351,6 @@ def step_model(provider: str, current_model: str | None = None) -> str | None:
     elif provider == "OVH":
         model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
         default_model = "stabilityai/stable-diffusion-xl-base-1.0"
-    elif provider == "OVH":
-        return "1:1", "1024x1024"
-    elif provider == "OVH":
-        return "1K", 0.0
     else:  # Google
         model_choices = [
             "gemini-2.5-flash-image",
@@ -424,12 +420,8 @@ def step_resolution(
         return aspect_ratio, res_key
 
     elif provider == "OVH":
-        model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
-        default_model = "stabilityai/stable-diffusion-xl-base-1.0"
-    elif provider == "OVH":
         return "1:1", "1024x1024"
-    elif provider == "OVH":
-        return "1K", 0.0
+
     else:  # Google
         if model in [
             "gemini-3-pro-image-preview",
@@ -523,12 +515,8 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
         return quality_key, final_cost
 
     elif provider == "OVH":
-        model_choices = ["stabilityai/stable-diffusion-xl-base-1.0"]
-        default_model = "stabilityai/stable-diffusion-xl-base-1.0"
-    elif provider == "OVH":
-        return "1:1", "1024x1024"
-    elif provider == "OVH":
         return "1K", 0.0
+
     else:  # Google
         if model in [
             "gemini-3-pro-image-preview",
@@ -557,7 +545,6 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
 def step_prompt(input_images: list, image_path: str | None) -> tuple[str | None, str]:
     """Step 5: Select prompt. Returns (final_prompt or BACK_OPTION, original_selection)."""
     is_batch_mode = len(input_images) > 1
-
     if is_batch_mode:
         prompt_list = PRESET_PROMPTS_EDIT
     elif len(input_images) > 1:
@@ -698,6 +685,7 @@ def step_confirm() -> str | None:
     if confirm == BACK_OPTION:
         return BACK_OPTION
     return confirm
+
 
 
 def main():
@@ -1165,6 +1153,12 @@ def main():
                     "image_config": image_config,
                 },
             )
+
+            if not resp.choices:
+                print("\nError: No choices returned in API response")
+                print(f"Debug - Full response: {resp}")
+                return None
+
             msg = resp.choices[0].message
             images = getattr(msg, "images", None)
             if images:
