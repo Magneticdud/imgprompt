@@ -113,6 +113,10 @@ GEMINI_RESOLUTIONS = {
     "9:16": "768x1344",
     "16:9": "1344x768",
     "21:9": "1536x672",
+    "1:4": "512x2048",
+    "4:1": "2048x512",
+    "1:8": "512x4096",
+    "8:1": "4096x512",
 }
 
 # OpenRouter / Riverflow supported aspect ratios (same grid as Gemini)
@@ -140,6 +144,10 @@ ASPECT_RATIO_VALUES = {
     "9:16": 9 / 16,
     "16:9": 16 / 9,
     "21:9": 21 / 9,
+    "1:4": 1 / 4,
+    "4:1": 4.0,
+    "1:8": 1 / 8,
+    "8:1": 8.0,
     "1024x1024 (Square)": 1.0,
     "1024x1536 (Vertical)": 1024 / 1536,
     "1536x1024 (Horizontal)": 1536 / 1024,
@@ -423,14 +431,18 @@ def step_resolution(
         return "1:1", "1024x1024"
 
     else:  # Google
-        if model in [
-            "gemini-3-pro-image-preview",
-            "gemini-3.1-flash-image-preview",
-        ]:
+        STANDARD_RATIOS = [
+            "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
+        ]
+
+        if model == "gemini-3.1-flash-image-preview":
             ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
             default_ratio = "Auto"
+        elif model == "gemini-3-pro-image-preview":
+            ratio_options = ["Auto"] + STANDARD_RATIOS
+            default_ratio = "Auto"
         else:
-            ratio_options = list(GEMINI_RESOLUTIONS.keys())
+            ratio_options = STANDARD_RATIOS
             default_ratio = "1:1"
 
         if image_path:
