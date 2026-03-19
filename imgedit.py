@@ -130,7 +130,16 @@ OPENROUTER_RESOLUTIONS = {
     "5:4": "1152x896",
     "9:16": "768x1344",
     "16:9": "1344x768",
+    "21:9": "1536x672",
+    "1:4": "512x2048",
+    "4:1": "2048x512",
+    "1:8": "512x4096",
+    "8:1": "4096x512",
 }
+
+OPENROUTER_STANDARD_RATIOS = [
+    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"
+]
 
 # Mapping of aspect ratio strings to their float values for comparison
 ASPECT_RATIO_VALUES = {
@@ -409,7 +418,10 @@ def step_resolution(
         return resolution, res_key
 
     elif provider == "OpenRouter":
-        ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
+        if model == "google/gemini-3.1-flash-image-preview":
+            ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
+        else:
+            ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
         default_ratio = "1:1"
 
         if image_path:
