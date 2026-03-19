@@ -138,7 +138,15 @@ OPENROUTER_RESOLUTIONS = {
 }
 
 OPENROUTER_STANDARD_RATIOS = [
-    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"
+    "1:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "4:5",
+    "5:4",
+    "9:16",
+    "16:9",
 ]
 
 # Mapping of aspect ratio strings to their float values for comparison
@@ -444,7 +452,16 @@ def step_resolution(
 
     else:  # Google
         STANDARD_RATIOS = [
-            "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
+            "1:1",
+            "2:3",
+            "3:2",
+            "3:4",
+            "4:3",
+            "4:5",
+            "5:4",
+            "9:16",
+            "16:9",
+            "21:9",
         ]
 
         if model == "gemini-3.1-flash-image-preview":
@@ -709,7 +726,6 @@ def step_confirm() -> str | None:
     if confirm == BACK_OPTION:
         return BACK_OPTION
     return confirm
-
 
 
 def main():
@@ -1383,7 +1399,9 @@ def main():
                                 output_path = os.path.join(output_dir, filename)
 
                                 os.replace(temp_filename, output_path)
-                                print(f"Success! File saved successfully as {output_path}")
+                                print(
+                                    f"Success! File saved successfully as {output_path}"
+                                )
                                 saved = True
                                 success_count += 1
                                 break
@@ -1489,7 +1507,9 @@ def main():
                             output_path = os.path.join(output_dir, filename)
 
                             os.replace(temp_filename, output_path)
-                            print(f"\nSuccess! File saved successfully as {output_path}")
+                            print(
+                                f"\nSuccess! File saved successfully as {output_path}"
+                            )
                             saved = True
                         elif part.text:
                             # Print text if present (new models might return text + image)
