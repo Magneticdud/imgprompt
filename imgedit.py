@@ -1203,13 +1203,18 @@ def main():
 
             if original_path:
                 base_name = os.path.splitext(os.path.basename(original_path))[0]
+                output_dir = os.path.dirname(original_path)
+                if not output_dir:
+                    output_dir = "."
                 filename = f"edited_{timestamp}_{base_name}{ext}"
+                output_path = os.path.join(output_dir, filename)
             else:
                 filename = f"generated_{timestamp}{ext}"
+                output_path = filename
 
-            with open(filename, "wb") as f:
+            with open(output_path, "wb") as f:
                 f.write(img_bytes)
-            print(f"\nSuccess! File saved successfully as {filename}")
+            print(f"\nSuccess! File saved successfully as {output_path}")
 
         if is_batch_mode:
             print(f"\nStarting batch processing: {len(input_images)} images...")
@@ -1362,6 +1367,9 @@ def main():
                                 base_name = os.path.splitext(
                                     os.path.basename(img_path)
                                 )[0]
+                                output_dir = os.path.dirname(img_path)
+                                if not output_dir:
+                                    output_dir = "."
 
                                 temp_filename = (
                                     f"edited_{timestamp}_{base_name}_temp.png"
@@ -1372,9 +1380,10 @@ def main():
                                     img_data = f.read()
                                 ext = get_image_extension(img_data)
                                 filename = f"edited_{timestamp}_{base_name}{ext}"
+                                output_path = os.path.join(output_dir, filename)
 
-                                os.replace(temp_filename, filename)
-                                print(f"Success! File saved successfully as {filename}")
+                                os.replace(temp_filename, output_path)
+                                print(f"Success! File saved successfully as {output_path}")
                                 saved = True
                                 success_count += 1
                                 break
@@ -1457,10 +1466,14 @@ def main():
                                 base_name = os.path.splitext(
                                     os.path.basename(image_path)
                                 )[0]
+                                output_dir = os.path.dirname(image_path)
+                                if not output_dir:
+                                    output_dir = "."
                                 temp_filename = (
                                     f"edited_{timestamp}_{base_name}_temp.png"
                                 )
                             else:
+                                output_dir = "."
                                 temp_filename = f"generated_{timestamp}_temp.png"
 
                             generated_image.save(temp_filename)
@@ -1473,9 +1486,10 @@ def main():
                                 filename = f"edited_{timestamp}_{base_name}{ext}"
                             else:
                                 filename = f"generated_{timestamp}{ext}"
+                            output_path = os.path.join(output_dir, filename)
 
-                            os.replace(temp_filename, filename)
-                            print(f"\nSuccess! File saved successfully as {filename}")
+                            os.replace(temp_filename, output_path)
+                            print(f"\nSuccess! File saved successfully as {output_path}")
                             saved = True
                         elif part.text:
                             # Print text if present (new models might return text + image)
@@ -1572,13 +1586,18 @@ def save_api_image(image_url, image_b64, original_path):
 
     if original_path:
         base_name = os.path.splitext(os.path.basename(original_path))[0]
+        output_dir = os.path.dirname(original_path)
+        if not output_dir:
+            output_dir = "."
         filename = f"edited_{timestamp}_{base_name}{ext}"
+        output_path = os.path.join(output_dir, filename)
     else:
         filename = f"generated_{timestamp}{ext}"
+        output_path = filename
 
-    with open(filename, "wb") as handler:
+    with open(output_path, "wb") as handler:
         handler.write(img_data)
-    print(f"File saved successfully as {filename}")
+    print(f"File saved successfully as {output_path}")
 
 
 if __name__ == "__main__":
