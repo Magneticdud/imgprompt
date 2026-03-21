@@ -2,6 +2,7 @@
 import os
 import sys
 import shutil
+import time
 
 # Auto-activate venv if it exists and we aren't using it
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1412,6 +1413,9 @@ def main():
                                     success_count += 1
                                     break
 
+                        if saved:
+                            break  # exit retry loop on success
+
                         if not saved:
                             print("Error: No image found in Google API response.")
                             # Check for errors
@@ -1425,6 +1429,8 @@ def main():
                                     )
                             fail_count += 1
 
+                        break  # non-retryable: API succeeded but returned no image
+
                     except Exception as e:
                         error_str = str(e)
                         if (
@@ -1435,12 +1441,10 @@ def main():
                             or "high demand" in error_str.lower()
                         ):
                             if attempt < MAX_RETRIES:
-                                delay = BASE_DELAY * (2 ** (attempt - 1))
+                                delay = min(BASE_DELAY * (2 ** (attempt - 1)), 60)
                                 print(
                                     f"\n[Retry {attempt}/{MAX_RETRIES}] Server error, waiting {delay}s..."
                                 )
-                                import time
-
                                 time.sleep(delay)
                                 continue
                             else:
@@ -1603,7 +1607,7 @@ def main():
                         or "high demand" in error_str.lower()
                     ):
                         if attempt < MAX_RETRIES:
-                            delay = BASE_DELAY * (2 ** (attempt - 1))
+                            delay = min(BASE_DELAY * (2 ** (attempt - 1)), 60)
                             print(
                                 f"\n[Retry {attempt}/{MAX_RETRIES}] Server error, waiting {delay}s..."
                             )
