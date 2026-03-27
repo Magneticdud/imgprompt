@@ -209,6 +209,7 @@ PRESET_PROMPTS_GENERATE = [
     "Business Card",
     "APPROVED Stamp",
     "Generic Logotype",
+    "Comic Book Style Text",
     "Custom Prompt",
 ]
 
@@ -619,6 +620,7 @@ def step_prompt(input_images: list, image_path: str | None) -> tuple[str | None,
         "Business Card",
         "APPROVED Stamp",
         "Generic Logotype",
+        "Comic Book Style Text",
     ]
 
     if prompt_selection in prompts_needing_input:
@@ -716,6 +718,17 @@ def step_prompt(input_images: list, image_path: str | None) -> tuple[str | None,
             return BACK_OPTION, prompt_selection
 
         final_prompt = f"A typographic logo, with centered text, with the following text: {logo_text}"
+    elif prompt_selection == "Comic Book Style Text":
+        text_input = questionary.text("What text to write?").ask()
+        if not text_input:
+            print("Error: Text input is required for this preset.")
+            return BACK_OPTION, prompt_selection
+        final_prompt = (
+            f'Comic book style bold text that reads "{text_input}", '
+            f"retro superhero font, thick black outline, yellow to red gradient fill, "
+            f"halftone dot pattern texture, 3D extruded shadow effect, pop art style, "
+            f"white background, high contrast, vintage Marvel/DC comics typography."
+        )
 
     return final_prompt, prompt_selection
 
