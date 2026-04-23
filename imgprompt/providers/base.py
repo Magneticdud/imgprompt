@@ -10,6 +10,12 @@ class GenerationRequest:
     res_key: str
     quality_key: str
     images: list[str] = field(default_factory=list)
+    width: int | None = None
+    height: int | None = None
+    input_pixels: int = 0
+    width: int | None = None
+    height: int | None = None
+    input_pixels: int = 0
 
     @property
     def is_batch(self) -> bool:

@@ -1,4 +1,159 @@
+import math
+
 BACK_OPTION = "← Go back"
+
+# gpt-image-2 constraints
+GPT_IMAGE_2_MIN_PIXELS = 655_360
+GPT_IMAGE_2_MAX_PIXELS = 8_294_400
+GPT_IMAGE_2_MAX_EDGE = 3840
+GPT_IMAGE_2_MAX_ASPECT = 3
+GPT_IMAGE_2_MULTIPLE = 16
+GPT_IMAGE_2_PRICE_PER_MTOK = 30.0
+
+# gpt-image-2 presets: (ratio, size) -> (width, height)
+GPT_IMAGE_2_PRESETS = {
+    ("1:1", "1K"): (1024, 1024),
+    ("1:1", "2K"): (1536, 1536),
+    ("1:1", "4K"): (2048, 2048),
+    ("16:9", "2K"): (1920, 1088),
+    ("16:9", "4K"): (2560, 1440),
+    ("9:16", "2K"): (1088, 1920),
+    ("9:16", "4K"): (1440, 2560),
+    ("4:3", "2K"): (1600, 1200),
+    ("4:3", "4K"): (2304, 1728),
+    ("3:4", "2K"): (1200, 1600),
+    ("3:4", "4K"): (1728, 2304),
+    ("3:2", "2K"): (1728, 1152),
+    ("3:2", "4K"): (2496, 1664),
+    ("2:3", "2K"): (1152, 1728),
+    ("2:3", "4K"): (1664, 2496),
+}
+
+# Ordered preset choices for CLI display
+GPT_IMAGE_2_PRESET_CHOICES = [
+    ("1:1 — 1K (1024×1024)", "1:1", "1K", 1024, 1024),
+    ("1:1 — 2K (1536×1536)", "1:1", "2K", 1536, 1536),
+    ("1:1 — 4K (2048×2048)", "1:1", "4K", 2048, 2048),
+    ("16:9 — 2K (1920×1088)", "16:9", "2K", 1920, 1088),
+    ("16:9 — 4K (2560×1440)", "16:9", "4K", 2560, 1440),
+    ("9:16 — 2K (1088×1920)", "9:16", "2K", 1088, 1920),
+    ("9:16 — 4K (1440×2560)", "9:16", "4K", 1440, 2560),
+    ("4:3 — 2K (1600×1200)", "4:3", "2K", 1600, 1200),
+    ("4:3 — 4K (2304×1728)", "4:3", "4K", 2304, 1728),
+    ("3:4 — 2K (1200×1600)", "3:4", "2K", 1200, 1600),
+    ("3:4 — 4K (1728×2304)", "3:4", "4K", 1728, 2304),
+    ("3:2 — 2K (1728×1152)", "3:2", "2K", 1728, 1152),
+    ("3:2 — 4K (2496×1664)", "3:2", "4K", 2496, 1664),
+    ("2:3 — 2K (1152×1728)", "2:3", "2K", 1152, 1728),
+    ("2:3 — 4K (1664×2496)", "2:3", "4K", 1664, 2496),
+]
+
+
+def calc_gpt_image2_tokens(width: int, height: int, quality: str) -> int:
+    """Calculate output tokens for gpt-image-2.
+
+    Uses a proportional grid model where quality determines the number of cells
+    along the long side, scaled by aspect ratio on the short side.
+    A pixel factor normalises the result relative to a 2 MP baseline.
+
+    Args:
+        width:   Output image width in pixels.
+        height:  Output image height in pixels.
+        quality: One of 'low', 'medium', or 'high' (case-insensitive).
+
+    Returns:
+        Estimated number of output tokens (ceiling).
+    """
+    q_map = {"low": 16, "medium": 48, "high": 96}
+    q = q_map[quality.lower()]
+
+    long_side = max(width, height)
+    short_side = min(width, height)
+
+    q_scaled = round(q * short_side / long_side)
+
+    q_width = q if width >= height else q_scaled
+    q_height = q_scaled if width >= height else q
+
+    grid_area = q_width * q_height
+
+    pixel_factor = (2_000_000 + width * height) / 4_000_000
+
+    return math.ceil(grid_area * pixel_factor)
+
+
+def round_to_multiple_of_16(value: int) -> int:
+    """Round a dimension to the nearest multiple of 16."""
+    return round(value / 16) * 16
+
+
+def auto_adjust_gpt_image2_dims(width: int, height: int) -> tuple[int, int]:
+    """Automatically adjust dimensions to meet gpt-image-2 requirements.
+
+    Returns:
+        Tuple of (adjusted_width, adjusted_height)
+    """
+    # Round to nearest multiple of 16
+    adj_width = round_to_multiple_of_16(width)
+    adj_height = round_to_multiple_of_16(height)
+
+    # Ensure minimum dimensions
+    if adj_width == 0:
+        adj_width = 16
+    if adj_height == 0:
+        adj_height = 16
+
+    # Clamp to max edge
+    if adj_width > GPT_IMAGE_2_MAX_EDGE:
+        adj_width = GPT_IMAGE_2_MAX_EDGE
+    if adj_height > GPT_IMAGE_2_MAX_EDGE:
+        adj_height = GPT_IMAGE_2_MAX_EDGE
+
+    # Check total pixels and adjust if needed
+    pixels = adj_width * adj_height
+    if pixels > GPT_IMAGE_2_MAX_PIXELS:
+        # Scale down proportionally
+        scale = math.sqrt(GPT_IMAGE_2_MAX_PIXELS / pixels)
+        adj_width = round_to_multiple_of_16(int(adj_width * scale))
+        adj_height = round_to_multiple_of_16(int(adj_height * scale))
+    elif pixels < GPT_IMAGE_2_MIN_PIXELS:
+        # Scale up proportionally
+        scale = math.sqrt(GPT_IMAGE_2_MIN_PIXELS / pixels)
+        adj_width = round_to_multiple_of_16(int(adj_width * scale))
+        adj_height = round_to_multiple_of_16(int(adj_height * scale))
+
+    # Check aspect ratio and adjust if needed
+    aspect = max(adj_width, adj_height) / min(adj_width, adj_height)
+    if aspect > GPT_IMAGE_2_MAX_ASPECT:
+        # Adjust the shorter side to meet aspect ratio
+        if adj_width > adj_height:
+            adj_height = round_to_multiple_of_16(
+                int(adj_width / GPT_IMAGE_2_MAX_ASPECT)
+            )
+        else:
+            adj_width = round_to_multiple_of_16(
+                int(adj_height / GPT_IMAGE_2_MAX_ASPECT)
+            )
+
+    return adj_width, adj_height
+
+
+def validate_gpt_image2_dims(width, height):
+    """Returns list of error strings, empty if valid."""
+    errors = []
+    if width % 16 != 0 or height % 16 != 0:
+        errors.append("Width and height must be divisible by 16")
+    pixels = width * height
+    if pixels < GPT_IMAGE_2_MIN_PIXELS:
+        errors.append(f"Minimum {GPT_IMAGE_2_MIN_PIXELS:,} pixels")
+    if pixels > GPT_IMAGE_2_MAX_PIXELS:
+        errors.append(f"Maximum {GPT_IMAGE_2_MAX_PIXELS:,} pixels")
+    if max(width, height) > GPT_IMAGE_2_MAX_EDGE:
+        errors.append(f"Maximum edge: {GPT_IMAGE_2_MAX_EDGE}px")
+    if max(width, height) / min(width, height) > GPT_IMAGE_2_MAX_ASPECT:
+        errors.append("Maximum aspect ratio: 3:1")
+    return errors
+
 
 # Pricing constants (approximate, for reference only)
 COSTS = {

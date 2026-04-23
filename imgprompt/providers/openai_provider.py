@@ -40,14 +40,25 @@ class OpenAIProvider(ImageProvider):
             )
             try:
                 image_input = process_image_for_api(img_path, request.res_key)
-                response = client.images.edit(
-                    model=request.model,
-                    image=image_input,
-                    prompt=request.prompt,
-                    n=1,
-                    size=request.res_key,
-                    quality=request.quality_key.lower(),
-                )
+                # GPT Image models don't support width/height or size parameters
+                if request.model.startswith("gpt-image"):
+                    response = client.images.edit(
+                        model=request.model,
+                        image=image_input,
+                        prompt=request.prompt,
+                        n=1,
+                        quality=request.quality_key.lower(),
+                    )
+                else:
+                    # DALL-E 2 uses size parameter
+                    response = client.images.edit(
+                        model=request.model,
+                        image=image_input,
+                        prompt=request.prompt,
+                        n=1,
+                        size=request.res_key,
+                        quality=request.quality_key.lower(),
+                    )
                 image_url = None
                 image_b64 = None
                 if hasattr(response, "data") and len(response.data) > 0:
@@ -83,14 +94,25 @@ class OpenAIProvider(ImageProvider):
                     process_image_for_api(p, request.res_key) for p in request.images
                 ]
 
-            response = client.images.edit(
-                model=request.model,
-                image=image_input,
-                prompt=request.prompt,
-                n=1,
-                size=request.res_key,
-                quality=request.quality_key.lower(),
-            )
+            # GPT Image models don't support width/height or size parameters
+            if request.model.startswith("gpt-image"):
+                response = client.images.edit(
+                    model=request.model,
+                    image=image_input,
+                    prompt=request.prompt,
+                    n=1,
+                    quality=request.quality_key.lower(),
+                )
+            else:
+                # DALL-E 2 uses size parameter
+                response = client.images.edit(
+                    model=request.model,
+                    image=image_input,
+                    prompt=request.prompt,
+                    n=1,
+                    size=request.res_key,
+                    quality=request.quality_key.lower(),
+                )
             image_url = None
             image_b64 = None
             if hasattr(response, "data") and len(response.data) > 0:

@@ -3,6 +3,7 @@ import os
 import sys
 import shutil
 import time
+import math
 
 # Auto-activate venv if it exists and we aren't using it
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -45,6 +46,11 @@ from imgprompt.presets import (
     PRESET_PROMPTS_EDIT,
     PRESET_PROMPTS_GENERATE,
     PRESET_PROMPTS_DUAL,
+    GPT_IMAGE_2_PRESET_CHOICES,
+    GPT_IMAGE_2_PRICE_PER_MTOK,
+    calc_gpt_image2_tokens,
+    validate_gpt_image2_dims,
+    auto_adjust_gpt_image2_dims,
 )
 from imgprompt.images import (
     get_images_in_cwd,
@@ -124,8 +130,8 @@ def step_provider() -> str | None:
 def step_model(provider: str, current_model: str | None = None) -> str | None:
     """Step 2: Select model based on provider. Returns model name or BACK_OPTION."""
     if provider == "OpenAI":
-        model_choices = ["gpt-image-1.5", "gpt-image-1-mini"]
-        default_model = "gpt-image-1.5"
+        model_choices = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini"]
+        default_model = "gpt-image-2"
     elif provider == "OpenRouter":
         model_choices = [
             "bytedance-seed/seedream-4.5",
@@ -165,13 +171,106 @@ def step_model(provider: str, current_model: str | None = None) -> str | None:
     return model
 
 
+def _prompt_custom_dims() -> tuple[int | None, int | None]:
+    """Prompt for custom width/height with validation. Returns (width, height) or (None, None) on back."""
+    while True:
+        width_str = questionary.text(
+            "Width (will be rounded to multiple of 16):",
+            default="1024",
+        ).ask()
+        if not width_str:
+            return None, None
+        if width_str.strip().lower() == "back":
+            return None, None
+        try:
+            width = int(width_str)
+        except ValueError:
+            print("Error: Width must be a whole number.")
+            continue
+
+        while True:
+            height_str = questionary.text(
+                "Height (will be rounded to multiple of 16):",
+                default="1024",
+            ).ask()
+            if not height_str:
+                return None, None
+            if height_str.strip().lower() == "back":
+                return None, None
+            try:
+                height = int(height_str)
+            except ValueError:
+                print("Error: Height must be a whole number.")
+                continue
+
+            # Auto-adjust dimensions to meet requirements
+            adj_width, adj_height = auto_adjust_gpt_image2_dims(width, height)
+
+            # Show adjustment if dimensions changed
+            if adj_width != width or adj_height != height:
+                print(
+                    f"Adjusted: {width}x{height} → {adj_width}x{adj_height} (rounded to multiple of 16)"
+                )
+
+            # Validate adjusted dimensions
+            errors = validate_gpt_image2_dims(adj_width, adj_height)
+            if errors:
+                print("Invalid dimensions after adjustment:")
+                for err in errors:
+                    print(f"  - {err}")
+                break
+
+            print(f"Valid: {adj_width}x{adj_height} = {adj_width * adj_height:,} px")
+            return adj_width, adj_height
+
+
 def step_resolution(
     provider: str, model: str, image_path: str | None
-) -> tuple[str | None, str | None]:
-    """Step 3: Select resolution/aspect ratio. Returns (selection, res_key) or (BACK_OPTION, None)."""
+) -> tuple[str | None, str | None, int | None, int | None]:
+    """Step 3: Select resolution/aspect ratio. Returns (selection, res_key, width, height) or (BACK_OPTION, None, None, None)."""
     choices_with_back = [BACK_OPTION]
 
-    if provider == "OpenAI":
+    if provider == "OpenAI" and model == "gpt-image-2":
+        preset_labels = [label for label, _, _, _, _ in GPT_IMAGE_2_PRESET_CHOICES]
+        custom_label = "Custom dimensions"
+
+        if image_path:
+            with Image.open(image_path) as img:
+                img_ratio = img.width / img.height
+            best_idx = 0
+            best_diff = float("inf")
+            for i, (label, ratio_str, _, w, h) in enumerate(GPT_IMAGE_2_PRESET_CHOICES):
+                parts = ratio_str.split(":")
+                preset_ratio = int(parts[0]) / int(parts[1])
+                diff = abs(img_ratio - preset_ratio)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_idx = i
+            default_choice = preset_labels[best_idx]
+        else:
+            default_choice = preset_labels[0]
+
+        resolution = questionary.select(
+            "Select resolution:",
+            choices=choices_with_back + preset_labels + [custom_label],
+            default=default_choice,
+        ).ask()
+        if resolution == BACK_OPTION or not resolution:
+            return BACK_OPTION, None, None, None
+
+        if resolution == custom_label:
+            width, height = _prompt_custom_dims()
+            if width is None:
+                return BACK_OPTION, None, None, None
+            res_key = f"{width}x{height}"
+            return f"Custom ({width}x{height})", res_key, width, height
+
+        idx = preset_labels.index(resolution)
+        _, ratio_str, size_key, width, height = GPT_IMAGE_2_PRESET_CHOICES[idx]
+        res_key = f"{width}x{height}"
+        return resolution, res_key, width, height
+
+    elif provider == "OpenAI":
         res_options = [
             "1024x1024 (Square)",
             "1024x1536 (Vertical)",
@@ -188,9 +287,9 @@ def step_resolution(
             default=closest,
         ).ask()
         if resolution == BACK_OPTION or not resolution:
-            return BACK_OPTION, None
+            return BACK_OPTION, None, None, None
         res_key = resolution.split(" ")[0]
-        return resolution, res_key
+        return resolution, res_key, None, None
 
     elif provider == "OpenRouter":
         if model == "google/gemini-3.1-flash-image-preview":
@@ -210,12 +309,12 @@ def step_resolution(
             default=closest,
         ).ask()
         if aspect_ratio == BACK_OPTION or not aspect_ratio:
-            return BACK_OPTION, None
+            return BACK_OPTION, None, None, None
         res_key = OPENROUTER_RESOLUTIONS.get(aspect_ratio, "1024x1024")
-        return aspect_ratio, res_key
+        return aspect_ratio, res_key, None, None
 
     elif provider == "OVH":
-        return "1:1", "1024x1024"
+        return "1:1", "1024x1024", None, None
 
     else:  # Google
         STANDARD_RATIOS = [
@@ -252,16 +351,47 @@ def step_resolution(
             default=closest,
         ).ask()
         if aspect_ratio == BACK_OPTION or not aspect_ratio:
-            return BACK_OPTION, None
+            return BACK_OPTION, None, None, None
         res_key = GEMINI_RESOLUTIONS.get(aspect_ratio, "Auto")
-        return aspect_ratio, res_key
+        return aspect_ratio, res_key, None, None
 
 
-def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, float]:
-    """Step 4: Select quality/size. Returns (quality_key, cost) or (BACK_OPTION, 0)."""
+def step_quality(
+    provider: str,
+    model: str,
+    res_key: str,
+    width: int | None,
+    height: int | None,
+    image_path: str | None,
+) -> tuple[str | None, float, int]:
+    """Step 4: Select quality/size. Returns (quality_key, cost, input_pixels) or (BACK_OPTION, 0, 0)."""
     choices_with_back = [BACK_OPTION]
 
-    if provider == "OpenAI":
+    if provider == "OpenAI" and model == "gpt-image-2":
+        quality_choices = []
+        for q in ["Low", "Medium", "High"]:
+            tokens = calc_gpt_image2_tokens(width, height, q)
+            cost = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+            quality_choices.append(
+                (q, tokens, cost, f"{q} (~{tokens:,} tokens, ${cost:.4f})")
+            )
+
+        quality_selected = questionary.select(
+            "Select quality:",
+            choices=choices_with_back + [c[3] for c in quality_choices],
+            default=quality_choices[1][3],
+        ).ask()
+        if quality_selected == BACK_OPTION or not quality_selected:
+            return BACK_OPTION, 0, 0
+
+        quality_key = quality_selected.split(" ")[0]
+        selected_entry = next(
+            entry for entry in quality_choices if entry[3] == quality_selected
+        )
+        final_cost = selected_entry[2]
+        return quality_key, final_cost, 0
+
+    elif provider == "OpenAI":
         quality_choices = []
         for q in ["Low", "Medium", "High"]:
             cost = COSTS[model][q][res_key]
@@ -270,13 +400,13 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
         quality_selected = questionary.select(
             "Select quality:",
             choices=choices_with_back + quality_choices,
-            default=quality_choices[1],  # Default to Medium
+            default=quality_choices[1],
         ).ask()
         if quality_selected == BACK_OPTION or not quality_selected:
-            return BACK_OPTION, 0
+            return BACK_OPTION, 0, 0
         quality_key = quality_selected.split(" ")[0]
         final_cost = COSTS[model][quality_key][res_key]
-        return quality_key, final_cost
+        return quality_key, final_cost, 0
 
     elif provider == "OpenRouter":
         if model == "sourceful/riverflow-v2-pro":
@@ -317,13 +447,13 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
             default=size_choices[0],
         ).ask()
         if size_selected == BACK_OPTION or not size_selected:
-            return BACK_OPTION, 0
+            return BACK_OPTION, 0, 0
         quality_key = size_selected.split(" ")[0]
         final_cost = COSTS[model][quality_key]["fixed"]
-        return quality_key, final_cost
+        return quality_key, final_cost, 0
 
     elif provider == "OVH":
-        return "1K", 0.0
+        return "1K", 0.0, 0
 
     else:  # Google
         if model in [
@@ -341,13 +471,13 @@ def step_quality(provider: str, model: str, res_key: str) -> tuple[str | None, f
                 default=size_choices[0],
             ).ask()
             if size_selected == BACK_OPTION or not size_selected:
-                return BACK_OPTION, 0
+                return BACK_OPTION, 0, 0
             quality_key = size_selected.split(" ")[0]
         else:
             quality_key = "1K"
 
         final_cost = COSTS[model][quality_key]["fixed"]
-        return quality_key, final_cost
+        return quality_key, final_cost, 0
 
 
 def step_prompt(input_images: list, image_path: str | None) -> tuple[str | None, str]:
@@ -583,6 +713,8 @@ def main():
     quality_key = None
     final_cost = 0.0
     final_prompt = None
+    dim_width = None
+    dim_height = None
 
     while current_step >= 0:
         if current_step == 0:
@@ -611,17 +743,23 @@ def main():
 
         elif current_step == 2:
             # Step 3: Select Resolution
-            result_res, result_key = step_resolution(provider, model_choice, image_path)
+            result_res, result_key, result_width, result_height = step_resolution(
+                provider, model_choice, image_path
+            )
             if result_res == BACK_OPTION:
                 current_step = 1
                 continue
             aspect_ratio = result_res
             res_key = result_key
+            dim_width = result_width
+            dim_height = result_height
             current_step = 3
 
         elif current_step == 3:
             # Step 4: Select Quality
-            result_quality, final_cost = step_quality(provider, model_choice, res_key)
+            result_quality, final_cost, input_pixels = step_quality(
+                provider, model_choice, res_key, dim_width, dim_height, image_path
+            )
             if result_quality == BACK_OPTION:
                 current_step = 2
                 continue
@@ -651,7 +789,14 @@ def main():
                 print(f"Image:      None (Text-to-Image)")
             print(f"Provider:   {provider}")
             print(f"Model:      {model_choice}")
-            if provider == "OpenAI":
+            if provider == "OpenAI" and model_choice == "gpt-image-2":
+                print(f"Ratio:      {aspect_ratio}")
+                print(f"Dimensions: {dim_width}x{dim_height}")
+                print(f"Quality:    {quality_key}")
+                tokens = calc_gpt_image2_tokens(dim_width, dim_height, quality_key)
+                cost_display = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+                print(f"Tokens:     ~{tokens:,} (${cost_display:.4f})")
+            elif provider == "OpenAI":
                 print(f"Resolution: {res_key}")
                 print(f"Quality:    {quality_key}")
             elif provider == "OpenRouter":
@@ -689,12 +834,19 @@ def main():
             total_cost = final_cost + input_cost
 
             if is_batch_mode:
-                if provider == "OpenAI":
+                if provider == "OpenAI" and model_choice == "gpt-image-2":
+                    print(f"Per Image:  varies by input size")
+                    print(
+                        f"Total Cost: varies by input size ({len(input_images)} images)"
+                    )
+                elif provider == "OpenAI":
                     total_cost = final_cost * len(input_images)
+                    print(f"Per Image:  ${final_cost:.3f}")
+                    print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
                 else:
                     total_cost = (final_cost + input_cost) * len(input_images)
-                print(f"Per Image:  ${final_cost + input_cost:.3f}")
-                print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
+                    print(f"Per Image:  ${final_cost + input_cost:.3f}")
+                    print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
             else:
                 if input_cost > 0:
                     print(f"Output Cost: ${final_cost:.3f}")
@@ -730,6 +882,9 @@ def main():
         res_key=res_key,
         quality_key=quality_key,
         images=input_images,
+        width=dim_width,
+        height=dim_height,
+        input_pixels=input_pixels,
     )
 
     provider_map = {
