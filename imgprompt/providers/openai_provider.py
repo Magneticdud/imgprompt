@@ -14,7 +14,7 @@ class OpenAIProvider(ImageProvider):
 
     @classmethod
     def supported_models(cls) -> list[str]:
-        return ["gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini"]
+        return ["gpt-image-2"]
 
     def get_resolution_choices(
         self, model: str, image_path: str | None

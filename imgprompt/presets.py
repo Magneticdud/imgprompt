@@ -159,16 +159,6 @@ def validate_gpt_image2_dims(width, height):
 
 # Pricing constants (approximate, for reference only)
 COSTS = {
-    "gpt-image-1.5": {
-        "Low": {"1024x1024": 0.06, "1024x1536": 0.07, "1536x1024": 0.07},
-        "Medium": {"1024x1024": 0.07, "1024x1536": 0.11, "1536x1024": 0.11},
-        "High": {"1024x1024": 0.133, "1024x1536": 0.26, "1536x1024": 0.26},
-    },
-    "gpt-image-1-mini": {
-        "Low": {"1024x1024": 0.01, "1024x1536": 0.007, "1536x1024": 0.007},
-        "Medium": {"1024x1024": 0.011, "1024x1536": 0.016, "1536x1024": 0.016},
-        "High": {"1024x1024": 0.036, "1024x1536": 0.054, "1536x1024": 0.054},
-    },
     "gemini-2.5-flash-image": {
         "1K": {"fixed": 0.04},
     },
@@ -227,16 +217,6 @@ COSTS["openai/gpt-5.4-image-2"] = {
     "Low": {"fixed": 0.02},
     "Medium": {"fixed": 0.04},
     "High": {"fixed": 0.08},
-}
-COSTS["openai/gpt-5-image"] = {
-    "Low": {"fixed": 0.06},
-    "Medium": {"fixed": 0.10},
-    "High": {"fixed": 0.20},
-}
-COSTS["openai/gpt-5-image-mini"] = {
-    "Low": {"fixed": 0.01},
-    "Medium": {"fixed": 0.02},
-    "High": {"fixed": 0.04},
 }
 
 RATIO_TO_RESOLUTION = {

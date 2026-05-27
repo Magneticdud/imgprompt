@@ -22,8 +22,6 @@ class OpenRouterProvider(ImageProvider):
     def supported_models(cls) -> list[str]:
         return [
             "openai/gpt-5.4-image-2",
-            "openai/gpt-5-image",
-            "openai/gpt-5-image-mini",
             "bytedance-seed/seedream-4.5",
             "black-forest-labs/flux.2-klein-4b",
             "black-forest-labs/flux.2-flex",
