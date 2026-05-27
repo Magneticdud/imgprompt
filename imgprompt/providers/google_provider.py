@@ -2,14 +2,13 @@ import os
 import sys
 import io
 import time
-from datetime import datetime
 
 from PIL import Image
 from google import genai
 from google.genai import types
 
 from imgprompt.providers.base import ImageProvider, GenerationRequest
-from imgprompt.images import get_image_extension
+from imgprompt.images import save_image_bytes
 
 _RETRYABLE_ERRORS = ("503", "500", "UNAVAILABLE", "INTERNAL")
 _MAX_RETRIES_BATCH = 10
@@ -49,29 +48,89 @@ def _build_config_kwargs(model: str, config_args: dict) -> dict:
     return kwargs
 
 
-def _save_generated_image(pil_image, original_path: str | None) -> None:
-    """Saves a PIL Image returned by the Google API to disk."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Convert PIL Image to bytes to detect format, then save with correct extension
-    buf = io.BytesIO()
-    pil_image.save(buf, format="PNG")
-    img_data = buf.getvalue()
-    ext = get_image_extension(img_data)
-
-    if original_path:
-        base_name = os.path.splitext(os.path.basename(original_path))[0]
-        output_dir = os.path.dirname(original_path) or "."
-        output_path = os.path.join(output_dir, f"edited_{timestamp}_{base_name}{ext}")
-    else:
-        output_path = f"generated_{timestamp}{ext}"
-
-    with open(output_path, "wb") as f:
-        f.write(img_data)
-    print(f"Success! File saved successfully as {output_path}")
-
-
 class GoogleProvider(ImageProvider):
+    @classmethod
+    def provider_name(cls) -> str:
+        return "Google"
+
+    @classmethod
+    def supported_models(cls) -> list[str]:
+        return [
+            "gemini-2.5-flash-image",
+            "gemini-3.1-flash-image-preview",
+            "gemini-3-pro-image-preview",
+        ]
+
+    _STANDARD_RATIOS = [
+        "1:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9",
+        "21:9",
+    ]
+
+    def get_resolution_choices(
+        self, model: str, image_path: str | None
+    ) -> tuple[list[str], str]:
+        from imgprompt.presets import GEMINI_RESOLUTIONS
+
+        if model == "gemini-3.1-flash-image-preview":
+            ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
+            default = "Auto"
+        elif model == "gemini-3-pro-image-preview":
+            ratio_options = ["Auto"] + self._STANDARD_RATIOS
+            default = "Auto"
+        else:
+            ratio_options = self._STANDARD_RATIOS
+            default = "1:1"
+        if image_path:
+            from imgprompt.images import get_closest_aspect_ratio
+
+            default = get_closest_aspect_ratio(image_path, ratio_options)
+        return ratio_options, default
+
+    def resolve_resolution(
+        self, model: str, selection: str
+    ) -> tuple[str, int | None, int | None]:
+        from imgprompt.presets import GEMINI_RESOLUTIONS
+
+        return GEMINI_RESOLUTIONS.get(selection, "Auto"), None, None
+
+    def get_quality_choices(
+        self,
+        model: str,
+        res_key: str,
+        width: int | None,
+        height: int | None,
+        image_path: str | None,
+    ) -> tuple[list[str], str]:
+        from imgprompt.presets import COSTS
+
+        if model in ("gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"):
+            sizes = ["1K", "2K", "4K"]
+        else:
+            sizes = ["1K"]
+        choices = [f"{s} (${COSTS[model][s]['fixed']:.2f})" for s in sizes]
+        return choices, choices[0]
+
+    def resolve_quality(
+        self,
+        model: str,
+        res_key: str,
+        width: int | None,
+        height: int | None,
+        selection: str,
+    ) -> tuple[str, float]:
+        from imgprompt.presets import COSTS
+
+        quality_key = selection.split(" ")[0]
+        return quality_key, COSTS[model][quality_key]["fixed"]
+
     @property
     def supports_batch(self) -> bool:
         return True
@@ -133,7 +192,9 @@ class GoogleProvider(ImageProvider):
         if hasattr(response, "parts") and response.parts:
             for part in response.parts:
                 if part.inline_data is not None:
-                    _save_generated_image(part.as_image(), original_path)
+                    buf = io.BytesIO()
+                    part.as_image().save(buf, format="PNG")
+                    save_image_bytes(buf.getvalue(), original_path)
                     return True
                 elif part.text:
                     print(f"Response text: {part.text}")

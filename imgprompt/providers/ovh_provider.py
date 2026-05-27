@@ -9,6 +9,44 @@ OVH_ENDPOINT = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/images/generati
 
 
 class OVHProvider(ImageProvider):
+    @classmethod
+    def provider_name(cls) -> str:
+        return "OVH"
+
+    @classmethod
+    def supported_models(cls) -> list[str]:
+        return ["stabilityai/stable-diffusion-xl-base-1.0"]
+
+    def get_resolution_choices(
+        self, model: str, image_path: str | None
+    ) -> tuple[list[str], str]:
+        return ["1:1"], "1:1"
+
+    def resolve_resolution(
+        self, model: str, selection: str
+    ) -> tuple[str, int | None, int | None]:
+        return "1024x1024", None, None
+
+    def get_quality_choices(
+        self,
+        model: str,
+        res_key: str,
+        width: int | None,
+        height: int | None,
+        image_path: str | None,
+    ) -> tuple[list[str], str]:
+        return ["1K (Free)"], "1K (Free)"
+
+    def resolve_quality(
+        self,
+        model: str,
+        res_key: str,
+        width: int | None,
+        height: int | None,
+        selection: str,
+    ) -> tuple[str, float]:
+        return "1K", 0.0
+
     @property
     def supports_batch(self) -> bool:
         return False

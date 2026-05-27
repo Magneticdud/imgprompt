@@ -1,6 +1,8 @@
 import math
 
 BACK_OPTION = "← Go back"
+CUSTOM_DIMS = "Custom dimensions"
+GPT_IMAGE_2_AUTO = "Auto (model decides)"
 
 # gpt-image-2 constraints
 GPT_IMAGE_2_MIN_PIXELS = 655_360
@@ -220,7 +222,24 @@ COSTS["google/gemini-2.5-flash-image"] = COSTS["gemini-2.5-flash-image"]
 COSTS["google/gemini-3.1-flash-image-preview"] = COSTS["gemini-3.1-flash-image-preview"]
 COSTS["google/gemini-3-pro-image-preview"] = COSTS["gemini-3-pro-image-preview"]
 
-GEMINI_RESOLUTIONS = {
+# OpenRouter OpenAI models (using token-based pricing like gpt-image-2)
+COSTS["openai/gpt-5.4-image-2"] = {
+    "Low": {"fixed": 0.02},
+    "Medium": {"fixed": 0.04},
+    "High": {"fixed": 0.08},
+}
+COSTS["openai/gpt-5-image"] = {
+    "Low": {"fixed": 0.06},
+    "Medium": {"fixed": 0.10},
+    "High": {"fixed": 0.20},
+}
+COSTS["openai/gpt-5-image-mini"] = {
+    "Low": {"fixed": 0.01},
+    "Medium": {"fixed": 0.02},
+    "High": {"fixed": 0.04},
+}
+
+RATIO_TO_RESOLUTION = {
     "1:1": "1024x1024",
     "2:3": "832x1248",
     "3:2": "1248x832",
@@ -237,22 +256,8 @@ GEMINI_RESOLUTIONS = {
     "8:1": "4096x512",
 }
 
-OPENROUTER_RESOLUTIONS = {
-    "1:1": "1024x1024",
-    "2:3": "832x1248",
-    "3:2": "1248x832",
-    "3:4": "864x1184",
-    "4:3": "1184x864",
-    "4:5": "896x1152",
-    "5:4": "1152x896",
-    "9:16": "768x1344",
-    "16:9": "1344x768",
-    "21:9": "1536x672",
-    "1:4": "512x2048",
-    "4:1": "2048x512",
-    "1:8": "512x4096",
-    "8:1": "4096x512",
-}
+GEMINI_RESOLUTIONS = RATIO_TO_RESOLUTION
+OPENROUTER_RESOLUTIONS = RATIO_TO_RESOLUTION
 
 OPENROUTER_STANDARD_RATIOS = [
     "1:1",
@@ -300,6 +305,7 @@ PRESET_PROMPTS_EDIT = [
     "Transform the uploaded photo into a black-and-white graphite pencil drawing. Use clean line art with cross-hatching for shadows and volume, visible paper texture, and no solid black fills. Keep the exact composition, subject identity, pose, proportions, and camera framing from the original photo. Simplify the background slightly but keep it consistent. No color. Avoid: color, watercolor, oil paint, digital painting, CGI/3D, cartoon/anime, vector-clean outlines, automatic sketch filter look, blur, noisy artifacts, soft airbrushed shading, heavy solid blacks.",
     "Convert the photo into a classic pencil illustration style: precise ink-like pencil outlines, diagonal and cross-hatching for skies/shadows, graphite-only shading (no smooth airbrush gradients), detailed textures on hair/clothing, and a sketchbook look. Maintain the original photo composition and subject identity exactly. Monochrome only. Avoid: color, watercolor, oil paint, digital painting, CGI/3D, cartoon/anime, vector-clean outlines, automatic sketch filter look, blur, noisy artifacts, soft airbrushed shading, heavy solid blacks.",
     "Restore this scanned page with maximum fidelity. Only perform non-destructive cleanup: remove dust/specks, scan noise, paper texture and stains; normalize the halftone/screen pattern to be uniform; correct slight skew. Do NOT redraw, reinterpret, or invent any content. Preserve all original linework, shapes, proportions, fonts, and text exactly. No style changes. Output a clean, flat, high-resolution image that matches the original as closely as possible.",
+    "Clean this scan, removing halftones and making everything more uniform.",
     "Rebuild the business card as a flat print file. Canvas size: 91×61 mm including 3 mm bleed on all sides (final trim 85×55 mm). Keep all text inside a 4 mm safe margin from the trim edge. Match the original layout from the reference photo. Output: 300 DPI.",
     "Perform conservative color restoration only on the provided 1970s photo. Correct color cast (yellow/magenta/green), restore faded colors, and rebalance white balance to a natural analog-photo look. Do not change any details: keep identical geometry, composition, crop, perspective, faces, skin texture, hair, edges, background, text, film grain, dust, scratches, stains, and any imperfections. No enhancement: no denoise, no sharpening, no deblur, no upscaling, no HDR, no relighting, no beautification. Output must match the original framing and resolution; only chroma/tonal color values may change.",
     "Convert this image into a clean, black and white line art. Use sharp black outlines on a pure white background. Remove all shading, colors, and gradients. It must look like a high-quality adult coloring book page, staying faithful to the original subject and background details.",

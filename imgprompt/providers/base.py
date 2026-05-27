@@ -12,10 +12,6 @@ class GenerationRequest:
     images: list[str] = field(default_factory=list)
     width: int | None = None
     height: int | None = None
-    input_pixels: int = 0
-    width: int | None = None
-    height: int | None = None
-    input_pixels: int = 0
 
     @property
     def is_batch(self) -> bool:
@@ -43,3 +39,45 @@ class ImageProvider(ABC):
     @property
     def supports_dual(self) -> bool:
         return False
+
+    @classmethod
+    @abstractmethod
+    def provider_name(cls) -> str: ...
+
+    @classmethod
+    @abstractmethod
+    def supported_models(cls) -> list[str]: ...
+
+    @classmethod
+    def default_model(cls) -> str:
+        return cls.supported_models()[0]
+
+    @abstractmethod
+    def get_resolution_choices(
+        self, model: str, image_path: str | None
+    ) -> tuple[list[str], str]: ...
+
+    @abstractmethod
+    def resolve_resolution(
+        self, model: str, selection: str
+    ) -> tuple[str, int | None, int | None]: ...
+
+    @abstractmethod
+    def get_quality_choices(
+        self,
+        model: str,
+        res_key: str,
+        width: int | None,
+        height: int | None,
+        image_path: str | None,
+    ) -> tuple[list[str], str]: ...
+
+    @abstractmethod
+    def resolve_quality(
+        self,
+        model: str,
+        res_key: str,
+        width: int | None,
+        height: int | None,
+        selection: str,
+    ) -> tuple[str, float]: ...
