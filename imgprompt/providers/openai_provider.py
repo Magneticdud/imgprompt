@@ -84,13 +84,13 @@ class OpenAIProvider(ImageProvider):
                     tokens = calc_gpt_image2_tokens(width, height, q)
                     cost = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
                     choices.append(f"{q} (~{tokens:,} tokens, ${cost:.4f})")
-            return choices, choices[1]
+            return choices, choices[0]
         else:
             choices = [
                 f"{q} (${COSTS[model][q][res_key]:.3f})"
                 for q in ["Low", "Medium", "High"]
             ]
-            return choices, choices[1]
+            return choices, choices[0]
 
     def resolve_quality(
         self,
