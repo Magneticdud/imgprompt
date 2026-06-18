@@ -545,11 +545,6 @@ def main():
                     print(f"Tokens:     ~{tokens:,} (${cost_display:.4f})")
                 else:
                     print(f"Tokens:     depends on output size")
-            elif provider == "OpenRouter" and model_choice.startswith("openai/gpt-"):
-                print(f"Ratio:      {aspect_ratio}")
-                if dim_width and dim_height:
-                    print(f"Dimensions: {dim_width}x{dim_height}")
-                print(f"Quality:    {quality_key}")
             elif provider == "OpenAI":
                 print(f"Resolution: {res_key}")
                 print(f"Quality:    {quality_key}")

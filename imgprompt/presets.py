@@ -214,9 +214,9 @@ COSTS["google/gemini-3-pro-image-preview"] = COSTS["gemini-3-pro-image-preview"]
 
 # OpenRouter OpenAI models (using token-based pricing like gpt-image-2)
 COSTS["openai/gpt-5.4-image-2"] = {
-    "Low": {"fixed": 0.02},
-    "Medium": {"fixed": 0.04},
-    "High": {"fixed": 0.08},
+    "1K": {"fixed": 0.02},
+    "2K": {"fixed": 0.04},
+    "4K": {"fixed": 0.08},
 }
 
 RATIO_TO_RESOLUTION = {

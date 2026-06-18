@@ -7,7 +7,7 @@ from openai import OpenAI
 from PIL import Image
 
 from imgprompt.providers.base import ImageProvider, GenerationRequest
-from imgprompt.images import save_image_bytes, process_image_for_api, save_api_image
+from imgprompt.images import save_image_bytes
 
 _MAX_REQUEST_SIZE = 4.5 * 1024 * 1024  # 4.5MB
 _MAX_BFL_MEGAPIXELS = 4
@@ -38,28 +38,10 @@ class OpenRouterProvider(ImageProvider):
         self, model: str, image_path: str | None
     ) -> tuple[list[str], str]:
         from imgprompt.presets import (
-            GPT_IMAGE_2_PRESET_CHOICES,
-            CUSTOM_DIMS,
             OPENROUTER_RESOLUTIONS,
             OPENROUTER_STANDARD_RATIOS,
         )
 
-        if model.startswith("openai/gpt-"):
-            labels = [label for label, _, _, _, _ in GPT_IMAGE_2_PRESET_CHOICES]
-            if image_path:
-                with Image.open(image_path) as img:
-                    img_ratio = img.width / img.height
-                best_idx, best_diff = 0, float("inf")
-                for i, (_, ratio_str, _, w, h) in enumerate(GPT_IMAGE_2_PRESET_CHOICES):
-                    p, q = map(int, ratio_str.split(":"))
-                    diff = abs(img_ratio - p / q)
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_idx = i
-                default = labels[best_idx]
-            else:
-                default = labels[0]
-            return labels + [CUSTOM_DIMS], default
         if model == "google/gemini-3.1-flash-image-preview":
             ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
         else:
@@ -74,13 +56,8 @@ class OpenRouterProvider(ImageProvider):
     def resolve_resolution(
         self, model: str, selection: str
     ) -> tuple[str, int | None, int | None]:
-        from imgprompt.presets import GPT_IMAGE_2_PRESET_CHOICES, OPENROUTER_RESOLUTIONS
+        from imgprompt.presets import OPENROUTER_RESOLUTIONS
 
-        if model.startswith("openai/gpt-"):
-            for label, _, _, w, h in GPT_IMAGE_2_PRESET_CHOICES:
-                if label == selection:
-                    return f"{w}x{h}", w, h
-            return "1024x1024", 1024, 1024
         return OPENROUTER_RESOLUTIONS.get(selection, "1024x1024"), None, None
 
     def get_quality_choices(
@@ -94,12 +71,8 @@ class OpenRouterProvider(ImageProvider):
         from imgprompt.presets import COSTS
 
         if model.startswith("openai/gpt-"):
-            choices = [
-                f"{q} (${COSTS[model][q]['fixed']:.2f})"
-                for q in ["Low", "Medium", "High"]
-            ]
-            return choices, choices[1]
-        if model == "sourceful/riverflow-v2-pro":
+            sizes = ["1K", "2K", "4K"]
+        elif model == "sourceful/riverflow-v2-pro":
             sizes = ["1K", "2K", "4K"]
         elif model.startswith("black-forest-labs/"):
             sizes = ["1K", "2K"]
@@ -155,17 +128,13 @@ class OpenRouterProvider(ImageProvider):
             },
         )
 
-        # Check if this is an OpenAI model that uses the images endpoint
-        if request.model.startswith("openai/gpt-"):
-            if request.is_batch:
-                self._run_batch_openai(request)
-            else:
-                self._run_single_openai(request)
+        # OpenRouter only exposes image generation via /chat/completions
+        # (with modalities), not the OpenAI /images/edits endpoint — so all
+        # models, including openai/gpt-*, go through the same path.
+        if request.is_batch:
+            self._run_batch(request)
         else:
-            if request.is_batch:
-                self._run_batch(request)
-            else:
-                self._run_single(request)
+            self._run_single(request)
 
     def _img_to_data_url(self, img_path: str, model: str) -> str:
         """Reads an image file, compresses if needed to stay under 4.5MB, returns a base64 data URL."""
@@ -267,11 +236,18 @@ class OpenRouterProvider(ImageProvider):
         else:
             content = request.prompt
 
+        # gpt-image models output both text and image; image-only models
+        # (flux, sourceful, seedream) take just ["image"].
+        if request.model.startswith("openai/gpt-"):
+            modalities = ["image", "text"]
+        else:
+            modalities = ["image"]
+
         resp = self._client.chat.completions.create(
             model=request.model,
             messages=[{"role": "user", "content": content}],
             extra_body={
-                "modalities": ["image"],
+                "modalities": modalities,
                 "image_config": image_config,
             },
         )
@@ -325,106 +301,5 @@ class OpenRouterProvider(ImageProvider):
                 save_image_bytes(base64.b64decode(b64_data), request.primary_image)
             else:
                 print("\nError: No image returned by OpenRouter API.")
-        except Exception as e:
-            print(f"\nAn error occurred during OpenRouter call: {e}")
-
-    def _run_batch_openai(self, request: GenerationRequest) -> None:
-        """Batch processing for OpenAI models using images.edit endpoint."""
-        print(f"\nStarting batch processing: {len(request.images)} images...")
-        success_count = 0
-        fail_count = 0
-
-        for idx, img_path in enumerate(request.images, 1):
-            print(
-                f"\n--- Processing image {idx}/{len(request.images)}: {os.path.basename(img_path)} ---"
-            )
-            try:
-                image_input = process_image_for_api(img_path, request.res_key)
-
-                # OpenRouter doesn't support width/height parameters
-                response = self._client.images.edit(
-                    model=request.model,
-                    image=image_input,
-                    prompt=request.prompt,
-                    n=1,
-                    quality=request.quality_key.lower(),
-                )
-
-                image_url = None
-                image_b64 = None
-                if hasattr(response, "data") and len(response.data) > 0:
-                    image_url = getattr(response.data[0], "url", None)
-                    image_b64 = getattr(response.data[0], "b64_json", None)
-
-                if image_url or image_b64:
-                    save_api_image(image_url, image_b64, img_path)
-                    success_count += 1
-                else:
-                    print("Error: Could not retrieve image data from the API response.")
-                    fail_count += 1
-
-            except Exception as e:
-                print(f"An error occurred during OpenRouter call: {e}")
-                fail_count += 1
-
-        print(
-            f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
-        )
-
-    def _run_single_openai(self, request: GenerationRequest) -> None:
-        """Single image processing for OpenAI models using images.edit endpoint."""
-        print(f"\nSending request to OpenRouter ({request.model})...")
-        try:
-            if len(request.images) == 1:
-                image_input = process_image_for_api(request.images[0], request.res_key)
-            else:
-                # For text-to-image, we need to use images.generate instead
-                if not request.images:
-                    response = self._client.images.generate(
-                        model=request.model,
-                        prompt=request.prompt,
-                        n=1,
-                        quality=request.quality_key.lower(),
-                        size=request.res_key,
-                    )
-
-                    image_url = None
-                    image_b64 = None
-                    if hasattr(response, "data") and len(response.data) > 0:
-                        image_url = getattr(response.data[0], "url", None)
-                        image_b64 = getattr(response.data[0], "b64_json", None)
-
-                    if image_url or image_b64:
-                        save_api_image(image_url, image_b64, None)
-                    else:
-                        print(
-                            "\nError: Could not retrieve image data from the API response."
-                        )
-                    return
-
-                image_input = [
-                    process_image_for_api(p, request.res_key) for p in request.images
-                ]
-
-            # OpenRouter doesn't support width/height parameters
-            response = self._client.images.edit(
-                model=request.model,
-                image=image_input,
-                prompt=request.prompt,
-                n=1,
-                quality=request.quality_key.lower(),
-            )
-
-            image_url = None
-            image_b64 = None
-            if hasattr(response, "data") and len(response.data) > 0:
-                image_url = getattr(response.data[0], "url", None)
-                image_b64 = getattr(response.data[0], "b64_json", None)
-
-            if image_url or image_b64:
-                save_api_image(image_url, image_b64, request.primary_image)
-            else:
-                print("\nError: Could not retrieve image data from the API response.")
-
         except Exception as e:
             print(f"\nAn error occurred during OpenRouter call: {e}")
