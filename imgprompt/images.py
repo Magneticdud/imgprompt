@@ -55,6 +55,9 @@ def process_image_for_api(image_path: str, target_res: str) -> tuple:
                 fmt = "JPEG"
                 mime_type = "image/jpeg"
 
+            if fmt == "JPEG" and img.mode != "RGB":
+                img = img.convert("RGB")
+
             img.save(output, format=fmt)
             output.seek(0)
             return (filename, output, mime_type)

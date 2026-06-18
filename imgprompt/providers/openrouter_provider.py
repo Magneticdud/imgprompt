@@ -186,6 +186,8 @@ class OpenRouterProvider(ImageProvider):
                     new_width = int(img.width * scale)
                     new_height = int(img.height * scale)
                     img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
                     output = io.BytesIO()
                     img.save(output, format="JPEG", quality=95)
                     resized_data = output.getvalue()
@@ -210,11 +212,12 @@ class OpenRouterProvider(ImageProvider):
             f"Image {os.path.basename(img_path)} is {len(original_data)/1024:.1f}KB, exceeding 4.5MB limit. Compressing..."
         )
         with Image.open(img_path) as img:
+            out_format = img.format if img.format else "JPEG"
+            if out_format == "JPEG" and img.mode != "RGB":
+                img = img.convert("RGB")
             output = io.BytesIO()
             quality = 85
-            img.save(
-                output, format=img.format if img.format else "JPEG", quality=quality
-            )
+            img.save(output, format=out_format, quality=quality)
             compressed_data = output.getvalue()
 
             if len(compressed_data) > _MAX_REQUEST_SIZE:
@@ -224,17 +227,13 @@ class OpenRouterProvider(ImageProvider):
                 new_height = int(img.height * scale_factor * 0.9)
                 img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
                 output = io.BytesIO()
-                img.save(
-                    output, format=img.format if img.format else "JPEG", quality=quality
-                )
+                img.save(output, format=out_format, quality=quality)
                 compressed_data = output.getvalue()
 
             if len(compressed_data) > _MAX_REQUEST_SIZE:
                 print("Resizing not enough, reducing quality...")
                 output = io.BytesIO()
-                img.save(
-                    output, format=img.format if img.format else "JPEG", quality=50
-                )
+                img.save(output, format=out_format, quality=50)
                 compressed_data = output.getvalue()
 
             b64 = base64.b64encode(compressed_data).decode()
