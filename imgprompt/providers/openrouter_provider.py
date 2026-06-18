@@ -147,6 +147,12 @@ class OpenRouterProvider(ImageProvider):
         self._client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
+            default_headers={
+                "HTTP-Referer": "https://github.com/Magneticdud/imgprompt/",
+                "X-Title": "IMGPrompt",
+                "X-OpenRouter-Title": "IMGPrompt",
+                "X-OpenRouter-Categories": "image-gen",
+            },
         )
 
         # Check if this is an OpenAI model that uses the images endpoint
