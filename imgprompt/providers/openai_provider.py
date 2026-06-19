@@ -193,9 +193,38 @@ class OpenAIProvider(ImageProvider):
             f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
         )
 
+    def _generate(self, client: OpenAI, request: GenerationRequest):
+        """Text-to-Image: no input image, so use the generate endpoint."""
+        kwargs = dict(
+            model=request.model,
+            prompt=request.prompt,
+            n=1,
+            size=request.res_key,
+        )
+        if request.model.startswith("gpt-image"):
+            kwargs["quality"] = request.quality_key.lower()
+        return client.images.generate(**kwargs)
+
+    def _save_response(self, response, original_path: str | None) -> None:
+        image_url = None
+        image_b64 = None
+        if hasattr(response, "data") and len(response.data) > 0:
+            image_url = getattr(response.data[0], "url", None)
+            image_b64 = getattr(response.data[0], "b64_json", None)
+
+        if image_url or image_b64:
+            save_api_image(image_url, image_b64, original_path)
+        else:
+            print("\nError: Could not retrieve image data from the API response.")
+
     def _run_single(self, client: OpenAI, request: GenerationRequest) -> None:
         print(f"\nSending request to OpenAI ({request.model})...")
         try:
+            if request.is_text_to_image:
+                response = self._generate(client, request)
+                self._save_response(response, None)
+                return
+
             if len(request.images) == 1:
                 image_input = process_image_for_api(request.images[0], request.res_key)
             else:
@@ -224,16 +253,7 @@ class OpenAIProvider(ImageProvider):
                     size=request.res_key,
                     quality=request.quality_key.lower(),
                 )
-            image_url = None
-            image_b64 = None
-            if hasattr(response, "data") and len(response.data) > 0:
-                image_url = getattr(response.data[0], "url", None)
-                image_b64 = getattr(response.data[0], "b64_json", None)
-
-            if image_url or image_b64:
-                save_api_image(image_url, image_b64, request.primary_image)
-            else:
-                print("\nError: Could not retrieve image data from the API response.")
+            self._save_response(response, request.primary_image)
 
         except Exception as e:
             error_msg = str(e)
