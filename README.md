@@ -87,5 +87,8 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 
 Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
 
+## OpenRouter Usage Stats
+You can track this app's usage on OpenRouter here: [OpenRouter app usage](https://openrouter.ai/apps?url=https%3A%2F%2Fgithub.com/Magneticdud/imgprompt).
+
 ## License
 This is licensed under GPL-3.0-or-later
