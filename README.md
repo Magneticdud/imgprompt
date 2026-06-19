@@ -9,6 +9,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.
 - Pre-made and custom prompts.
+- **Replay**: re-run the last generation with identical parameters and prompt.
 
 ## Setup
 1. Install dependencies:
@@ -38,6 +39,23 @@ python imgedit.py photo.jpg
 # Text-to-Image mode (no input image)
 python imgedit.py --free
 ```
+
+### Replay the Last Generation
+Every completed run saves its full request (provider, model, resolution, quality, prompt and input images) to a gitignored `.last_generation.json`. Re-run it verbatim without walking the wizard again:
+
+```bash
+# Repeat the exact same generation
+python imgedit.py --replay
+
+# Repeat it N times (e.g. for more variations)
+python imgedit.py --replay -n 3
+
+# Image arguments are ignored, so you can just press arrow-up to recall
+# your previous command and append --replay
+python imgedit.py photo.jpg --replay
+```
+
+Whenever a previous run is saved, a **"🔁 Replay last generation"** entry also appears in the first interactive menu — the image-selection menu when launched with no arguments, or the provider menu when an image was passed as an argument. This lets you simply press arrow-up to recall your last command and pick replay, without typing `--replay`.
 
 ### Batch Processing
 Pass multiple images to process them all with the same model, resolution, quality, and prompt:

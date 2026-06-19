@@ -40,6 +40,7 @@ from imgprompt.presets import (
     auto_adjust_gpt_image2_dims,
 )
 from imgprompt.images import get_images_in_cwd
+from imgprompt.history import save_last_generation, load_last_generation
 from imgprompt.providers.base import GenerationRequest
 from imgprompt.providers.openai_provider import OpenAIProvider
 from imgprompt.providers.google_provider import GoogleProvider
@@ -71,11 +72,13 @@ def normalize_path(p: str) -> str:
     return p
 
 
-def select_inputs(provided_path: str | None) -> tuple[list[str], bool]:
-    """Selects images either from arguments or from a list of files. Returns (paths, is_dual)."""
+def select_inputs(provided_path: str | None) -> tuple[list[str], bool, bool]:
+    """Selects images either from arguments or from a list of files.
+
+    Returns (paths, is_dual, is_replay)."""
     if provided_path:
         if os.path.isfile(provided_path):
-            return [provided_path], False
+            return [provided_path], False, False
         else:
             print(f"Error: {provided_path} is not a valid file.")
             sys.exit(1)
@@ -86,7 +89,11 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool]:
     t2i_option = "Text-to-Image (No input image)"
     dual_option = "Two Images (Dual Input)"
 
-    choices = [t2i_option]
+    choices = []
+    # Offer replay as the first choice only if a previous run was saved.
+    if load_last_generation() is not None:
+        choices.append(REPLAY_OPTION)
+    choices.append(t2i_option)
     if len(images) >= 2:
         choices.append(dual_option)
     choices.extend(images)
@@ -98,8 +105,11 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool]:
     if not selected:
         sys.exit(0)
 
+    if selected == REPLAY_OPTION:
+        return [], False, True
+
     if selected == t2i_option:
-        return [], False
+        return [], False, False
 
     if selected == dual_option:
         img1 = questionary.select("Select first image (IMG_1):", choices=images).ask()
@@ -113,16 +123,54 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool]:
         if not img2:
             sys.exit(0)
 
-        return [img1, img2], True
+        return [img1, img2], True, False
 
-    return [selected], False
+    return [selected], False, False
+
+
+REPLAY_OPTION = "🔁 Replay last generation"
+
+
+def run_replay(iterations_arg: int | None) -> None:
+    """Re-run the last saved generation verbatim. Exits on error."""
+    loaded = load_last_generation()
+    if not loaded:
+        print("Error: no saved generation found to replay.")
+        sys.exit(1)
+    provider, request = loaded
+    provider_cls = PROVIDER_MAP.get(provider)
+    if provider_cls is None:
+        print(f"Error: unknown provider in saved generation: {provider}")
+        sys.exit(1)
+    provider_obj = provider_cls()
+
+    print("\n--- Replaying last generation ---")
+    print(f"Provider:   {provider}")
+    print(f"Model:      {request.model}")
+    if request.images:
+        print(f"Images:     {', '.join(request.images)}")
+    else:
+        print("Image:      None (Text-to-Image)")
+    print(f"Prompt:     {request.prompt}")
+
+    iterations = max(1, iterations_arg or 1)
+    for i in range(1, iterations + 1):
+        if iterations > 1:
+            print(f"\n===== Iteration {i}/{iterations} =====")
+        provider_obj.run(request)
 
 
 def step_provider() -> str | None:
-    """Step 1: Select provider. Returns provider name or BACK_OPTION."""
+    """Step 1: Select provider. Returns provider name, REPLAY_OPTION or BACK_OPTION."""
+    choices = [BACK_OPTION]
+    # Offer replay here too so it's reachable even when an image was passed as an
+    # argument (which skips the image-selection menu).
+    if load_last_generation() is not None:
+        choices.append(REPLAY_OPTION)
+    choices.extend(PROVIDER_MAP.keys())
     provider = questionary.select(
         "Select Provider:",
-        choices=[BACK_OPTION] + list(PROVIDER_MAP.keys()),
+        choices=choices,
         default="OpenAI",
     ).ask()
     if provider == BACK_OPTION or not provider:
@@ -416,7 +464,22 @@ def main():
         default=None,
         help="Number of times to run the same request (generates N variations)",
     )
+    parser.add_argument(
+        "--replay",
+        action="store_true",
+        help="Re-run the last generation with identical parameters and prompt "
+        "(any image arguments are ignored)",
+    )
     args = parser.parse_args()
+
+    # Replay mode: skip the wizard and reuse the last saved request verbatim.
+    # Any image arguments are ignored so users can just append --replay to their
+    # previous command (e.g. arrow-up then add the flag).
+    if args.replay:
+        if args.images:
+            print("Note: image arguments are ignored in --replay mode.")
+        run_replay(args.iterations)
+        return
 
     # Determine input images
     is_dual = False
@@ -452,7 +515,10 @@ def main():
         if len(input_images) > 1:
             print(f"\nBatch mode: {len(input_images)} images selected")
     else:
-        input_images, is_dual = select_inputs(None)
+        input_images, is_dual, is_replay = select_inputs(None)
+        if is_replay:
+            run_replay(args.iterations)
+            return
 
     # Legacy support variable
     image_path = input_images[0] if input_images else None
@@ -489,6 +555,11 @@ def main():
             result = step_provider()
             if result == BACK_OPTION:
                 print("Cancelled.")
+                return
+            if result == REPLAY_OPTION:
+                if input_images:
+                    print("Note: selected image is ignored in replay mode.")
+                run_replay(args.iterations)
                 return
             provider = result
             provider_obj = PROVIDER_MAP[provider]()
@@ -674,6 +745,9 @@ def main():
         width=dim_width,
         height=dim_height,
     )
+
+    # Persist the request so it can be replayed verbatim with --replay.
+    save_last_generation(provider, request)
 
     for i in range(1, iterations + 1):
         if iterations > 1:
