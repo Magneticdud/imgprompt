@@ -117,6 +117,16 @@ def save_image_bytes(img_bytes: bytes, original_path: str | None) -> None:
         output_path = os.path.join(output_dir, f"edited_{timestamp}_{base_name}{ext}")
     else:
         output_path = f"generated_{timestamp}{ext}"
+
+    # Timestamps are second-granular, so multiple iterations in the same second
+    # would clobber each other. Append a counter to keep every result.
+    if os.path.exists(output_path):
+        root, suffix = os.path.splitext(output_path)
+        counter = 2
+        while os.path.exists(f"{root}_{counter}{suffix}"):
+            counter += 1
+        output_path = f"{root}_{counter}{suffix}"
+
     with open(output_path, "wb") as f:
         f.write(img_bytes)
     print(f"File saved successfully as {output_path}")

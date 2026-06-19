@@ -409,6 +409,13 @@ def main():
         action="store_true",
         help="Start in Text-to-Image mode (no base image)",
     )
+    parser.add_argument(
+        "-n",
+        "--iterations",
+        type=int,
+        default=None,
+        help="Number of times to run the same request (generates N variations)",
+    )
     args = parser.parse_args()
 
     # Determine input images
@@ -644,6 +651,19 @@ def main():
                 print("Cancelled.")
                 return
 
+    # Determine how many iterations to run (same request, multiple variations).
+    iterations = args.iterations
+    if iterations is None:
+        iter_str = questionary.text(
+            "How many iterations? (number of variations to generate):",
+            default="1",
+        ).ask()
+        try:
+            iterations = int(iter_str) if iter_str else 1
+        except ValueError:
+            iterations = 1
+    iterations = max(1, iterations)
+
     request = GenerationRequest(
         prompt=final_prompt,
         model=model_choice,
@@ -655,7 +675,10 @@ def main():
         height=dim_height,
     )
 
-    provider_obj.run(request)
+    for i in range(1, iterations + 1):
+        if iterations > 1:
+            print(f"\n===== Iteration {i}/{iterations} =====")
+        provider_obj.run(request)
 
 
 if __name__ == "__main__":
