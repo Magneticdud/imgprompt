@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import glob
 import os
+import re
 import sys
 
 # Auto-activate venv if it exists and we aren't using it
@@ -51,6 +52,23 @@ PROVIDER_MAP = {
     OpenRouterProvider.provider_name(): OpenRouterProvider,
     OVHProvider.provider_name(): OVHProvider,
 }
+
+
+def normalize_path(p: str) -> str:
+    """Return a usable filesystem path, tolerating shell-escaped paths.
+
+    Paths copied from file managers (e.g. GVFS/SMB mounts) often arrive with
+    backslash escapes like ``server\\=server2.local,share\\=2_personale``. When
+    such a path is pasted inside quotes the backslashes become literal and the
+    lookup fails. If the path as given doesn't exist but its un-escaped form
+    does, use that instead. A valid path is never modified.
+    """
+    if os.path.exists(p):
+        return p
+    unescaped = re.sub(r"\\(.)", r"\1", p)
+    if unescaped != p and os.path.exists(unescaped):
+        return unescaped
+    return p
 
 
 def select_inputs(provided_path: str | None) -> tuple[list[str], bool]:
@@ -404,7 +422,9 @@ def main():
             if "*" in pattern or "?" in pattern:
                 matched = glob.glob(pattern)
                 all_images.extend(matched)
-            elif os.path.isfile(pattern):
+                continue
+            pattern = normalize_path(pattern)
+            if os.path.isfile(pattern):
                 all_images.append(pattern)
             elif os.path.isdir(pattern):
                 for f in os.listdir(pattern):
