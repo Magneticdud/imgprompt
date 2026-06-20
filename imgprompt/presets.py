@@ -89,6 +89,28 @@ def round_to_multiple_of_16(value: int) -> int:
     return round(value / 16) * 16
 
 
+INCHES_PER_CM = 1 / 2.54
+INCHES_PER_MM = 1 / 25.4
+
+
+def physical_to_pixels(value: float, unit: str, dpi: int) -> int:
+    """Convert a physical measurement to pixels at a given DPI.
+
+    Args:
+        value: The physical dimension value.
+        unit: One of 'cm', 'mm', or 'in'.
+        dpi: Dots per inch.
+
+    Returns:
+        Number of pixels.
+    """
+    if unit == "cm":
+        return round(value * dpi * INCHES_PER_CM)
+    if unit == "mm":
+        return round(value * dpi * INCHES_PER_MM)
+    return round(value * dpi)  # inches
+
+
 def auto_adjust_gpt_image2_dims(width: int, height: int) -> tuple[int, int]:
     """Automatically adjust dimensions to meet gpt-image-2 requirements.
 

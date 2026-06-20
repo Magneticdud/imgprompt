@@ -38,6 +38,7 @@ from imgprompt.presets import (
     calc_gpt_image2_tokens,
     validate_gpt_image2_dims,
     auto_adjust_gpt_image2_dims,
+    physical_to_pixels,
 )
 from imgprompt.images import get_images_in_cwd
 from imgprompt.history import save_last_generation, load_last_generation
@@ -192,8 +193,113 @@ def step_model(provider_obj) -> str | None:
     return model
 
 
+def _prompt_physical_dims() -> tuple[int | None, int | None]:
+    """Prompt for physical dimensions (cm/mm/in) and DPI. Returns (width_px, height_px) or (None, None) on back."""
+    while True:
+        width_str = questionary.text(
+            "Width (mm):",
+            default="",
+        ).ask()
+        if not width_str:
+            return None, None
+        if width_str.strip().lower() == "back":
+            return None, None
+        try:
+            width = float(width_str)
+        except ValueError:
+            print("Error: Width must be a number.")
+            continue
+
+        while True:
+            height_str = questionary.text(
+                "Height (mm):",
+                default="",
+            ).ask()
+            if not height_str:
+                return None, None
+            if height_str.strip().lower() == "back":
+                return None, None
+            try:
+                height = float(height_str)
+            except ValueError:
+                print("Error: Height must be a number.")
+                continue
+
+            while True:
+                unit = questionary.text(
+                    "Unit (cm / mm / in):",
+                    default="mm",
+                ).ask()
+                if not unit:
+                    return None, None
+                if unit.strip().lower() == "back":
+                    return None, None
+                unit = unit.strip().lower()
+                if unit not in ("cm", "mm", "in"):
+                    print("Error: Unit must be 'cm', 'mm', or 'in'.")
+                    continue
+
+                while True:
+                    dpi_str = questionary.text(
+                        "DPI:",
+                        default="300",
+                    ).ask()
+                    if not dpi_str:
+                        return None, None
+                    if dpi_str.strip().lower() == "back":
+                        return None, None
+                    try:
+                        dpi = int(dpi_str)
+                    except ValueError:
+                        print("Error: DPI must be a whole number.")
+                        continue
+
+                    # Convert physical to pixels
+                    px_width = physical_to_pixels(width, unit, dpi)
+                    px_height = physical_to_pixels(height, unit, dpi)
+
+                    print(
+                        f"→ {width}{unit} × {height}{unit} @ {dpi} DPI = {px_width}×{px_height} px"
+                    )
+
+                    # Auto-adjust dimensions to meet requirements
+                    adj_width, adj_height = auto_adjust_gpt_image2_dims(
+                        px_width, px_height
+                    )
+
+                    # Show adjustment if dimensions changed
+                    if adj_width != px_width or adj_height != px_height:
+                        print(
+                            f"Adjusted: {px_width}x{px_height} → {adj_width}x{adj_height} (rounded to multiple of 16)"
+                        )
+
+                    # Validate adjusted dimensions
+                    errors = validate_gpt_image2_dims(adj_width, adj_height)
+                    if errors:
+                        print("Invalid dimensions after adjustment:")
+                        for err in errors:
+                            print(f"  - {err}")
+                        break
+
+                    print(
+                        f"Valid: {adj_width}x{adj_height} = {adj_width * adj_height:,} px"
+                    )
+                    return adj_width, adj_height
+
+
 def _prompt_custom_dims() -> tuple[int | None, int | None]:
     """Prompt for custom width/height with validation. Returns (width, height) or (None, None) on back."""
+    mode = questionary.select(
+        "How do you want to specify dimensions?",
+        choices=["Pixels", "Physical units (cm/mm/in + DPI)"],
+    ).ask()
+    if not mode:
+        return None, None
+
+    if mode == "Physical units (cm/mm/in + DPI)":
+        return _prompt_physical_dims()
+
+    # Pixel mode (original flow)
     while True:
         width_str = questionary.text(
             "Width (will be rounded to multiple of 16):",
