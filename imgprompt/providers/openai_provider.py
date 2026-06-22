@@ -147,27 +147,16 @@ class OpenAIProvider(ImageProvider):
             )
             try:
                 image_input = process_image_for_api(img_path, request.res_key)
-                if request.model.startswith("gpt-image"):
-                    kwargs = dict(
-                        model=request.model,
-                        image=image_input,
-                        prompt=request.prompt,
-                        n=1,
-                        quality=request.quality_key.lower(),
-                    )
-                    if request.res_key == "auto":
-                        kwargs["size"] = "auto"
-                    response = client.images.edit(**kwargs)
-                else:
-                    # DALL-E 2 uses size parameter
-                    response = client.images.edit(
-                        model=request.model,
-                        image=image_input,
-                        prompt=request.prompt,
-                        n=1,
-                        size=request.res_key,
-                        quality=request.quality_key.lower(),
-                    )
+                kwargs = dict(
+                    model=request.model,
+                    image=image_input,
+                    prompt=request.prompt,
+                    n=1,
+                    quality=request.quality_key.lower(),
+                )
+                if request.res_key:
+                    kwargs["size"] = request.res_key
+                response = client.images.edit(**kwargs)
                 image_url = None
                 image_b64 = None
                 if hasattr(response, "data") and len(response.data) > 0:
@@ -200,9 +189,8 @@ class OpenAIProvider(ImageProvider):
             prompt=request.prompt,
             n=1,
             size=request.res_key,
+            quality=request.quality_key.lower(),
         )
-        if request.model.startswith("gpt-image"):
-            kwargs["quality"] = request.quality_key.lower()
         return client.images.generate(**kwargs)
 
     def _save_response(self, response, original_path: str | None) -> None:
@@ -232,27 +220,16 @@ class OpenAIProvider(ImageProvider):
                     process_image_for_api(p, request.res_key) for p in request.images
                 ]
 
-            if request.model.startswith("gpt-image"):
-                kwargs = dict(
-                    model=request.model,
-                    image=image_input,
-                    prompt=request.prompt,
-                    n=1,
-                    quality=request.quality_key.lower(),
-                )
-                if request.res_key == "auto":
-                    kwargs["size"] = "auto"
-                response = client.images.edit(**kwargs)
-            else:
-                # DALL-E 2 uses size parameter
-                response = client.images.edit(
-                    model=request.model,
-                    image=image_input,
-                    prompt=request.prompt,
-                    n=1,
-                    size=request.res_key,
-                    quality=request.quality_key.lower(),
-                )
+            kwargs = dict(
+                model=request.model,
+                image=image_input,
+                prompt=request.prompt,
+                n=1,
+                quality=request.quality_key.lower(),
+            )
+            if request.res_key:
+                kwargs["size"] = request.res_key
+            response = client.images.edit(**kwargs)
             self._save_response(response, request.primary_image)
 
         except Exception as e:
