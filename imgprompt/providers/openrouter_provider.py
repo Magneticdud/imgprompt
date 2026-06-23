@@ -27,8 +27,8 @@ class OpenRouterProvider(ImageProvider):
             "black-forest-labs/flux.2-flex",
             "black-forest-labs/flux.2-pro",
             "black-forest-labs/flux.2-max",
-            "sourceful/riverflow-v2-fast",
-            "sourceful/riverflow-v2-pro",
+            "sourceful/riverflow-v2.5-fast",
+            "sourceful/riverflow-v2.5-pro",
             "google/gemini-2.5-flash-image",
             "google/gemini-3.1-flash-image-preview",
             "google/gemini-3-pro-image-preview",
@@ -72,7 +72,7 @@ class OpenRouterProvider(ImageProvider):
 
         if model.startswith("openai/gpt-"):
             sizes = ["1K", "2K", "4K"]
-        elif model == "sourceful/riverflow-v2-pro":
+        elif model == "sourceful/riverflow-v2.5-pro":
             sizes = ["1K", "2K", "4K"]
         elif model.startswith("black-forest-labs/"):
             sizes = ["1K", "2K"]

@@ -194,11 +194,11 @@ COSTS = {
         "2K": {"fixed": 0.14},
         "4K": {"fixed": 0.25},
     },
-    "sourceful/riverflow-v2-fast": {
+    "sourceful/riverflow-v2.5-fast": {
         "1K": {"fixed": 0.02},
         "2K": {"fixed": 0.04},
     },
-    "sourceful/riverflow-v2-pro": {
+    "sourceful/riverflow-v2.5-pro": {
         "1K": {"fixed": 0.15},
         "2K": {"fixed": 0.15},
         "4K": {"fixed": 0.33},
