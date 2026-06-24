@@ -134,6 +134,30 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 
 Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
 
+## Testing
+The pure logic (dimension/DPI math, pricing-token estimates, image helpers, and
+the replay-history round-trip) is covered by a `pytest` suite under `tests/`.
+Network calls to the providers are out of scope and are not tested.
+
+Install the test dependency (once) and run the suite from the project root:
+
+```bash
+pip install -r requirements-dev.txt   # installs runtime deps + pytest
+pytest
+```
+
+Useful variations:
+
+```bash
+pytest -v                       # verbose, one line per test
+pytest tests/test_presets.py    # run a single file
+pytest -k physical_to_pixels    # run tests matching a name
+```
+
+`tests/test_presets.py` covers the gpt-image-2 dimension logic, including a grid
+test that asserts `auto_adjust_gpt_image2_dims` always returns valid dimensions —
+add new cases there when you touch that math.
+
 ## OpenRouter Usage Stats
 You can track this app's usage on OpenRouter here: [OpenRouter app usage](https://openrouter.ai/apps?url=https%3A%2F%2Fgithub.com/Magneticdud/imgprompt).
 

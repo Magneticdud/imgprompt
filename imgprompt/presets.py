@@ -89,6 +89,16 @@ def round_to_multiple_of_16(value: int) -> int:
     return round(value / 16) * 16
 
 
+def _floor_to_multiple_of_16(value: float) -> int:
+    """Round a dimension *down* to a multiple of 16 (used to stay under a cap)."""
+    return math.floor(value / 16) * 16
+
+
+def _ceil_to_multiple_of_16(value: float) -> int:
+    """Round a dimension *up* to a multiple of 16 (used to stay above a floor)."""
+    return math.ceil(value / 16) * 16
+
+
 INCHES_PER_CM = 1 / 2.54
 INCHES_PER_MM = 1 / 25.4
 
@@ -117,47 +127,51 @@ def auto_adjust_gpt_image2_dims(width: int, height: int) -> tuple[int, int]:
     Returns:
         Tuple of (adjusted_width, adjusted_height)
     """
-    # Round to nearest multiple of 16
-    adj_width = round_to_multiple_of_16(width)
-    adj_height = round_to_multiple_of_16(height)
+    # All snapping to multiples of 16 is direction-aware: we floor when we need
+    # to stay *under* a cap (max edge, max pixels) and ceil when we need to stay
+    # *above* a floor (min pixels, the shorter side of an aspect cap). Plain
+    # nearest rounding is what let earlier versions cross a bound by a few px
+    # right after scaling to it.
+    adj_width = max(round_to_multiple_of_16(width), 16)
+    adj_height = max(round_to_multiple_of_16(height), 16)
 
-    # Ensure minimum dimensions
-    if adj_width == 0:
-        adj_width = 16
-    if adj_height == 0:
-        adj_height = 16
+    # Fix the aspect ratio first. An extreme ratio is the root cause of the
+    # other constraints fighting each other (clamping the long edge then scaling
+    # up for the pixel minimum can otherwise push the long edge back over the
+    # max), so cap it to MAX_ASPECT before any pixel-count scaling. Ceil the
+    # shorter side so the resulting ratio is <= MAX_ASPECT, never slightly over.
+    if max(adj_width, adj_height) / min(adj_width, adj_height) > GPT_IMAGE_2_MAX_ASPECT:
+        if adj_width > adj_height:
+            adj_height = _ceil_to_multiple_of_16(adj_width / GPT_IMAGE_2_MAX_ASPECT)
+        else:
+            adj_width = _ceil_to_multiple_of_16(adj_height / GPT_IMAGE_2_MAX_ASPECT)
 
-    # Clamp to max edge
-    if adj_width > GPT_IMAGE_2_MAX_EDGE:
-        adj_width = GPT_IMAGE_2_MAX_EDGE
-    if adj_height > GPT_IMAGE_2_MAX_EDGE:
-        adj_height = GPT_IMAGE_2_MAX_EDGE
+    # Clamp each edge to the max (MAX_EDGE is itself a multiple of 16).
+    adj_width = min(adj_width, GPT_IMAGE_2_MAX_EDGE)
+    adj_height = min(adj_height, GPT_IMAGE_2_MAX_EDGE)
 
-    # Check total pixels and adjust if needed
+    # Scale proportionally to land within the pixel-count bounds.
     pixels = adj_width * adj_height
     if pixels > GPT_IMAGE_2_MAX_PIXELS:
-        # Scale down proportionally
         scale = math.sqrt(GPT_IMAGE_2_MAX_PIXELS / pixels)
-        adj_width = round_to_multiple_of_16(int(adj_width * scale))
-        adj_height = round_to_multiple_of_16(int(adj_height * scale))
+        adj_width = max(_floor_to_multiple_of_16(adj_width * scale), 16)
+        adj_height = max(_floor_to_multiple_of_16(adj_height * scale), 16)
     elif pixels < GPT_IMAGE_2_MIN_PIXELS:
-        # Scale up proportionally
         scale = math.sqrt(GPT_IMAGE_2_MIN_PIXELS / pixels)
-        adj_width = round_to_multiple_of_16(int(adj_width * scale))
-        adj_height = round_to_multiple_of_16(int(adj_height * scale))
+        adj_width = _ceil_to_multiple_of_16(adj_width * scale)
+        adj_height = _ceil_to_multiple_of_16(adj_height * scale)
 
-    # Check aspect ratio and adjust if needed
-    aspect = max(adj_width, adj_height) / min(adj_width, adj_height)
-    if aspect > GPT_IMAGE_2_MAX_ASPECT:
-        # Adjust the shorter side to meet aspect ratio
+    # The min-pixel ceil (and the edge clamp) can nudge the ratio back over the
+    # cap; correct it by growing the shorter side, which only adds pixels.
+    if max(adj_width, adj_height) / min(adj_width, adj_height) > GPT_IMAGE_2_MAX_ASPECT:
         if adj_width > adj_height:
-            adj_height = round_to_multiple_of_16(
-                int(adj_width / GPT_IMAGE_2_MAX_ASPECT)
-            )
+            adj_height = _ceil_to_multiple_of_16(adj_width / GPT_IMAGE_2_MAX_ASPECT)
         else:
-            adj_width = round_to_multiple_of_16(
-                int(adj_height / GPT_IMAGE_2_MAX_ASPECT)
-            )
+            adj_width = _ceil_to_multiple_of_16(adj_height / GPT_IMAGE_2_MAX_ASPECT)
+
+    # Final guard: keep both edges within [16, MAX_EDGE].
+    adj_width = min(max(adj_width, 16), GPT_IMAGE_2_MAX_EDGE)
+    adj_height = min(max(adj_height, 16), GPT_IMAGE_2_MAX_EDGE)
 
     return adj_width, adj_height
 

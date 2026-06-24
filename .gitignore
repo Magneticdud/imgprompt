@@ -4,6 +4,7 @@
 *.JPG
 *.webp
 __pycache__
+.pytest_cache/
 .venv/
 .env
 .last_generation.json
