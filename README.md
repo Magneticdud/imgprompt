@@ -9,6 +9,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.
 - Pre-made and custom prompts.
+- **Multi-line prompts**: write custom prompts spanning several lines (handy for typographic prompts), or load a prompt from a text file.
 - **Replay**: re-run the last generation with identical parameters and prompt.
 
 ## Setup
@@ -38,6 +39,34 @@ python imgedit.py photo.jpg
 
 # Text-to-Image mode (no input image)
 python imgedit.py --free
+```
+
+### Multi-line Prompts
+When you pick **"Custom Prompt"** (or **"Edit Prompt"** from the summary), the input is multi-line: press **Enter** to submit and **Ctrl+J** to insert a newline. This lets you lay out prompts across several lines, which is useful for typographic generations, e.g.:
+
+```
+Create a monochrome typographic illustration with the following text,
+on three separate lines:
+Hello
+World
+2026
+```
+
+### Prompt from a Text File
+Instead of typing the prompt, you can load it from a `.txt` file (newlines preserved). This skips the interactive prompt step:
+
+```bash
+# Explicit flag
+python imgedit.py photo.jpg --prompt-file prompt.txt
+python imgedit.py photo.jpg -p prompt.txt
+
+# Auto-detected: a .txt among the positional arguments is treated as the
+# prompt file, in any order. An image + a .txt can be passed together.
+python imgedit.py photo.jpg prompt.txt
+python imgedit.py prompt.txt photo.jpg
+
+# Works in Text-to-Image mode too
+python imgedit.py --free prompt.txt
 ```
 
 ### Replay the Last Generation

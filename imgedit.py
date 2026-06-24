@@ -56,6 +56,35 @@ PROVIDER_MAP = {
 }
 
 
+def multiline_prompt(message: str, default: str = "") -> str | None:
+    """Multi-line text input. Enter submits, Ctrl+J inserts a newline.
+
+    Built on prompt_toolkit (already a questionary dependency) so prompts can
+    span several lines -- useful for typographic prompts where the literal line
+    breaks signal how text should be laid out in the image.
+
+    Returns the entered text, or None if cancelled (Ctrl+C / Ctrl+D).
+    """
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+
+    bindings = KeyBindings()
+
+    @bindings.add("enter")
+    def _submit(event):
+        event.current_buffer.validate_and_handle()
+
+    @bindings.add("c-j")
+    def _newline(event):
+        event.current_buffer.insert_text("\n")
+
+    session = PromptSession(multiline=True, key_bindings=bindings)
+    try:
+        return session.prompt(f"? {message} (Ctrl+J = newline) ", default=default)
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
 def normalize_path(p: str) -> str:
     """Return a usable filesystem path, tolerating shell-escaped paths.
 
@@ -442,7 +471,7 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
 
     final_prompt = prompt_selection
     if prompt_selection == "Custom Prompt":
-        final_prompt = questionary.text("Enter your custom prompt:").ask()
+        final_prompt = multiline_prompt("Enter your custom prompt:")
         if not final_prompt:
             return BACK_OPTION, prompt_selection
     elif prompt_selection == "Object Removal (High Quality)":
@@ -576,6 +605,13 @@ def main():
         help="Re-run the last generation with identical parameters and prompt "
         "(any image arguments are ignored)",
     )
+    parser.add_argument(
+        "-p",
+        "--prompt-file",
+        default=None,
+        help="Read the prompt from a text file (preserves newlines). A .txt "
+        "passed as a positional argument is auto-detected as the prompt file.",
+    )
     args = parser.parse_args()
 
     # Replay mode: skip the wizard and reuse the last saved request verbatim.
@@ -586,6 +622,36 @@ def main():
             print("Note: image arguments are ignored in --replay mode.")
         run_replay(args.iterations)
         return
+
+    # Resolve a CLI-supplied prompt: an explicit --prompt-file, or a .txt found
+    # among the positional arguments (so `imgedit.py photo.jpg prompt.txt` just
+    # works, in any order, without a flag). Non-.txt arguments stay as images.
+    prompt_file = args.prompt_file
+    remaining_images = []
+    for pattern in args.images:
+        if (
+            prompt_file is None
+            and pattern.lower().endswith(".txt")
+            and os.path.isfile(normalize_path(pattern))
+        ):
+            prompt_file = pattern
+        else:
+            remaining_images.append(pattern)
+    args.images = remaining_images
+
+    cli_prompt = None
+    if prompt_file:
+        pf = normalize_path(prompt_file)
+        try:
+            with open(pf, "r", encoding="utf-8") as f:
+                cli_prompt = f.read().strip()
+        except OSError as e:
+            print(f"Error: could not read prompt file '{prompt_file}': {e}")
+            sys.exit(1)
+        if not cli_prompt:
+            print(f"Error: prompt file '{prompt_file}' is empty.")
+            sys.exit(1)
+        print(f"\nPrompt loaded from: {prompt_file}")
 
     # Determine input images
     is_dual = False
@@ -712,7 +778,11 @@ def main():
             current_step = 4
 
         elif current_step == 4:
-            # Step 5: Select Prompt
+            # Step 5: Select Prompt (skipped when supplied via --prompt-file / .txt)
+            if cli_prompt is not None:
+                final_prompt = cli_prompt
+                current_step = 5
+                continue
             result_prompt, prompt_selection = step_prompt(input_images, is_dual)
             if result_prompt == BACK_OPTION:
                 current_step = 3
@@ -815,14 +885,16 @@ def main():
             if action == "Proceed with API call":
                 break
             elif action == "Edit Prompt":
-                new_prompt = questionary.text(
-                    "Edit your prompt:", default=final_prompt
-                ).ask()
+                new_prompt = multiline_prompt(
+                    "Edit your prompt:", default=final_prompt or ""
+                )
                 if new_prompt:
                     final_prompt = new_prompt
                 continue  # Will show summary again
             elif action == BACK_OPTION:
-                current_step = 4
+                # When the prompt came from a file there is no interactive prompt
+                # step to return to, so step back to quality instead.
+                current_step = 3 if cli_prompt is not None else 4
                 continue
             else:
                 print("Cancelled.")
