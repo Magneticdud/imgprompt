@@ -2,5 +2,6 @@ openai
 questionary
 python-dotenv
 Pillow
+PyMuPDF
 requests
 google-genai

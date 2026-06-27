@@ -1,6 +1,7 @@
 import os
 import io
 import base64
+import tempfile
 import requests
 from datetime import datetime
 from typing import Optional
@@ -9,11 +10,88 @@ from PIL import Image
 from imgprompt.presets import ASPECT_RATIO_VALUES
 
 IMAGE_EXTENSIONS = (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+PDF_EXTENSIONS = (".pdf",)
+
+# DPI used when rasterizing PDF pages to bitmaps. ~200 DPI keeps an A4 page
+# around 1654x2339, sharp enough for editing while the later resize step trims
+# it to the chosen target resolution.
+PDF_RASTER_DPI = 200
 
 
 def get_images_in_cwd() -> list[str]:
-    """Returns a list of image files in the current working directory."""
-    return [f for f in os.listdir(".") if f.lower().endswith(IMAGE_EXTENSIONS)]
+    """Returns a list of image (and PDF) files in the current working directory."""
+    return [
+        f
+        for f in os.listdir(".")
+        if f.lower().endswith(IMAGE_EXTENSIONS + PDF_EXTENSIONS)
+    ]
+
+
+def is_pdf(path: str) -> bool:
+    """True if the path points to a PDF (by extension)."""
+    return path.lower().endswith(PDF_EXTENSIONS)
+
+
+def pdf_page_count(pdf_path: str) -> int:
+    """Returns the number of pages in a PDF. Requires PyMuPDF (fitz)."""
+    import fitz  # PyMuPDF, imported lazily so non-PDF runs don't need it
+
+    with fitz.open(pdf_path) as doc:
+        return doc.page_count
+
+
+def rasterize_pdf(pdf_path: str, page_index: int = 0, dpi: int = PDF_RASTER_DPI) -> str:
+    """Render a single PDF page to a PNG saved next to the source PDF.
+
+    APIs accept raster formats only, so a PDF must be rasterized before upload.
+    The PNG is written alongside the original (named after it) so downstream
+    output filenames and directories stay sensible, and the user keeps a visible
+    record of exactly what was sent. If the source directory is not writable
+    (e.g. a read-only SMB/GVFS mount) it falls back to a temp directory.
+    Returns the PNG path.
+    """
+    import fitz  # PyMuPDF, imported lazily
+
+    stem = os.path.splitext(os.path.basename(pdf_path))[0]
+    src_dir = os.path.dirname(pdf_path) or "."
+
+    with fitz.open(pdf_path) as doc:
+        page_count = doc.page_count
+        if not 0 <= page_index < page_count:
+            raise ValueError(
+                f"Page {page_index + 1} out of range (PDF has {page_count} pages)."
+            )
+        page = doc.load_page(page_index)
+        pix = page.get_pixmap(dpi=dpi)
+
+    suffix = "" if page_count == 1 else f"_p{page_index + 1}"
+    filename = f"{stem}{suffix}.png"
+
+    # Prefer saving next to the PDF; fall back to a temp dir if that directory
+    # is not writable. os.access can be wrong on some mounts, so the save itself
+    # is also guarded and retried in the temp dir.
+    out_dir = src_dir if os.access(src_dir, os.W_OK) else tempfile.gettempdir()
+
+    def _unique(directory: str) -> str:
+        candidate = os.path.join(directory, filename)
+        if os.path.exists(candidate):
+            root, ext = os.path.splitext(candidate)
+            counter = 2
+            while os.path.exists(f"{root}_{counter}{ext}"):
+                counter += 1
+            candidate = f"{root}_{counter}{ext}"
+        return candidate
+
+    out_path = _unique(out_dir)
+    try:
+        pix.save(out_path)
+    except OSError:
+        if out_dir == tempfile.gettempdir():
+            raise
+        out_path = _unique(tempfile.gettempdir())
+        pix.save(out_path)
+        print(f"Note: '{src_dir}' is not writable; saved rasterized page to {out_path}")
+    return out_path
 
 
 def process_image_for_api(image_path: str, target_res: str) -> tuple:

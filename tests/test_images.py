@@ -6,6 +6,8 @@ out of scope.
 """
 
 import io
+import os
+import tempfile
 
 import pytest
 from PIL import Image
@@ -14,9 +16,24 @@ from imgprompt.images import (
     get_closest_aspect_ratio,
     get_image_extension,
     get_images_in_cwd,
+    is_pdf,
+    pdf_page_count,
     process_image_for_api,
+    rasterize_pdf,
     save_image_bytes,
 )
+
+fitz = pytest.importorskip("fitz")
+
+
+def _write_pdf(path, pages=1):
+    doc = fitz.open()
+    for i in range(pages):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 72), f"Page {i + 1}")
+    doc.save(str(path))
+    doc.close()
+    return str(path)
 
 
 def _make_image_bytes(size=(64, 64), fmt="PNG", color=(255, 0, 0)):
@@ -122,3 +139,61 @@ class TestGetImagesInCwd:
         monkeypatch.chdir(tmp_path)
         _write_image(tmp_path / "PIC.PNG")
         assert "PIC.PNG" in get_images_in_cwd()
+
+    def test_lists_pdfs(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        _write_pdf(tmp_path / "report.pdf")
+        assert "report.pdf" in get_images_in_cwd()
+
+
+class TestIsPdf:
+    def test_pdf(self):
+        assert is_pdf("doc.pdf")
+        assert is_pdf("DOC.PDF")
+
+    def test_non_pdf(self):
+        assert not is_pdf("photo.png")
+        assert not is_pdf("archive.pdf.png")
+
+
+class TestRasterizePdf:
+    def test_page_count(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "multi.pdf", pages=3)
+        assert pdf_page_count(pdf) == 3
+
+    def test_single_page_naming(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "doc.pdf", pages=1)
+        out = rasterize_pdf(pdf)
+        assert out == str(tmp_path / "doc.png")
+        img = Image.open(out)
+        assert img.format == "PNG"
+
+    def test_multipage_naming_includes_page(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "doc.pdf", pages=2)
+        assert rasterize_pdf(pdf, page_index=0) == str(tmp_path / "doc_p1.png")
+        assert rasterize_pdf(pdf, page_index=1) == str(tmp_path / "doc_p2.png")
+
+    def test_out_of_range_raises(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "doc.pdf", pages=1)
+        with pytest.raises(ValueError):
+            rasterize_pdf(pdf, page_index=5)
+
+    def test_no_clobber(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "doc.pdf", pages=1)
+        first = rasterize_pdf(pdf)
+        second = rasterize_pdf(pdf)
+        assert first != second
+        assert second == str(tmp_path / "doc_2.png")
+
+    def test_readonly_dir_falls_back_to_tmp(self, tmp_path):
+        src = tmp_path / "ro"
+        src.mkdir()
+        pdf = _write_pdf(src / "doc.pdf", pages=1)
+        os.chmod(src, 0o500)  # read + execute, no write
+        try:
+            out = rasterize_pdf(pdf)
+        finally:
+            os.chmod(src, 0o700)
+        assert os.path.dirname(out) != str(src)
+        assert os.path.dirname(out) == tempfile.gettempdir()
+        assert os.path.exists(out)

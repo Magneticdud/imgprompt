@@ -5,6 +5,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 ## Features
 - Direct image path input via CLI.
 - Interactive file selection if no path is provided.
+- **PDF input**: pass a `.pdf` and it is rasterized to a bitmap before upload (a PNG is saved next to the source); for multi-page PDFs you choose which page to use.
 - **Batch processing**: Process multiple images with the same model and prompt.
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.

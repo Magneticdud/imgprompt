@@ -122,6 +122,15 @@ class TestAutoAdjustGptImage2Dims:
         assert aw <= GPT_IMAGE_2_MAX_EDGE and ah <= GPT_IMAGE_2_MAX_EDGE
         assert validate_gpt_image2_dims(aw, ah) == []
 
+    def test_long_edge_over_max_preserves_aspect(self):
+        # Regression: a 330x1200mm @ 150 DPI request (1949x7087) used to clamp
+        # only the long edge to 3840, collapsing the capped 3:1 ratio down to
+        # ~1.6:1. It must instead scale both edges and stay at the 3:1 cap.
+        aw, ah = auto_adjust_gpt_image2_dims(1949, 7087)
+        assert validate_gpt_image2_dims(aw, ah) == []
+        aspect = max(aw, ah) / min(aw, ah)
+        assert aspect == pytest.approx(GPT_IMAGE_2_MAX_ASPECT, abs=0.05)
+
     def test_output_always_passes_validation_over_a_grid(self):
         # The adjusted dimensions must satisfy every gpt-image-2 constraint for
         # any plausible input, not just the hand-picked cases above.

@@ -146,9 +146,15 @@ def auto_adjust_gpt_image2_dims(width: int, height: int) -> tuple[int, int]:
         else:
             adj_width = _ceil_to_multiple_of_16(adj_height / GPT_IMAGE_2_MAX_ASPECT)
 
-    # Clamp each edge to the max (MAX_EDGE is itself a multiple of 16).
-    adj_width = min(adj_width, GPT_IMAGE_2_MAX_EDGE)
-    adj_height = min(adj_height, GPT_IMAGE_2_MAX_EDGE)
+    # Scale proportionally if the longest edge exceeds the max. Clamping each
+    # edge independently would shrink only the long side and leave the short
+    # side untouched, collapsing the aspect ratio (e.g. a capped 3:1 turning
+    # into 1.6:1). Floor so the longest edge lands at or below MAX_EDGE.
+    longest = max(adj_width, adj_height)
+    if longest > GPT_IMAGE_2_MAX_EDGE:
+        scale = GPT_IMAGE_2_MAX_EDGE / longest
+        adj_width = max(_floor_to_multiple_of_16(adj_width * scale), 16)
+        adj_height = max(_floor_to_multiple_of_16(adj_height * scale), 16)
 
     # Scale proportionally to land within the pixel-count bounds.
     pixels = adj_width * adj_height

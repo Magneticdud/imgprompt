@@ -40,7 +40,12 @@ from imgprompt.presets import (
     auto_adjust_gpt_image2_dims,
     physical_to_pixels,
 )
-from imgprompt.images import get_images_in_cwd
+from imgprompt.images import (
+    get_images_in_cwd,
+    is_pdf,
+    pdf_page_count,
+    rasterize_pdf,
+)
 from imgprompt.history import save_last_generation, load_last_generation
 from imgprompt.providers.base import GenerationRequest
 from imgprompt.providers.openai_provider import OpenAIProvider
@@ -100,6 +105,47 @@ def normalize_path(p: str) -> str:
     if unescaped != p and os.path.exists(unescaped):
         return unescaped
     return p
+
+
+def resolve_pdf_inputs(paths: list[str]) -> list[str]:
+    """Rasterize any PDF inputs to PNG so providers receive a bitmap.
+
+    Image APIs accept raster formats only, never PDF, so each PDF is rendered to
+    a PNG up front -- before any provider sees the path -- leaving all downstream
+    loading/resizing code unchanged. For a multi-page PDF the user picks which
+    page to use. Returns the input list with PDF paths swapped for PNG paths.
+    """
+    resolved = []
+    for p in paths:
+        if not is_pdf(p):
+            resolved.append(p)
+            continue
+        try:
+            n_pages = pdf_page_count(p)
+        except Exception as e:
+            print(f"Error: could not open PDF '{p}': {e}")
+            sys.exit(1)
+
+        page_index = 0
+        if n_pages > 1:
+            choice = questionary.select(
+                f"'{os.path.basename(p)}' has {n_pages} pages. Select a page to use:",
+                choices=[f"Page {i + 1}" for i in range(n_pages)],
+            ).ask()
+            if not choice:
+                sys.exit(0)
+            page_index = int(choice.split()[1]) - 1
+
+        try:
+            png_path = rasterize_pdf(p, page_index=page_index)
+        except Exception as e:
+            print(f"Error: could not rasterize PDF '{p}': {e}")
+            sys.exit(1)
+        print(
+            f"Rasterized {os.path.basename(p)} (page {page_index + 1}) -> {png_path}"
+        )
+        resolved.append(png_path)
+    return resolved
 
 
 def select_inputs(provided_path: str | None) -> tuple[list[str], bool, bool]:
@@ -672,7 +718,7 @@ def main():
                 for f in os.listdir(pattern):
                     fpath = os.path.join(pattern, f)
                     if os.path.isfile(fpath) and f.lower().endswith(
-                        (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+                        (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp", ".pdf")
                     ):
                         all_images.append(fpath)
             else:
@@ -691,6 +737,11 @@ def main():
         if is_replay:
             run_replay(args.iterations)
             return
+
+    # Rasterize any PDF inputs to PNG before providers ever see the paths, so all
+    # downstream loading/resizing stays image-only.
+    if input_images:
+        input_images = resolve_pdf_inputs(input_images)
 
     # Legacy support variable
     image_path = input_images[0] if input_images else None
