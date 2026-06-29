@@ -95,10 +95,10 @@ class TestAutoAdjustGptImage2Dims:
         "w,h",
         [
             (1024, 1024),
-            (100, 100),       # far too small -> scaled up
-            (5000, 5000),     # too big -> scaled down + clamped
-            (4000, 100),      # extreme aspect -> corrected, regression case
-            (100, 4000),      # extreme aspect, tall orientation
+            (100, 100),  # far too small -> scaled up
+            (5000, 5000),  # too big -> scaled down + clamped
+            (4000, 100),  # extreme aspect -> corrected, regression case
+            (100, 4000),  # extreme aspect, tall orientation
             (1, 1),
             (1920, 1088),
         ],

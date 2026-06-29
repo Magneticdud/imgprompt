@@ -12,6 +12,16 @@ class GenerationRequest:
     images: list[str] = field(default_factory=list)
     width: int | None = None
     height: int | None = None
+    # Number of variants to generate per API call (1..10). Defaults to 1 so
+    # replay/history files written before this field was added still load,
+    # since dataclass __init__ allows **unpacking without the key when a
+    # default is provided.
+    n: int = 1
+    # Free-form passthrough for advanced parameters not yet modelled in the
+    # provider interface (output_format, background, seed, provider.options,
+    # etc.). Forwarded verbatim into the request body for providers that
+    # support it.
+    extras: dict = field(default_factory=dict)
 
     @property
     def is_batch(self) -> bool:

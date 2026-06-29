@@ -204,12 +204,12 @@ COSTS = {
     "gemini-2.5-flash-image": {
         "1K": {"fixed": 0.04},
     },
-    "gemini-3.1-flash-image-preview": {
+    "gemini-3.1-flash-image": {
         "1K": {"fixed": 0.07},
         "2K": {"fixed": 0.10},
         "4K": {"fixed": 0.15},
     },
-    "gemini-3-pro-image-preview": {
+    "gemini-3-pro-image": {
         "1K": {"fixed": 0.14},
         "2K": {"fixed": 0.14},
         "4K": {"fixed": 0.25},
@@ -251,8 +251,9 @@ COSTS = {
 
 # OpenRouter prefixed versions for Gemini models
 COSTS["google/gemini-2.5-flash-image"] = COSTS["gemini-2.5-flash-image"]
-COSTS["google/gemini-3.1-flash-image-preview"] = COSTS["gemini-3.1-flash-image-preview"]
-COSTS["google/gemini-3-pro-image-preview"] = COSTS["gemini-3-pro-image-preview"]
+COSTS["google/gemini-3.1-flash-image"] = COSTS["gemini-3.1-flash-image"]
+COSTS["google/gemini-3-pro-image"] = COSTS["gemini-3-pro-image"]
+
 
 # OpenRouter OpenAI models (using token-based pricing like gpt-image-2)
 COSTS["openai/gpt-5.4-image-2"] = {

@@ -2,18 +2,58 @@ import os
 import sys
 import io
 import base64
+from datetime import datetime
 
-from openai import OpenAI
+import requests
 from PIL import Image
 
 from imgprompt.providers.base import ImageProvider, GenerationRequest
 from imgprompt.images import save_image_bytes
 
-_MAX_REQUEST_SIZE = 4.5 * 1024 * 1024  # 4.5MB
+# OpenRouter Image API base URL (replaces the legacy /chat/completions+modalities path).
+OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images"
+
+# Per-call payload limit (same as legacy: OpenRouter rejects >4.5MB).
+_MAX_REQUEST_SIZE = 4.5 * 1024 * 1024
+# Black Forest Labs models resize to ~4MP anyway — pre-downscale large inputs.
 _MAX_BFL_MEGAPIXELS = 4
+# The new API caps `n` at 10. We clamp regardless of the input.
+_MAX_N = 10
+
+# (connect_timeout, read_timeout) for POST /api/v1/images. The legacy adapter
+# inherited the OpenAI SDK's built-in defaults; bare `requests.post` has no
+# timeout by default, so without this the CLI would hang indefinitely on
+# stalled peers.
+_DEFAULT_TIMEOUT = (10, 60)
+
+# Markup the wizard / logs can detect when the provider hands back a vector
+# output (Recraft and similar models). Used to route SVG bytes to a real .svg
+# file instead of save_image_bytes (which would mis-detect the format and
+# save a .png header that nobody can open).
+_SVG_MEDIA_TYPE = "image/svg+xml"
+
+# Identifies the application on OpenRouter's side. Kept verbatim from the legacy
+# header set so dashboards that already filter on these values continue to work.
+_APP_HEADERS = {
+    "HTTP-Referer": "https://github.com/Magneticdud/imgprompt/",
+    "X-Title": "IMGPrompt",
+    "X-OpenRouter-Title": "IMGPrompt",
+    "X-OpenRouter-Categories": "image-gen",
+}
 
 
 class OpenRouterProvider(ImageProvider):
+    def __init__(self) -> None:
+        # Read the key eagerly so _call_api / _headers can be invoked
+        # directly (e.g. by unit tests) without having to first go through
+        # run(). run() still validates the key is present before kicking
+        # off real network requests.
+        self._api_key: str | None = os.getenv("OPENROUTER_API_KEY")
+        # Initialise so callers that invoke _call_api before run() (tests,
+        # ad-hoc replays) don't hit AttributeError. run() resets this anyway
+        # to clear stale state from a previous run.
+        self._reported_cost: float | None = None
+
     @classmethod
     def provider_name(cls) -> str:
         return "OpenRouter"
@@ -30,22 +70,18 @@ class OpenRouterProvider(ImageProvider):
             "sourceful/riverflow-v2.5-fast",
             "sourceful/riverflow-v2.5-pro",
             "google/gemini-2.5-flash-image",
-            "google/gemini-3.1-flash-image-preview",
-            "google/gemini-3-pro-image-preview",
+            "google/gemini-3.1-flash-image",
+            "google/gemini-3-pro-image",
         ]
 
     def get_resolution_choices(
         self, model: str, image_path: str | None
     ) -> tuple[list[str], str]:
-        from imgprompt.presets import (
-            OPENROUTER_RESOLUTIONS,
-            OPENROUTER_STANDARD_RATIOS,
-        )
+        from imgprompt.presets import OPENROUTER_STANDARD_RATIOS
 
-        if model == "google/gemini-3.1-flash-image-preview":
-            ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
-        else:
-            ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
+        # All OpenRouter models now go through the same /api/v1/images endpoint,
+        # so the ratio list is uniform across providers.
+        ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
         default = "1:1"
         if image_path:
             from imgprompt.images import get_closest_aspect_ratio
@@ -70,6 +106,9 @@ class OpenRouterProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import COSTS
 
+        # Method kept named "quality" for backwards compatibility with the
+        # wizard in imgedit.py, but the user-facing label is now "Resolution"
+        # (tier like "1K"/"2K"/"4K" — matching the new docs).
         if model.startswith("openai/gpt-"):
             sizes = ["1K", "2K", "4K"]
         elif model == "sourceful/riverflow-v2.5-pro":
@@ -77,8 +116,8 @@ class OpenRouterProvider(ImageProvider):
         elif model.startswith("black-forest-labs/"):
             sizes = ["1K", "2K"]
         elif model in (
-            "google/gemini-3-pro-image-preview",
-            "google/gemini-3.1-flash-image-preview",
+            "google/gemini-3-pro-image",
+            "google/gemini-3.1-flash-image",
         ):
             sizes = ["1K", "2K", "4K"]
         elif model == "google/gemini-2.5-flash-image":
@@ -109,35 +148,277 @@ class OpenRouterProvider(ImageProvider):
     def supports_dual(self) -> bool:
         return True
 
+    # ------------------------------------------------------------------ entry
+
     def run(self, request: GenerationRequest) -> None:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
+        if not self._api_key:
             print(
                 "Error: OPENROUTER_API_KEY not found. Please set it in your .env file."
             )
             sys.exit(1)
+        # Reset the per-run cost cache so a previous run's reported cost
+        # doesn't suppress this run's announcement when the value repeats.
+        self._reported_cost = None
 
-        self._client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-            default_headers={
-                "HTTP-Referer": "https://github.com/Magneticdud/imgprompt/",
-                "X-Title": "IMGPrompt",
-                "X-OpenRouter-Title": "IMGPrompt",
-                "X-OpenRouter-Categories": "image-gen",
-            },
+        if len(request.images) > 1:
+            self._run_input_batch(request)
+        else:
+            self._run_variants(request)
+
+    # ------------------------------------------------------------------ flow
+
+    def _run_variants(self, request: GenerationRequest) -> None:
+        """Single-input call: returns 1..N images depending on request.n.
+
+        Used for text-to-image (no input image) and 1-image edits.
+        Server-side batching via the `n` parameter means a single HTTP call
+        yields all variants in parallel instead of looping N times.
+        """
+        n = max(1, min(_MAX_N, getattr(request, "n", 1)))
+        img_paths = request.images or None
+        try:
+            results = self._call_api(request, img_paths=img_paths, n=n)
+        except requests.HTTPError as e:
+            self._print_http_error(e)
+            return
+        except Exception as e:
+            print(f"\nAn error occurred during OpenRouter call: {e}")
+            return
+
+        if not results:
+            print("\nError: No image returned by OpenRouter API.")
+            return
+
+        save_target = request.primary_image
+        if n > 1:
+            self._save_variants(results, save_target, label="Variant")
+        else:
+            self._save_one(results[0], save_target)
+
+    def _run_input_batch(self, request: GenerationRequest) -> None:
+        """Multi-input fan-out: each input gets `request.n` variants.
+
+        Each input is processed in a separate API call (with its own
+        input_references), so the total output count is `len(images) * n`.
+        """
+        n = max(1, min(_MAX_N, getattr(request, "n", 1)))
+        print(f"\nStarting batch processing: {len(request.images)} images...")
+        success = 0
+        failed = 0
+        for idx, img_path in enumerate(request.images, 1):
+            print(
+                f"\n--- Processing image {idx}/{len(request.images)}: "
+                f"{os.path.basename(img_path)} ---"
+            )
+            try:
+                results = self._call_api(request, img_paths=[img_path], n=n)
+            except requests.HTTPError as e:
+                self._print_http_error(e)
+                failed += 1
+                continue
+            except Exception as e:
+                print(f"An error occurred during OpenRouter call: {e}")
+                failed += 1
+                continue
+
+            if not results:
+                failed += 1
+                continue
+            if n > 1:
+                self._save_variants(results, img_path, label=f"Variant (img {idx})")
+            else:
+                self._save_one(results[0], img_path)
+            success += 1
+
+        print(
+            f"\n=== Batch complete: {success}/{len(request.images)} inputs OK, "
+            f"{success * n} images saved, {failed} failed ==="
         )
 
-        # OpenRouter only exposes image generation via /chat/completions
-        # (with modalities), not the OpenAI /images/edits endpoint — so all
-        # models, including openai/gpt-*, go through the same path.
-        if request.is_batch:
-            self._run_batch(request)
+    def _save_one(
+        self,
+        item: tuple[bytes, str | None],
+        original_path: str | None,
+    ) -> None:
+        """Save one decoded image, picking .svg when needed.
+
+        `imgprompt.images.save_image_bytes` drives extension choice off
+        PIL-detectable formats (PNG/JPEG/WEBP) — vector outputs need a
+        hand-written path with the canonical timestamped name so the user
+        gets a file that opens in vector viewers without renaming.
+        """
+        img_bytes, media_type = item
+        if media_type == _SVG_MEDIA_TYPE:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if original_path:
+                base = os.path.splitext(os.path.basename(original_path))[0]
+                out_dir = os.path.dirname(original_path) or "."
+                out_path = os.path.join(out_dir, f"edited_{ts}_{base}.svg")
+            else:
+                out_path = f"generated_{ts}.svg"
+            if os.path.exists(out_path):
+                root, _ = os.path.splitext(out_path)
+                counter = 2
+                while os.path.exists(f"{root}_{counter}.svg"):
+                    counter += 1
+                out_path = f"{root}_{counter}.svg"
+            with open(out_path, "wb") as f:
+                f.write(img_bytes)
+            print(f"File saved successfully as {out_path}")
+            return
+        save_image_bytes(img_bytes, original_path)
+
+    def _save_variants(
+        self,
+        results: list[tuple[bytes, str | None]],
+        original_path,
+        label: str,
+    ) -> None:
+        for i, item in enumerate(results, 1):
+            print(f"\n{label} {i}/{len(results)}")
+            self._save_one(item, original_path)
+
+    def _print_http_error(self, exc: requests.HTTPError) -> None:
+        try:
+            body = exc.response.text
+        except Exception:
+            body = str(exc)
+        print(f"\nError: OpenRouter request failed ({len(body)} chars): {body[:500]}")
+
+    # ------------------------------------------------------------------ HTTP
+
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+            **_APP_HEADERS,
+        }
+
+    def _build_payload(
+        self, request: GenerationRequest, img_paths: list[str] | None = None
+    ) -> dict:
+        """Construct the /api/v1/images body.
+
+        Rules (matches the docs):
+        - `size` shorthand and `resolution+aspect_ratio` are mutually exclusive;
+          pick `size` only when the user gave a custom pixel dimension.
+        - `n` is always present (server defaults to 1, but being explicit avoids
+          provider ambiguity on models that cap `n`).
+        - `input_references` is used for image-to-image (replaces the legacy
+          chat-content array).
+        - Forward any opt-in advanced params from `request.extras` verbatim
+          (output_format, background, seed, provider.options, etc.).
+        """
+        payload = {
+            "model": request.model,
+            "prompt": request.prompt,
+            **request.extras,
+        }
+        # `n` is owned by `_call_api`: it has the canonical clamp and the
+        # per-call override that input-batch fan-out uses. Leaving it out
+        # here avoids two copies of the same logic drifting apart.
+
+        if request.width and request.height:
+            payload["size"] = f"{request.width}x{request.height}"
         else:
-            self._run_single(request)
+            payload["aspect_ratio"] = request.aspect_ratio
+            # The new API also accepts "512" as a normalized tier — pass
+            # through anything in the {512,1K,2K,4K} set (older code omitted
+            # "1K" because chat-completions had no resolution field, so this
+            # is also a small bugfix).
+            if request.quality_key in ("512", "1K", "2K", "4K"):
+                payload["resolution"] = request.quality_key
+
+        if img_paths:
+            payload["input_references"] = [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": self._img_to_data_url(p, request.model)},
+                }
+                for p in img_paths
+            ]
+        return payload
+
+    def _call_api(
+        self,
+        request: GenerationRequest,
+        img_paths: list[str] | None = None,
+        n: int = 1,
+    ) -> list[tuple[bytes, str | None]]:
+        """POST /api/v1/images and decode the `data[]` array.
+
+        Returns a list of (decoded_bytes, media_type) tuples so callers can
+        pick the right file extension for vector outputs (SVG). Raises
+        requests.HTTPError on non-2xx for the caller to format.
+
+        Raises a warning visibly when the API returns fewer images than
+        `n` so silent truncation from server-side caps doesn't surprise
+        the user.
+        """
+        payload = self._build_payload(request, img_paths=img_paths)
+        payload["n"] = max(1, min(_MAX_N, n))
+
+        resp = requests.post(
+            OPENROUTER_IMAGES_URL,
+            json=payload,
+            headers=self._headers(),
+            timeout=_DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+
+        self._maybe_report_cost(body)
+
+        decoded: list[tuple[bytes, str | None]] = []
+        skipped_empty = 0
+        for item in body.get("data") or []:
+            b64 = item.get("b64_json") or ""
+            if b64.startswith("data:"):
+                b64 = b64.split(",", 1)[1]
+            if not b64:
+                # Defensive: a malformed item with no payload must not
+                # crash the whole call. Log and skip; the length warning
+                # below will surface the discrepancy.
+                skipped_empty += 1
+                continue
+            decoded.append((base64.b64decode(b64), item.get("media_type")))
+
+        if skipped_empty:
+            print(
+                f"\n[OpenRouter] Warning: {skipped_empty} response item(s) "
+                "had no decodable payload and were skipped."
+            )
+        if len(decoded) != payload["n"]:
+            print(
+                f"\n[OpenRouter] Warning: requested {payload['n']} variant(s) "
+                f"but received {len(decoded)}."
+            )
+        return decoded
+
+    def _maybe_report_cost(self, body: dict) -> None:
+        usage = body.get("usage") or {}
+        cost_usd = usage.get("cost")
+        if cost_usd is None:
+            return
+        try:
+            cost_float = float(cost_usd)
+        except (TypeError, ValueError):
+            return
+        if self._reported_cost == cost_float:
+            return
+        self._reported_cost = cost_float
+        print(f"\n[OpenRouter] reported cost: ${cost_float:.4f}")
+
+    # ------------------------------------------------------------------ utils
 
     def _img_to_data_url(self, img_path: str, model: str) -> str:
-        """Reads an image file, compresses if needed to stay under 4.5MB, returns a base64 data URL."""
+        """Reads an image file, compresses if needed to stay under 4.5MB.
+
+        The four-step fallback (untouched → JPEG/PNG resave → scale resize →
+        quality reduce) is identical to the legacy adapter: it stays here
+        unchanged so existing input sizes still work the same way with the
+        new endpoint.
+        """
         mime_types = {
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
@@ -147,7 +428,8 @@ class OpenRouterProvider(ImageProvider):
         ext = os.path.splitext(img_path)[1].lower()
         mime = mime_types.get(ext, "image/png")
 
-        # Downscale large images for black-forest-labs models (they resize to 4MP anyway)
+        # Black Forest Labs models resize to ~4MP anyway — pre-downscale to
+        # avoid sending bandwidth we know will be discarded.
         use_resized = False
         resized_data = None
         if model.startswith("black-forest-labs/"):
@@ -155,7 +437,8 @@ class OpenRouterProvider(ImageProvider):
                 mp = (img.width * img.height) / 1_000_000
                 if mp > _MAX_BFL_MEGAPIXELS:
                     print(
-                        f"Image {os.path.basename(img_path)} is {mp:.1f}MP, downscaling to {_MAX_BFL_MEGAPIXELS}MP for {model}..."
+                        f"Image {os.path.basename(img_path)} is {mp:.1f}MP, "
+                        f"downscaling to {_MAX_BFL_MEGAPIXELS}MP for {model}..."
                     )
                     scale = (_MAX_BFL_MEGAPIXELS / mp) ** 0.5
                     new_width = int(img.width * scale)
@@ -169,22 +452,21 @@ class OpenRouterProvider(ImageProvider):
                     use_resized = True
                     mime = "image/jpeg"
 
-        if use_resized:
-            original_data = resized_data
-        else:
-            with open(img_path, "rb") as f:
-                original_data = f.read()
+        original_data = resized_data if use_resized else open(img_path, "rb").read()
 
         if len(original_data) <= _MAX_REQUEST_SIZE:
             print(
-                f"Image {os.path.basename(img_path)} is {len(original_data)/1024:.1f}KB, within 4.5MB limit."
+                f"Image {os.path.basename(img_path)} is "
+                f"{len(original_data)/1024:.1f}KB, within 4.5MB limit."
             )
             b64 = base64.b64encode(original_data).decode()
             return f"data:{mime};base64,{b64}"
 
-        # If too large, compress/resize
+        # Compression fallback chain (kept verbatim from the legacy code).
         print(
-            f"Image {os.path.basename(img_path)} is {len(original_data)/1024:.1f}KB, exceeding 4.5MB limit. Compressing..."
+            f"Image {os.path.basename(img_path)} is "
+            f"{len(original_data)/1024:.1f}KB, exceeding 4.5MB limit. "
+            f"Compressing..."
         )
         with Image.open(img_path) as img:
             out_format = img.format if img.format else "JPEG"
@@ -214,92 +496,3 @@ class OpenRouterProvider(ImageProvider):
             b64 = base64.b64encode(compressed_data).decode()
             print(f"Compressed image to {len(compressed_data)/1024:.1f}KB")
             return f"data:{mime};base64,{b64}"
-
-    def _call_api(
-        self, request: GenerationRequest, img_paths: list[str] | None = None
-    ) -> str | None:
-        """Calls OpenRouter and returns a base64 data URL or None."""
-        image_config = {"aspect_ratio": request.aspect_ratio}
-        if request.quality_key in ["2K", "4K"]:
-            image_config["image_size"] = request.quality_key
-
-        if img_paths:
-            content = []
-            for p in img_paths:
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": self._img_to_data_url(p, request.model)},
-                    }
-                )
-            content.append({"type": "text", "text": request.prompt})
-        else:
-            content = request.prompt
-
-        # gpt-image models output both text and image; image-only models
-        # (flux, sourceful, seedream) take just ["image"].
-        if request.model.startswith("openai/gpt-"):
-            modalities = ["image", "text"]
-        else:
-            modalities = ["image"]
-
-        resp = self._client.chat.completions.create(
-            model=request.model,
-            messages=[{"role": "user", "content": content}],
-            extra_body={
-                "modalities": modalities,
-                "image_config": image_config,
-            },
-        )
-
-        if not resp.choices:
-            print("\nError: No choices returned in API response")
-            print(f"Debug - Full response: {resp}")
-            return None
-
-        msg = resp.choices[0].message
-        images = getattr(msg, "images", None)
-        if images:
-            return images[0]["image_url"]["url"]
-        return None
-
-    def _run_batch(self, request: GenerationRequest) -> None:
-        print(f"\nStarting batch processing: {len(request.images)} images...")
-        success_count = 0
-        fail_count = 0
-
-        for idx, img_path in enumerate(request.images, 1):
-            print(
-                f"\n--- Processing image {idx}/{len(request.images)}: {os.path.basename(img_path)} ---"
-            )
-            try:
-                data_url = self._call_api(request, img_paths=[img_path])
-                if data_url:
-                    b64_data = (
-                        data_url.split(",", 1)[1] if "," in data_url else data_url
-                    )
-                    save_image_bytes(base64.b64decode(b64_data), img_path)
-                    success_count += 1
-                else:
-                    print("Error: No image returned by OpenRouter API.")
-                    fail_count += 1
-            except Exception as e:
-                print(f"An error occurred during OpenRouter call: {e}")
-                fail_count += 1
-
-        print(
-            f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
-        )
-
-    def _run_single(self, request: GenerationRequest) -> None:
-        print(f"\nSending request to OpenRouter ({request.model})...")
-        try:
-            img_paths = request.images if request.images else None
-            data_url = self._call_api(request, img_paths=img_paths)
-            if data_url:
-                b64_data = data_url.split(",", 1)[1] if "," in data_url else data_url
-                save_image_bytes(base64.b64decode(b64_data), request.primary_image)
-            else:
-                print("\nError: No image returned by OpenRouter API.")
-        except Exception as e:
-            print(f"\nAn error occurred during OpenRouter call: {e}")

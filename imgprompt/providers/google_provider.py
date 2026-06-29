@@ -33,8 +33,8 @@ def _build_config(request: GenerationRequest) -> dict:
     if request.aspect_ratio != "Auto":
         config_args["aspect_ratio"] = request.aspect_ratio
     if request.model in (
-        "gemini-3-pro-image-preview",
-        "gemini-3.1-flash-image-preview",
+        "gemini-3-pro-image",
+        "gemini-3.1-flash-image",
     ):
         config_args["image_size"] = request.quality_key
     return config_args
@@ -57,8 +57,8 @@ class GoogleProvider(ImageProvider):
     def supported_models(cls) -> list[str]:
         return [
             "gemini-2.5-flash-image",
-            "gemini-3.1-flash-image-preview",
-            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image",
+            "gemini-3-pro-image",
         ]
 
     _STANDARD_RATIOS = [
@@ -79,10 +79,10 @@ class GoogleProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import GEMINI_RESOLUTIONS
 
-        if model == "gemini-3.1-flash-image-preview":
+        if model == "gemini-3.1-flash-image":
             ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
             default = "Auto"
-        elif model == "gemini-3-pro-image-preview":
+        elif model == "gemini-3-pro-image":
             ratio_options = ["Auto"] + self._STANDARD_RATIOS
             default = "Auto"
         else:
@@ -111,7 +111,7 @@ class GoogleProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import COSTS
 
-        if model in ("gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"):
+        if model in ("gemini-3-pro-image", "gemini-3.1-flash-image"):
             sizes = ["1K", "2K", "4K"]
         else:
             sizes = ["1K"]

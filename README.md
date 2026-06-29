@@ -120,8 +120,8 @@ When you provide 2+ images, the script automatically enters **batch mode**:
   - ⚠️ **Note**: `gpt-image-2` is also available on OpenRouter, but requests are sent server-side with quality set to `high`, making it significantly more expensive than using OpenAI directly.
 - **Google (Nano Banana)** (direct or via OpenRouter): 
   - `gemini-2.5-flash-image`: $0.04 per image.
-  - `gemini-3.1-flash-image-preview`: $0.07 (1K), $0.10 (2K), $0.15 (4K).
-  - `gemini-3-pro-image-preview`: $0.15 (1K/2K) or $0.25 (4K).
+  - `gemini-3.1-flash-image`: $0.07 (1K), $0.10 (2K), $0.15 (4K).
+  - `gemini-3-pro-image`: $0.15 (1K/2K) or $0.25 (4K).
 - **OpenRouter**:
   - `bytedance-seed/seedream-4.5`: $0.04 per image (any size).
   - `black-forest-labs/flux.2-klein-4b`: $0.014 (1K), $0.017 (2K).

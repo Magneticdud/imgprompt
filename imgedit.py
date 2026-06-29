@@ -141,9 +141,7 @@ def resolve_pdf_inputs(paths: list[str]) -> list[str]:
         except Exception as e:
             print(f"Error: could not rasterize PDF '{p}': {e}")
             sys.exit(1)
-        print(
-            f"Rasterized {os.path.basename(p)} (page {page_index + 1}) -> {png_path}"
-        )
+        print(f"Rasterized {os.path.basename(p)} (page {page_index + 1}) -> {png_path}")
         resolved.append(png_path)
     return resolved
 
@@ -460,7 +458,7 @@ def step_quality(
         model, res_key, width, height, image_path
     )
     selection = questionary.select(
-        "Select quality:",
+        "Select resolution:",
         choices=[BACK_OPTION] + choices,
         default=default,
     ).ask()
@@ -470,6 +468,32 @@ def step_quality(
         model, res_key, width, height, selection
     )
     return quality_key, cost
+
+
+def step_variants() -> int | str | None:
+    """Step 6: number of variants to generate server-side via the OpenRouter
+    `n` parameter (1..10). Other providers currently ignore this value, so
+    the wizard only invokes this step for OpenRouter.
+
+    Returns:
+      - int in [1, 10] on success.
+      - BACK_OPTION (str sentinel) if the user picked back.
+      - None if the user cancelled (Ctrl+C / EOF); the wizard should exit.
+    """
+    choices = [str(i) for i in range(1, 11)]
+    selection = questionary.select(
+        "How many variants? (sent in a single API call via `n`):",
+        choices=[BACK_OPTION] + choices,
+        default="1",
+    ).ask()
+    if selection is None:
+        return None
+    if selection == BACK_OPTION or not selection:
+        return BACK_OPTION
+    try:
+        return max(1, min(10, int(selection)))
+    except (TypeError, ValueError):
+        return 1
 
 
 def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
@@ -718,7 +742,16 @@ def main():
                 for f in os.listdir(pattern):
                     fpath = os.path.join(pattern, f)
                     if os.path.isfile(fpath) and f.lower().endswith(
-                        (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp", ".pdf")
+                        (
+                            ".pcx",
+                            ".png",
+                            ".jpg",
+                            ".jpeg",
+                            ".bmp",
+                            ".tiff",
+                            ".webp",
+                            ".pdf",
+                        )
                     ):
                         all_images.append(fpath)
             else:
@@ -757,7 +790,7 @@ def main():
         print(f"\nMode: Text-to-Image (No input image)")
 
     # State machine for navigation
-    # step 0=provider, 1=model, 2=resolution, 3=quality, 4=prompt, 5=confirm
+    # step 0=provider, 1=model, 2=resolution, 3=quality, 4=prompt, 5=variants, 6=confirm
     current_step = 0
 
     # Initialize all variables
@@ -771,6 +804,7 @@ def main():
     final_prompt = None
     dim_width = None
     dim_height = None
+    n_variants = 1  # populated by step_variants (only triggered for OpenRouter)
 
     while current_step >= 0:
         if current_step == 0:
@@ -842,7 +876,24 @@ def main():
             current_step = 5
 
         elif current_step == 5:
-            # Step 6: Summary & Confirm
+            # Step 6: Select variants (server-side `n`, 1..10).
+            if provider == "OpenRouter":
+                result_n = step_variants()
+                if result_n is None:
+                    # Ctrl+C / EOF — let the user out instead of silently
+                    # defaulting to 1 variant.
+                    print("Cancelled.")
+                    return
+                if result_n == BACK_OPTION:
+                    # With cli_prompt the prompt step is auto-skipped, so
+                    # BACK from variants jumps straight to quality.
+                    current_step = 3 if cli_prompt is not None else 4
+                    continue
+                n_variants = result_n
+            current_step = 6
+
+        elif current_step == 6:
+            # Step 7: Summary & Confirm (was Step 6)
             is_batch_mode = len(input_images) > 1 and not is_dual
 
             print("\n--- Summary ---")
@@ -875,8 +926,10 @@ def main():
                 print(f"Quality:    {quality_key}")
             elif provider == "OpenRouter":
                 print(f"Ratio:      {aspect_ratio}")
-                print(f"Resolution: {res_key}")
-                print(f"Size:       {quality_key}")
+                print(f"Resolution: {quality_key}")
+                print(f"Pixels:     {res_key}")
+                if n_variants > 1:
+                    print(f"Variants:   {n_variants}")
             else:
                 print(f"Ratio:      {aspect_ratio}")
                 print(f"Size:       {quality_key}")
@@ -918,14 +971,32 @@ def main():
                     print(f"Per Image:  ${final_cost:.3f}")
                     print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
                 else:
-                    total_cost = (final_cost + input_cost) * len(input_images)
-                    print(f"Per Image:  ${final_cost + input_cost:.3f}")
-                    print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
+                    # Only OpenRouter delivers `n` variants in one HTTP call.
+                    # For Google/OVH the wizard forces n_variants=1 anyway;
+                    # here we keep the cost math honest if someone calls
+                    # directly with a GenerationRequest having n>1.
+                    if provider == "OpenRouter":
+                        per_call_cost = final_cost * n_variants + input_cost
+                    else:
+                        per_call_cost = final_cost + input_cost
+                    total_cost = per_call_cost * len(input_images)
+                    print(f"Per Input:  ${per_call_cost:.3f}")
+                    print(
+                        f"Total Cost: ${total_cost:.3f} "
+                        f"({len(input_images)} inputs × {n_variants} variants)"
+                    )
             else:
+                # Single-input mode: only show the Output/Input breakdown
+                # when there's an input cost (Flux models). A pure output
+                # line next to Total would be a tautology.
+                if provider == "OpenRouter":
+                    output_cost = final_cost * n_variants
+                else:
+                    output_cost = final_cost
                 if input_cost > 0:
-                    print(f"Output Cost: ${final_cost:.3f}")
+                    print(f"Output Cost: ${output_cost:.3f}")
                     print(f"Input Cost:  ${input_cost:.3f}")
-                print(f"Total Cost: ${final_cost + input_cost:.3f}")
+                print(f"Total Cost: ${output_cost + input_cost:.3f}")
 
             action = questionary.select(
                 "What would you like to do?",
@@ -943,26 +1014,21 @@ def main():
                     final_prompt = new_prompt
                 continue  # Will show summary again
             elif action == BACK_OPTION:
-                # When the prompt came from a file there is no interactive prompt
-                # step to return to, so step back to quality instead.
-                current_step = 3 if cli_prompt is not None else 4
+                # Confirm is now step 6; BACK goes to step 5 (variants), which
+                # itself decides whether to skip the prompt step when
+                # cli_prompt was provided.
+                current_step = 5
                 continue
             else:
                 print("Cancelled.")
                 return
 
-    # Determine how many iterations to run (same request, multiple variations).
-    iterations = args.iterations
-    if iterations is None:
-        iter_str = questionary.text(
-            "How many iterations? (number of variations to generate):",
-            default="1",
-        ).ask()
-        try:
-            iterations = int(iter_str) if iter_str else 1
-        except ValueError:
-            iterations = 1
-    iterations = max(1, iterations)
+    # CLI --iterations is the explicit override for n_variants. The wizard's
+    # step_variants already populated n_variants during the interactive flow;
+    # when --iterations is passed on the command line we honour it instead so
+    # scripts retain their batch semantics.
+    if args.iterations is not None:
+        n_variants = max(1, args.iterations)
 
     request = GenerationRequest(
         prompt=final_prompt,
@@ -973,15 +1039,17 @@ def main():
         images=input_images,
         width=dim_width,
         height=dim_height,
+        n=n_variants,
     )
 
     # Persist the request so it can be replayed verbatim with --replay.
     save_last_generation(provider, request)
 
-    for i in range(1, iterations + 1):
-        if iterations > 1:
-            print(f"\n===== Iteration {i}/{iterations} =====")
-        provider_obj.run(request)
+    # The OpenRouter provider now delivers all n_variants in a single API
+    # call, and fan-out across input images is handled inside the provider
+    # (one HTTP request per input). No client-side loop is needed; calling
+    # provider.run() once executes the full plan.
+    provider_obj.run(request)
 
 
 if __name__ == "__main__":
