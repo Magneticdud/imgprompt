@@ -24,7 +24,12 @@ _MAX_N = 10
 # inherited the OpenAI SDK's built-in defaults; bare `requests.post` has no
 # timeout by default, so without this the CLI would hang indefinitely on
 # stalled peers.
-_DEFAULT_TIMEOUT = (10, 60)
+#
+# Image generation on OpenRouter routinely takes 30–90s per image and gets
+# even slower with `n > 1` variants, so a 60s read budget is too tight. 300s
+# (5min) matches the lower end of the OpenAI SDK's defaults and covers the
+# long tail without letting a truly wedged server hang the CLI forever.
+_DEFAULT_TIMEOUT = (10, 300)
 
 # Markup the wizard / logs can detect when the provider hands back a vector
 # output (Recraft and similar models). Used to route SVG bytes to a real .svg
