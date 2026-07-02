@@ -118,10 +118,13 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 ## Supported Models & Costs
 - **OpenAI**: `gpt-image-2`. (Discontinued: `gpt-image-1.5`, `gpt-image-1-mini`).
   - ⚠️ **Note**: `gpt-image-2` is also available on OpenRouter, but requests are sent server-side with quality set to `high`, making it significantly more expensive than using OpenAI directly.
-- **Google (Nano Banana)** (direct or via OpenRouter): 
-  - `gemini-2.5-flash-image`: $0.04 per image.
+- **Google (Nano Banana)** (direct or via OpenRouter):
+  - `gemini-3.1-flash-lite-image`: $0.034 per image. **1K only**, supports all 14 aspect ratios of the Gemini 3.x family (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 + 1:4, 4:1, 1:8, 8:1). Cheapest 1K option — recommended when 2K/4K isn't needed.
   - `gemini-3.1-flash-image`: $0.07 (1K), $0.10 (2K), $0.15 (4K).
   - `gemini-3-pro-image`: $0.15 (1K/2K) or $0.25 (4K).
+  - ~~`gemini-2.5-flash-image`~~: removed in this release. Google retires it on 2 Oct 2026; existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
+
+  > ⚠️ **Google direct API is currently untested.** Only the OpenRouter path is verified end-to-end in this project — the `Google` provider in `imgprompt/providers/google_provider.py` prints a banner on first use and may drift from Google's API without warning. Prefer the OpenRouter route for Gemini unless you have a specific reason to hit Google's API directly.
 - **OpenRouter**:
   - `bytedance-seed/seedream-4.5`: $0.04 per image (any size).
   - `black-forest-labs/flux.2-klein-4b`: $0.014 (1K), $0.017 (2K).

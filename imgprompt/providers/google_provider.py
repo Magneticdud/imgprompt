@@ -1,3 +1,11 @@
+# ⚠️  UNTESTED: This provider is not actively exercised in CI or in everyday
+# use. Behaviour may drift from Google's API without notice — Google retiring
+# `gemini-2.5-flash-image` (shutdown 2 Oct 2026) was the trigger for marking
+# this whole module as untrusted-by-default, since we no longer have direct
+# Google AI Studio / Vertex AI access to keep it honest. Prefer the OpenRouter
+# route for Gemini models unless a feature only this path exposes is needed.
+# A one-shot warning is printed the first time `run()` is invoked so anyone
+# still pointing GOOGLE_API_KEY here sees it.
 import os
 import sys
 import io
@@ -15,6 +23,20 @@ _MAX_RETRIES_BATCH = 10
 _MAX_RETRIES_SINGLE = 5
 _BASE_DELAY = 2  # seconds
 _MAX_DELAY = 60  # seconds
+
+# Class-level latch: prints the UNTESTED warning exactly once per process,
+# regardless of how many provider instances or wizard runs happen. Resetting
+# is intentional — we'd rather over-warn than under-warn for an unmaintained
+# code path.
+_UNTESTED_WARNING_EMITTED = False
+
+# Header shown on the first run() call to surface the UNTESTED status.
+# Kept as a module-level constant so it's grep-able and easy to update.
+_UNTESTED_NOTICE = (
+    "\n⚠️  Google direct API provider is currently UNTESTED.\n"
+    "    Gemini models are best handled via OpenRouter, which is the\n"
+    "    only path verified end-to-end in this project.\n"
+)
 
 
 def _is_retryable(error_str: str) -> bool:
@@ -36,6 +58,9 @@ def _build_config(request: GenerationRequest) -> dict:
         "gemini-3-pro-image",
         "gemini-3.1-flash-image",
     ):
+        # Note: gemini-3.1-flash-lite-image is 1K-only and explicitly does
+        # NOT accept `image_size`; passing it returns a 400. That model falls
+        # through to the else and stays at the API's default (which is 1K).
         config_args["image_size"] = request.quality_key
     return config_args
 
@@ -43,6 +68,10 @@ def _build_config(request: GenerationRequest) -> dict:
 def _build_config_kwargs(model: str, config_args: dict) -> dict:
     kwargs = {"image_config": types.ImageConfig(**config_args)}
     if "gemini-3.1" in model:
+        # Applies to both gemini-3.1-flash-image and gemini-3.1-flash-lite-image
+        # (matches by substring). Lite is documented as image-only and accepts
+        # these kwargs; if it ever stops accepting `thinking_config` we'll
+        # need to branch on the full model ID.
         kwargs["response_modalities"] = ["IMAGE"]
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="MINIMAL")
     return kwargs
@@ -53,12 +82,17 @@ class GoogleProvider(ImageProvider):
     def provider_name(cls) -> str:
         return "Google"
 
+    # Order matters: `cls.supported_models()[0]` is the wizard default. We
+    # intentionally keep non-Lite Flash as the default (it covers more use
+    # cases — 1K/2K/4K, multi-image editing, deeper reasoning) and put Lite
+    # last as the budget option. Picking Lite by default would silently
+    # change behaviour for users who never move the model selector.
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
-            "gemini-2.5-flash-image",
             "gemini-3.1-flash-image",
             "gemini-3-pro-image",
+            "gemini-3.1-flash-lite-image",
         ]
 
     _STANDARD_RATIOS = [
@@ -80,6 +114,14 @@ class GoogleProvider(ImageProvider):
         from imgprompt.presets import GEMINI_RESOLUTIONS
 
         if model == "gemini-3.1-flash-image":
+            ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
+            default = "Auto"
+        elif model == "gemini-3.1-flash-lite-image":
+            # Same 14-ratio set as the non-Lite Flash: Gemini 3.x documents
+            # these for the whole family, even though Google's published
+            # examples only show 10. TODO: extend 3-pro to expose the same
+            # 14-ratio set once we have verified OpenRouter accepts the four
+            # extreme ratios (1:4, 4:1, 1:8, 8:1) for that model.
             ratio_options = ["Auto"] + list(GEMINI_RESOLUTIONS.keys())
             default = "Auto"
         elif model == "gemini-3-pro-image":
@@ -111,11 +153,22 @@ class GoogleProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import COSTS
 
+        # Lite is documented as 1K-only — the API rejects 2K/4K. Be explicit
+        # rather than letting Lite silently inherit the else branch, otherwise
+        # a future addition here would have to remember the exception.
         if model in ("gemini-3-pro-image", "gemini-3.1-flash-image"):
             sizes = ["1K", "2K", "4K"]
-        else:
+        elif model == "gemini-3.1-flash-lite-image":
             sizes = ["1K"]
-        choices = [f"{s} (${COSTS[model][s]['fixed']:.2f})" for s in sizes]
+        else:
+            raise NotImplementedError(
+                f"Unknown Google provider model: {model!r}. Add an explicit "
+                "sizes entry to GoogleProvider.get_quality_choices."
+            )
+        # .3f so cents-precise prices (e.g. Lite at $0.034) don't render as
+        # a misleading $0.03. Trailing zero on $0.07 → $0.070 is fine and
+        # matches what OpenRouter hands back on the usage report.
+        choices = [f"{s} (${COSTS[model][s]['fixed']:.3f})" for s in sizes]
         return choices, choices[0]
 
     def resolve_quality(
@@ -140,6 +193,13 @@ class GoogleProvider(ImageProvider):
         return True
 
     def run(self, request: GenerationRequest) -> None:
+        # One-shot UNTESTED banner. Module-level latch so a second Google
+        # run in the same process doesn't repeat itself.
+        global _UNTESTED_WARNING_EMITTED
+        if not _UNTESTED_WARNING_EMITTED:
+            print(_UNTESTED_NOTICE)
+            _UNTESTED_WARNING_EMITTED = True
+
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             print("Error: GOOGLE_API_KEY not found. Please set it in your .env file.")

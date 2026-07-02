@@ -63,6 +63,11 @@ class OpenRouterProvider(ImageProvider):
     def provider_name(cls) -> str:
         return "OpenRouter"
 
+    # Order is mostly flat (one entry per upstream provider). Within the
+    # Google trio we keep non-Lite Flash first and Lite last — mirroring the
+    # Google provider — so the model *order* in pickers is consistent across
+    # the two providers even though OpenRouter's overall default stays
+    # `openai/gpt-5.4-image-2` (first entry).
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
@@ -74,19 +79,25 @@ class OpenRouterProvider(ImageProvider):
             "black-forest-labs/flux.2-max",
             "sourceful/riverflow-v2.5-fast",
             "sourceful/riverflow-v2.5-pro",
-            "google/gemini-2.5-flash-image",
             "google/gemini-3.1-flash-image",
             "google/gemini-3-pro-image",
+            "google/gemini-3.1-flash-lite-image",
         ]
 
     def get_resolution_choices(
         self, model: str, image_path: str | None
     ) -> tuple[list[str], str]:
-        from imgprompt.presets import OPENROUTER_STANDARD_RATIOS
+        from imgprompt.presets import OPENROUTER_RESOLUTIONS, OPENROUTER_STANDARD_RATIOS
 
-        # All OpenRouter models now go through the same /api/v1/images endpoint,
-        # so the ratio list is uniform across providers.
-        ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
+        # Nano Banana 2 Lite documents 14 aspect ratios (incl. extremes like
+        # 1:4, 1:8). The non-Lite Gemini3.x variants are not verified to accept
+        # those extremes on OpenRouter, so we keep them on the 10+21:9 set until
+        # confirmed. If you ever flip them on, retest get_closest_aspect_ratio
+        # against real outputs.
+        if model == "google/gemini-3.1-flash-lite-image":
+            ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
+        else:
+            ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
         default = "1:1"
         if image_path:
             from imgprompt.images import get_closest_aspect_ratio
@@ -125,11 +136,18 @@ class OpenRouterProvider(ImageProvider):
             "google/gemini-3.1-flash-image",
         ):
             sizes = ["1K", "2K", "4K"]
-        elif model == "google/gemini-2.5-flash-image":
+        elif model == "google/gemini-3.1-flash-lite-image":
+            # Nano Banana 2 Lite is documented as 1K-only — cheap is the
+            # whole point of choosing it; 2K/4K would silently no-op or 400
+            # upstream.
             sizes = ["1K"]
         else:
             sizes = ["1K", "2K"]
-        choices = [f"{s} (${COSTS[model][s]['fixed']:.2f})" for s in sizes]
+        # .3f for cents-precise Lite pricing ($0.034). Without it the wizard
+        # would round $0.034 down to "$0.03" and look cheaper than 3.1's
+        # $0.07, which is misleading. Trailing zero on $0.07 → $0.070 is
+        # fine and matches OpenRouter's usage-report format.
+        choices = [f"{s} (${COSTS[model][s]['fixed']:.3f})" for s in sizes]
         return choices, choices[0]
 
     def resolve_quality(

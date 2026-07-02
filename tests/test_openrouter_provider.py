@@ -683,3 +683,106 @@ class TestRunInputBatch:
         assert len(saved_paths) == 4  # 2 inputs × 2 variants
         for call in mock_post.call_args_list:
             assert call.kwargs["json"]["n"] == 2
+
+
+# --------------------------------------------------------------------------
+# Gemini 3.1 Flash Lite image (the new budget model, $0.034/1K, 14 ratios).
+# Added when Nano Banana 2 Lite shipped (June 2026); gemini-2.5-flash-image
+# was retired at the same time and the tests below also pin its removal so
+# a future re-introduction is caught.
+# --------------------------------------------------------------------------
+
+
+class TestGeminiFlashLite:
+    """Nano Banana 2 Lite: 1K only, exposes all 14 documented Gemini 3.x
+    aspect ratios. Also pins that the retired 2.5-flash-image entry is gone.
+    """
+
+    def test_lite_is_in_supported_models(self):
+        assert (
+            "google/gemini-3.1-flash-lite-image"
+            in OpenRouterProvider.supported_models()
+        )
+
+    def test_legacy_2_5_flash_image_is_removed(self):
+        # gemini-2.5-flash-image shutdown is 2 Oct 2026; the model is gone
+        # from `supported_models()` so the wizard never surfaces it. If a
+        # re-introduction is attempted, this test fails loudly.
+        assert (
+            "google/gemini-2.5-flash-image"
+            not in OpenRouterProvider.supported_models()
+        )
+
+    def test_lite_quality_choices_are_1k_only(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            "google/gemini-3.1-flash-lite-image",
+            "1024x1024",
+            None,
+            None,
+            None,
+        )
+        # Only 1K — Lite does not accept 2K or 4K.
+        assert len(choices) == 1
+        assert choices[0].startswith("1K ")
+        assert default == choices[0]
+
+    def test_lite_resolution_choices_exposes_all_14(self, provider_with_key):
+        from imgprompt.presets import OPENROUTER_RESOLUTIONS
+
+        choices, default = provider_with_key.get_resolution_choices(
+            "google/gemini-3.1-flash-lite-image", None
+        )
+        # All 14 documented for Gemini 3.x image family (incl. 21:9 and the
+        # four extreme ratios 1:4, 4:1, 1:8, 8:1).
+        assert choices == list(OPENROUTER_RESOLUTIONS.keys())
+        assert len(choices) == 14
+        assert "1:4" in choices and "1:8" in choices
+        assert default == "1:1"
+
+    def test_lite_resolution_choices_honours_image_default(self, provider_with_key, tmp_path):
+        # An input image's aspect ratio should still bias the default even
+        # when the full 14-ratio table is exposed.
+        p = tmp_path / "wide.png"
+        Image.new("RGB", (3200, 900), (10, 20, 30)).save(p)
+        choices, default = provider_with_key.get_resolution_choices(
+            "google/gemini-3.1-flash-lite-image", str(p)
+        )
+        # 3200x900 ≈ 3.56:1. Across the 14-ratio table, 4:1 (4.0) is the
+        # closest, beating 21:9 (≈2.33) by ≈1.22. Lock down the exact answer
+        # here so a regression in get_closest_aspect_ratio is caught against
+        # Lite's bigger ratio set — the broader table only widens what the
+        # closest-ratio helper has to discriminate between.
+        assert default == "4:1", (
+            f"expected 3200x900 (≈3.56:1) to map to '4:1', got {default!r}"
+        )
+
+    def test_lite_payload_passes_resolution_1k(self, provider_with_key):
+        req = GenerationRequest(
+            prompt="x",
+            model="google/gemini-3.1-flash-lite-image",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="1K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["resolution"] == "1K"
+        assert body["aspect_ratio"] == "1:1"
+        # `size` shorthand is only triggered when width/height are set
+        # explicitly; under the default flow it stays out, which is what
+        # Lite's API expects.
+        assert "size" not in body
+
+    @pytest.mark.parametrize(
+        "ratio",
+        ["1:1", "2:3", "3:2", "4:5", "5:4", "21:9", "1:4", "4:1", "1:8", "8:1"],
+    )
+    def test_lite_supports_extreme_ratios(self, provider_with_key, ratio):
+        """Lite's 14 ratios span 1:8 to 8:1. resolve_resolution must not
+        regress any of them back to a default; the lookup is exact-match."""
+
+        from imgprompt.presets import OPENROUTER_RESOLUTIONS
+
+        out = provider_with_key.resolve_resolution(
+            "google/gemini-3.1-flash-lite-image", ratio
+        )
+        assert out == (OPENROUTER_RESOLUTIONS[ratio], None, None)

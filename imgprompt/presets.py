@@ -201,9 +201,6 @@ def validate_gpt_image2_dims(width, height):
 
 # Pricing constants (approximate, for reference only)
 COSTS = {
-    "gemini-2.5-flash-image": {
-        "1K": {"fixed": 0.04},
-    },
     "gemini-3.1-flash-image": {
         "1K": {"fixed": 0.07},
         "2K": {"fixed": 0.10},
@@ -213,6 +210,12 @@ COSTS = {
         "1K": {"fixed": 0.14},
         "2K": {"fixed": 0.14},
         "4K": {"fixed": 0.25},
+    },
+    # Nano Banana 2 Lite: 1K only, all 14 aspect ratios of the Gemini 3.x
+    # image family. Cheapest 1K option — supersedes the now-removed
+    # gemini-2.5-flash-image.
+    "gemini-3.1-flash-lite-image": {
+        "1K": {"fixed": 0.034},
     },
     "sourceful/riverflow-v2.5-fast": {
         "1K": {"fixed": 0.02},
@@ -250,9 +253,12 @@ COSTS = {
 }
 
 # OpenRouter prefixed versions for Gemini models
-COSTS["google/gemini-2.5-flash-image"] = COSTS["gemini-2.5-flash-image"]
+# OpenRouter-prefixed Gemini models (share COSTS entries with their bare-name
+# counterparts so the wizard — which only ever sees raw model IDs — works the
+# same on both providers).
 COSTS["google/gemini-3.1-flash-image"] = COSTS["gemini-3.1-flash-image"]
 COSTS["google/gemini-3-pro-image"] = COSTS["gemini-3-pro-image"]
+COSTS["google/gemini-3.1-flash-lite-image"] = COSTS["gemini-3.1-flash-lite-image"]
 
 
 # OpenRouter OpenAI models (using token-based pricing like gpt-image-2)

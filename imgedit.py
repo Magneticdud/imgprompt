@@ -216,6 +216,22 @@ def run_replay(iterations_arg: int | None) -> None:
     if provider_cls is None:
         print(f"Error: unknown provider in saved generation: {provider}")
         sys.exit(1)
+
+    # Catch retired-model references (e.g. .last_generation.json saved when
+    # gemini-2.5-flash-image was still shipped). Without this we'd POST to the
+    # upstream API and surface a cryptic 404 from OpenRouter / Google. Better
+    # to bail early with an actionable message. We check *before* constructing
+    # a provider instance: a side-effecting constructor on a stale-model
+    # OVHProvider could otherwise noisily fail.
+    if request.model not in provider_cls.supported_models():
+        print(
+            f"Error: model '{request.model}' is no longer supported by '{provider}'."
+        )
+        print(
+            "The saved generation references a model that has been retired; "
+            "please start a new one (drop --replay and run the wizard again)."
+        )
+        sys.exit(1)
     provider_obj = provider_cls()
 
     print("\n--- Replaying last generation ---")
