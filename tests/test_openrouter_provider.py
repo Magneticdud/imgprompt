@@ -786,3 +786,117 @@ class TestGeminiFlashLite:
             "google/gemini-3.1-flash-lite-image", ratio
         )
         assert out == (OPENROUTER_RESOLUTIONS[ratio], None, None)
+
+
+# --------------------------------------------------------------------------
+# Gemini 3.1 Flash Image (non-Lite). Google's model page documents the same
+# 14-ratio set as Lite (Nano Banana 2), so we expose it on OpenRouter.
+# Quality choices remain 1K/2K/4K (no 0.5K — left for a future change).
+# 3-Pro Image stays on the conservative 10+21:9 list pending per-model
+# Google confirmation or a clean upstream test through OpenRouter.
+# --------------------------------------------------------------------------
+
+
+class TestGeminiFlashNonLite:
+    """Gemini 3.1 Flash Image (non-Lite): same 14-ratio surface as Lite.
+    Added when the OpenRouter gate was extended from Lite-only to Lite +
+    non-Lite Flash; mirrors the Lite tests so a future regression that
+    reverts the gate is caught here too.
+    """
+
+    def test_flash_in_supported_models(self):
+        assert (
+            "google/gemini-3.1-flash-image"
+            in OpenRouterProvider.supported_models()
+        )
+
+    def test_flash_resolution_choices_exposes_all_14(self, provider_with_key):
+        from imgprompt.presets import OPENROUTER_RESOLUTIONS
+
+        choices, default = provider_with_key.get_resolution_choices(
+            "google/gemini-3.1-flash-image", None
+        )
+        # Same 14-entry set Lite exposes (incl. 21:9 and the four extreme
+        # ratios 1:4, 4:1, 1:8, 8:1). Pinned so a regression to the
+        # Lite-only gate is caught here too.
+        assert choices == list(OPENROUTER_RESOLUTIONS.keys())
+        assert len(choices) == 14
+        assert "1:4" in choices and "1:8" in choices
+        assert "4:1" in choices and "8:1" in choices
+        assert default == "1:1"
+
+    def test_flash_resolution_choices_honours_image_default(
+        self, provider_with_key, tmp_path
+    ):
+        # Mirror of Lite test: 3200x900 on the full 14-ratio table should
+        # map to 4:1 (not 21:9) — exercises get_closest_aspect_ratio's
+        # discrimination on this model.
+        p = tmp_path / "wide.png"
+        Image.new("RGB", (3200, 900), (10, 20, 30)).save(p)
+        choices, default = provider_with_key.get_resolution_choices(
+            "google/gemini-3.1-flash-image", str(p)
+        )
+        assert default == "4:1", (
+            f"expected 3200x900 (≈3.56:1) to map to '4:1', got {default!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "ratio",
+        ["1:1", "2:3", "3:2", "4:5", "5:4", "21:9", "1:4", "4:1", "1:8", "8:1"],
+    )
+    def test_flash_supports_extreme_ratios(self, provider_with_key, ratio):
+        from imgprompt.presets import OPENROUTER_RESOLUTIONS
+
+        out = provider_with_key.resolve_resolution(
+            "google/gemini-3.1-flash-image", ratio
+        )
+        assert out == (OPENROUTER_RESOLUTIONS[ratio], None, None)
+
+    def test_flash_quality_choices_include_1k_2k_4k(self, provider_with_key):
+        # Regression pin: extending the ratio set must not silently drop
+        # any of the three resolution tiers.
+        choices, default = provider_with_key.get_quality_choices(
+            "google/gemini-3.1-flash-image",
+            "1024x1024",
+            None,
+            None,
+            None,
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K", "4K"]
+        assert default.startswith("1K ")
+
+    def test_3_pro_still_on_conservative_set(self, provider_with_key):
+        # Regression pin: 3-Pro Image's per-model docs at Google do not
+        # enumerate the four extreme ratios, so it stays on the standard
+        # list + 21:9. If this gets flipped without per-model confirmation,
+        # the user-facing wizard might submit ratios the upstream silently
+        # clamps or 400s.
+        # Compare against the derived expected list (not a hard-coded
+        # length), so the assertion survives a future growth of
+        # OPENROUTER_STANDARD_RATIOS without us touching this test.
+        from imgprompt.presets import OPENROUTER_STANDARD_RATIOS
+
+        choices, _ = provider_with_key.get_resolution_choices(
+            "google/gemini-3-pro-image", None
+        )
+        expected = list(OPENROUTER_STANDARD_RATIOS) + ["21:9"]
+        assert set(choices) == set(expected)
+        for extreme in ("1:4", "4:1", "1:8", "8:1"):
+            assert extreme not in choices, (
+                f"3-Pro conservative set regressed: {extreme!r} sneaked in"
+            )
+
+    def test_flash_payload_passes_extreme_ratio_and_resolution(self, provider_with_key):
+        # Smoke test: extreme ratios flow through _build_payload unchanged
+        # (no size shorthand; resolution tier still forwarded).
+        req = GenerationRequest(
+            prompt="x",
+            model="google/gemini-3.1-flash-image",
+            aspect_ratio="4:1",
+            res_key="2048x512",
+            quality_key="1K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "4:1"
+        assert body["resolution"] == "1K"
+        assert "size" not in body

@@ -89,12 +89,20 @@ class OpenRouterProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import OPENROUTER_RESOLUTIONS, OPENROUTER_STANDARD_RATIOS
 
-        # Nano Banana 2 Lite documents 14 aspect ratios (incl. extremes like
-        # 1:4, 1:8). The non-Lite Gemini3.x variants are not verified to accept
-        # those extremes on OpenRouter, so we keep them on the 10+21:9 set until
-        # confirmed. If you ever flip them on, retest get_closest_aspect_ratio
-        # against real outputs.
-        if model == "google/gemini-3.1-flash-lite-image":
+        # Google's model page documents all 14 Gemini 3.x image ratios for
+        # both non-Lite Flash and Lite (Nano Banana 2):
+        # https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image
+        # OpenRouter's /api/v1/images is a pass-through with provider-side
+        # clamping ("Providers clamp to their supported subset"), so the
+        # upstream allowlist is the only real gate. 3-Pro Image's model
+        # page only links back to the family-level docs without enumerating
+        # the ratios, so we keep it on the conservative 10+21:9 list until
+        # either Google lists them per-model or we verify against real
+        # upstream responses.
+        if model in (
+            "google/gemini-3.1-flash-image",
+            "google/gemini-3.1-flash-lite-image",
+        ):
             ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
         else:
             ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
