@@ -140,6 +140,14 @@ class OpenAIProvider(ImageProvider):
         print(f"\nStarting batch processing: {len(request.images)} images...")
         success_count = 0
         fail_count = 0
+        # Aggregators for the issue #4 real-cost report. Each batch call is an
+        # independent API request, so token counts and costs add linearly
+        # across images. Skipped (kept at the empty initial value) whenever
+        # `_extract_usage` returns None — we still end up printing nothing
+        # if *no* image reported usage, but a partial batch (some calls did,
+        # some didn't) still gets a meaningful aggregate.
+        batch_tokens = 0
+        batch_cost = 0.0
 
         for idx, img_path in enumerate(request.images, 1):
             print(
@@ -166,6 +174,14 @@ class OpenAIProvider(ImageProvider):
                 if image_url or image_b64:
                     save_api_image(image_url, image_b64, img_path)
                     success_count += 1
+                    # Print per-image real cost immediately after the save
+                    # line so the user sees estimated vs. actual side by side
+                    # in the live run. Aggregated total lands in the summary
+                    # block below.
+                    tokens, cost = self._report_usage(response)
+                    if tokens is not None:
+                        batch_tokens += tokens
+                        batch_cost += cost
                 else:
                     print("Error: Could not retrieve image data from the API response.")
                     fail_count += 1
@@ -181,6 +197,11 @@ class OpenAIProvider(ImageProvider):
         print(
             f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
         )
+        if batch_tokens > 0:
+            print(
+                f"[OpenAI] batch usage total: {batch_tokens:,} tokens "
+                f"(${batch_cost:.4f})"
+            )
 
     def _generate(self, client: OpenAI, request: GenerationRequest):
         """Text-to-Image: no input image, so use the generate endpoint."""
@@ -211,6 +232,7 @@ class OpenAIProvider(ImageProvider):
             if request.is_text_to_image:
                 response = self._generate(client, request)
                 self._save_response(response, None)
+                self._report_usage(response)
                 return
 
             if len(request.images) == 1:
@@ -231,6 +253,12 @@ class OpenAIProvider(ImageProvider):
                 kwargs["size"] = request.res_key
             response = client.images.edit(**kwargs)
             self._save_response(response, request.primary_image)
+            # Report the real token count + cost the API actually charged
+            # for this call, so it sits next to the pre-call wizard estimate
+            # in the terminal scrollback. No-op when the response lacks a
+            # `usage` block (defensive: older models / network errors
+            # before full parse must not surface as a hard crash).
+            self._report_usage(response)
 
         except Exception as e:
             error_msg = str(e)
@@ -241,3 +269,65 @@ class OpenAIProvider(ImageProvider):
                 )
             else:
                 print(f"\nAn error occurred during OpenAI call: {e}")
+
+    def _report_usage(self, response) -> tuple[int | None, float | None]:
+        """Print and return the real token count + USD cost from an OpenAI
+        ImagesResponse. Defensive across all the shapes the SDK / API have
+        shipped:
+
+        - ``response.usage`` missing entirely (older models): no print, no
+          return value, falls back to the wizard's pre-call estimate that
+          the user already saw.
+        - ``response.usage`` set with ``total_tokens``: used directly,
+          since that's the canonical "what we charged you for" field.
+        - ``response.usage`` as a plain ``dict`` instead of an SDK object:
+          tolerated because some wrappers / mock servers return it that
+          way; we read it the same way either way.
+        - Floating-point or stringy token counts: coerced via ``int(...)``
+          on a successful parse, never silently accepted on parse error.
+
+        Cost is computed from the gpt-image-2 price-per-million token
+        constant (``GPT_IMAGE_2_PRICE_PER_MTOK``). The legacy OpenAI image
+        models that this provider still supports (the non-gpt-image-2
+        "dall-e" branch with fixed per-image pricing) don't return a
+        ``usage`` block at all, which is the documented fallback path.
+
+        Returns ``(tokens, cost)`` when usage was readable, otherwise
+        ``(None, None)``. ``_run_batch`` sums these across calls; callers
+        that just want the print can ignore the return value.
+        """
+        # If the API gave us no image data, there is nothing useful to
+        # charge for either. Skipping here keeps the wizard output clean
+        # in the rare case where the response carries an accounting block
+        # but ``data`` is empty (the only remaining "error + usage" pair).
+        if not getattr(response, "data", None):
+            return None, None
+
+        from imgprompt.presets import GPT_IMAGE_2_PRICE_PER_MTOK
+
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None, None
+
+        usage_dict = usage if isinstance(usage, dict) else None
+
+        def _read(field: str):
+            if usage_dict is not None:
+                return usage_dict.get(field)
+            return getattr(usage, field, None)
+
+        total = _read("total_tokens")
+        if total is None:
+            output_tokens = _read("output_tokens") or 0
+            input_tokens = _read("input_tokens") or 0
+            if output_tokens == 0 and input_tokens == 0:
+                return None, None
+            total = output_tokens + input_tokens
+
+        try:
+            tokens = int(total)
+        except (TypeError, ValueError):
+            return None, None
+        cost = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+        print(f"\n[OpenAI] actual usage: {tokens:,} tokens (${cost:.4f})")
+        return tokens, cost
