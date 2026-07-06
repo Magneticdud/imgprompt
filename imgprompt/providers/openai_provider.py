@@ -278,22 +278,32 @@ class OpenAIProvider(ImageProvider):
         - ``response.usage`` missing entirely (older models): no print, no
           return value, falls back to the wizard's pre-call estimate that
           the user already saw.
-        - ``response.usage`` set with ``total_tokens``: used directly,
-          since that's the canonical "what we charged you for" field.
+        - ``response.usage`` set with both ``input_tokens`` and
+          ``output_tokens``: used directly, cost computed with split
+          per-modality pricing (input is cheaper than output on
+          gpt-image-2 — they're billed at different rates).
+        - ``response.usage`` set with only ``total_tokens``: total is
+          assumed to be output-only (the higher rate), so we over-estimate
+          the bill rather than under-charge. gpt-image-2 always returns
+          both fields in practice; this branch is the defensive fallback.
         - ``response.usage`` as a plain ``dict`` instead of an SDK object:
           tolerated because some wrappers / mock servers return it that
           way; we read it the same way either way.
         - Floating-point or stringy token counts: coerced via ``int(...)``
           on a successful parse, never silently accepted on parse error.
 
-        Cost is computed from the gpt-image-2 price-per-million token
-        constant (``GPT_IMAGE_2_PRICE_PER_MTOK``). The legacy OpenAI image
-        models that this provider still supports (the non-gpt-image-2
-        "dall-e" branch with fixed per-image pricing) don't return a
-        ``usage`` block at all, which is the documented fallback path.
+        Cost is computed with split per-million-token pricing from
+        ``GPT_IMAGE_2_INPUT_PRICE_PER_MTOK`` and
+        ``GPT_IMAGE_2_PRICE_PER_MTOK`` (the latter is the output rate).
+        The legacy OpenAI image models that this provider still supports
+        (the non-gpt-image-2 "dall-e" branch with fixed per-image
+        pricing) don't return a ``usage`` block at all, which is the
+        documented fallback path.
 
         Returns ``(tokens, cost)`` when usage was readable, otherwise
-        ``(None, None)``. ``_run_batch`` sums these across calls; callers
+        ``(None, None)``. ``tokens`` is the sum of input + output for the
+        convenience of the batch aggregator; the split is shown in the
+        printed line. ``_run_batch`` sums these across calls; callers
         that just want the print can ignore the return value.
         """
         # If the API gave us no image data, there is nothing useful to
@@ -303,7 +313,10 @@ class OpenAIProvider(ImageProvider):
         if not getattr(response, "data", None):
             return None, None
 
-        from imgprompt.presets import GPT_IMAGE_2_PRICE_PER_MTOK
+        from imgprompt.presets import (
+            GPT_IMAGE_2_INPUT_PRICE_PER_MTOK,
+            GPT_IMAGE_2_PRICE_PER_MTOK,
+        )
 
         usage = getattr(response, "usage", None)
         if usage is None:
@@ -316,18 +329,34 @@ class OpenAIProvider(ImageProvider):
                 return usage_dict.get(field)
             return getattr(usage, field, None)
 
-        total = _read("total_tokens")
-        if total is None:
-            output_tokens = _read("output_tokens") or 0
-            input_tokens = _read("input_tokens") or 0
-            if output_tokens == 0 and input_tokens == 0:
-                return None, None
-            total = output_tokens + input_tokens
-
+        raw_input = _read("input_tokens")
+        raw_output = _read("output_tokens")
         try:
-            tokens = int(total)
+            input_tokens = int(raw_input) if raw_input is not None else 0
+            output_tokens = int(raw_output) if raw_output is not None else 0
         except (TypeError, ValueError):
             return None, None
-        cost = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
-        print(f"\n[OpenAI] actual usage: {tokens:,} tokens (${cost:.4f})")
-        return tokens, cost
+
+        # Fallback when only ``total_tokens`` is present (no per-modality
+        # split): bill everything at the output rate. The output rate is the
+        # more expensive tier on gpt-image-2, so this over-estimates rather
+        # than under-charges if the SDK ever flips the API's response shape.
+        if input_tokens == 0 and output_tokens == 0:
+            total_raw = _read("total_tokens")
+            if total_raw is None:
+                return None, None
+            try:
+                output_tokens = int(total_raw)
+            except (TypeError, ValueError):
+                return None, None
+
+        cost = (
+            input_tokens * GPT_IMAGE_2_INPUT_PRICE_PER_MTOK
+            + output_tokens * GPT_IMAGE_2_PRICE_PER_MTOK
+        ) / 1_000_000
+        total_tokens = input_tokens + output_tokens
+        print(
+            f"\n[OpenAI] actual usage: {total_tokens:,} tokens "
+            f"(in={input_tokens:,}, out={output_tokens:,}, ${cost:.4f})"
+        )
+        return total_tokens, cost

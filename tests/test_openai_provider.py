@@ -12,7 +12,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from imgprompt.providers.openai_provider import OpenAIProvider
-from imgprompt.presets import GPT_IMAGE_2_PRICE_PER_MTOK
+from imgprompt.presets import (
+    GPT_IMAGE_2_INPUT_PRICE_PER_MTOK,
+    GPT_IMAGE_2_PRICE_PER_MTOK,
+)
 
 
 def _resp_with_usage(usage) -> MagicMock:
@@ -42,13 +45,33 @@ class TestReportUsage:
     """The core of issue #4: extract real tokens and a USD cost from the
     `usage` block, and tolerate every shape the SDK has shown so far."""
 
-    def test_total_tokens_used_directly(self, provider, capsys):
-        """The canonical happy path: total_tokens present, no need to fall
-        back to summing output+input."""
+    def test_split_pricing_with_input_only(self, provider, capsys):
+        """gpt-image-2 bills input at $8/MTok and output at $30/MTok, so
+        a response where all tokens are input should charge at the input
+        rate, not the (much higher) output rate. Regression test for the
+        flat-$30 math that previously masked this asymmetry."""
         usage = MagicMock()
-        usage.total_tokens = 1_000_000  # exactly one million
-        usage.output_tokens = 1_000_000
+        usage.total_tokens = 1_000_000
+        usage.input_tokens = 1_000_000
+        usage.output_tokens = 0
+        resp = _resp_with_usage(usage)
+
+        tokens, cost = provider._report_usage(resp)
+
+        assert tokens == 1_000_000
+        assert cost == pytest.approx(GPT_IMAGE_2_INPUT_PRICE_PER_MTOK)  # = $8
+        captured = capsys.readouterr()
+        assert "actual usage" in captured.out
+        assert "in=1,000,000" in captured.out
+        assert "$8.0000" in captured.out
+
+    def test_split_pricing_with_output_only(self, provider, capsys):
+        """The complementary case: all-output usage should charge at the
+        output rate ($30/MTok), not the input rate ($8/MTok)."""
+        usage = MagicMock()
+        usage.total_tokens = 1_000_000
         usage.input_tokens = 0
+        usage.output_tokens = 1_000_000
         resp = _resp_with_usage(usage)
 
         tokens, cost = provider._report_usage(resp)
@@ -56,52 +79,81 @@ class TestReportUsage:
         assert tokens == 1_000_000
         assert cost == pytest.approx(GPT_IMAGE_2_PRICE_PER_MTOK)  # = $30
         captured = capsys.readouterr()
-        assert "actual usage" in captured.out
-        assert "1,000,000 tokens" in captured.out
         assert "$30.0000" in captured.out
 
-    def test_total_tokens_skipped_when_output_and_input_present(
-        self, provider, capsys
-    ):
-        """When `total_tokens` is missing the fallback sums output+input.
-        This mirrors how the OpenAI SDK occasionally omits the aggregate
-        field on streaming/error paths."""
-
-        class _Usage:
-            output_tokens = 750
-            input_tokens = 250
-            # No total_tokens set: getattr -> AttributeError -> None.
-
-        resp = _resp_with_usage(_Usage())
+    def test_split_pricing_with_mixed_input_and_output(self, provider, capsys):
+        """Mixed input+output tokens charge at their respective rates. This
+        is the realistic edit case: a 250-token input image + a 750-token
+        output image; cost = 250*$8 + 750*$30 = $24,500 / 1M = $0.0245."""
+        usage = MagicMock()
+        usage.total_tokens = 1_000
+        usage.input_tokens = 250
+        usage.output_tokens = 750
+        resp = _resp_with_usage(usage)
 
         tokens, cost = provider._report_usage(resp)
-        # Sum used, not the sum's component parts, so the per-token cost
-        # line in the wizard still lines up with the API's actual charge.
-        assert tokens == 1000
+
+        assert tokens == 1_000
         assert cost == pytest.approx(
-            1000 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+            250 * GPT_IMAGE_2_INPUT_PRICE_PER_MTOK / 1_000_000
+            + 750 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+        )
+        captured = capsys.readouterr()
+        assert "in=250" in captured.out
+        assert "out=750" in captured.out
+
+    def test_total_tokens_used_when_split_missing(self, provider, capsys):
+        """When only `total_tokens` is reported (no in/out split), the
+        tokens are billed at the output rate — the higher tier — so we
+        over-estimate rather than under-charge. gpt-image-2 always
+        returns the split in practice; this branch is the defensive
+        fallback for older mock servers / SDK shapes."""
+        usage = MagicMock()
+        usage.total_tokens = 1_000_000
+        # Pop input_tokens / output_tokens so getattr / dict .get returns
+        # None, not a stale MagicMock attribute.
+        del usage.input_tokens
+        del usage.output_tokens
+        resp = _resp_with_usage(usage)
+
+        tokens, cost = provider._report_usage(resp)
+
+        assert tokens == 1_000_000
+        assert cost == pytest.approx(GPT_IMAGE_2_PRICE_PER_MTOK)  # = $30
+        captured = capsys.readouterr()
+        assert "out=1,000,000" in captured.out
+
+    def test_dict_shaped_usage_with_split(self, provider, capsys):
+        """Some OpenAI SDK versions and mock servers return a plain dict
+        in `response.usage`. The split pricing must apply just the same
+        way as for SDK-object shapes."""
+        usage = {
+            "total_tokens": 500,
+            "input_tokens": 100,
+            "output_tokens": 400,
+        }
+        resp = _resp_with_usage(usage)
+
+        tokens, cost = provider._report_usage(resp)
+        assert tokens == 500
+        assert cost == pytest.approx(
+            100 * GPT_IMAGE_2_INPUT_PRICE_PER_MTOK / 1_000_000
+            + 400 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
         )
 
-    def test_dict_shaped_usage_is_treated_like_attribute_object(
+    def test_dict_shape_total_only_falls_back_to_output_rate(
         self, provider, capsys
     ):
-        """Some OpenAI SDK versions and mock servers return a plain dict
-        in `response.usage`. The helper has to read both shapes the same
-        way or we'd silently lose data on upgrades."""
-        usage = {"total_tokens": 500}
+        """Dict variant of the total-only fallback path."""
+        usage = {"total_tokens": 300}
         resp = _resp_with_usage(usage)
 
         tokens, cost = provider._report_usage(resp)
-        assert tokens == 500
-        assert cost == pytest.approx(500 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000)
-
-    def test_dict_shape_with_only_output_tokens(self, provider, capsys):
-        """Dict variant of the output+input fallback."""
-        usage = {"output_tokens": 300, "input_tokens": 200}
-        resp = _resp_with_usage(usage)
-
-        tokens, _cost = provider._report_usage(resp)
-        assert tokens == 500
+        assert tokens == 300
+        # All treated as output (higher rate), per the documented fence.
+        assert cost == pytest.approx(
+            300 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+        )
 
     def test_missing_usage_attribute_returns_none_silently(
         self, provider, capsys
@@ -153,6 +205,8 @@ class TestReportUsage:
         the wizard's pre-call estimate cover it."""
         usage = MagicMock()
         usage.total_tokens = "not-a-number"
+        usage.input_tokens = "also-not-a-number"
+        usage.output_tokens = "nope"
         resp = _resp_with_usage(usage)
 
         tokens, cost = provider._report_usage(resp)
@@ -162,11 +216,14 @@ class TestReportUsage:
         assert "actual usage" not in captured.out
 
     def test_returned_cost_matches_simple_token_math(self, provider):
-        """Pin the math: cost is tokens * $30 / 1_000_000. A regression
-        in the price-per-MTok constant or the division would diverge from
-        this closed-form expectation immediately."""
+        """Pin the math on a single-modality token count: cost is
+        tokens * rate / 1_000_000 with the appropriate per-direction
+        rate. A regression in either pricing constant or the division
+        would diverge from this closed-form expectation immediately."""
         usage = MagicMock()
         usage.total_tokens = 123_456
+        usage.input_tokens = 0
+        usage.output_tokens = 123_456  # all output, so output rate
         resp = _resp_with_usage(usage)
 
         tokens, cost = provider._report_usage(resp)

@@ -10,7 +10,13 @@ GPT_IMAGE_2_MAX_PIXELS = 8_294_400
 GPT_IMAGE_2_MAX_EDGE = 3840
 GPT_IMAGE_2_MAX_ASPECT = 3
 GPT_IMAGE_2_MULTIPLE = 16
-GPT_IMAGE_2_PRICE_PER_MTOK = 30.0
+# gpt-image-2 bills per modality and per direction. Output tokens (the
+# generated image) are the more expensive tier; input tokens (uploaded
+# image + text prompt) are roughly a quarter of the output rate. Cached
+# input is a third tier priced server-side that we don't surface here
+# (the API's input_tokens count already excludes the discount).
+GPT_IMAGE_2_PRICE_PER_MTOK = 30.0  # output rate (image tokens generated)
+GPT_IMAGE_2_INPUT_PRICE_PER_MTOK = 8.0  # input rate (image + text tokens)
 
 # gpt-image-2 presets: (ratio, size) -> (width, height)
 GPT_IMAGE_2_PRESETS = {
