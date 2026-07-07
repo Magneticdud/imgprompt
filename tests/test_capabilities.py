@@ -31,7 +31,12 @@ SEEDREAM_ITEM = {
 
 
 @pytest.fixture(autouse=True)
-def clean_catalog():
+def clean_catalog(monkeypatch, tmp_path):
+    """Fresh catalog per test, with the file cache redirected to tmp so no
+    test reads or writes the real .cache/openrouter_models.json."""
+    monkeypatch.setattr(
+        capabilities, "CACHE_FILE", str(tmp_path / "openrouter_models.json")
+    )
     reset_catalog()
     yield
     reset_catalog()
@@ -161,3 +166,176 @@ class TestCatalogFetch:
             _stub_get(mock_get, data=[])
             get_capabilities("x")
         assert mock_get.call_args.kwargs["timeout"] == (2.0, 2.0)
+
+
+# --------------------------------------------------------------------------
+# File cache with 24h TTL (issue #3): fresh cache → no network; stale cache
+# → served immediately + background refresh; cold start writes the cache.
+# --------------------------------------------------------------------------
+
+
+def _write_cache_file(fetched_at, data):
+    import json
+    import os
+
+    os.makedirs(os.path.dirname(capabilities.CACHE_FILE), exist_ok=True)
+    with open(capabilities.CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"fetched_at": fetched_at, "data": data}, f)
+
+
+class TestFileCache:
+    def test_fresh_cache_hit_skips_network(self):
+        import time
+
+        _write_cache_file(time.time() - 60, [SEEDREAM_ITEM])
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            caps = get_capabilities("bytedance-seed/seedream-4.5")
+        assert caps is not None and caps.n_max == 10
+        mock_get.assert_not_called()
+
+    def test_cold_start_fetches_and_writes_cache(self):
+        import json
+        import os
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_get(mock_get, data=[SEEDREAM_ITEM])
+            caps = get_capabilities("bytedance-seed/seedream-4.5")
+        assert caps is not None
+        assert os.path.exists(capabilities.CACHE_FILE)
+        with open(capabilities.CACHE_FILE) as f:
+            cached = json.load(f)
+        assert cached["data"] == [SEEDREAM_ITEM]
+        assert cached["fetched_at"] > 0
+
+    def test_stale_cache_served_and_refreshed_in_background(self, monkeypatch):
+        """A stale catalog is preferable to blocking the wizard: it is used
+        for this session while a daemon thread rewrites the cache file."""
+        import json
+        import time
+
+        stale_item = dict(SEEDREAM_ITEM)
+        _write_cache_file(time.time() - capabilities.CACHE_TTL_SECONDS - 60, [stale_item])
+
+        # Run the "background" refresh synchronously for determinism.
+        started = []
+
+        class _SyncThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+                started.append(self)
+
+            def start(self):
+                self._target()
+
+        monkeypatch.setattr(capabilities.threading, "Thread", _SyncThread)
+
+        fresh_item = {"id": "new/model", "supported_parameters": {}}
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_get(mock_get, data=[fresh_item])
+            caps = get_capabilities("bytedance-seed/seedream-4.5")
+
+        # Session still answers from the stale catalog...
+        assert caps is not None and caps.n_max == 10
+        assert len(started) == 1
+        # ...but the cache file now holds the fresh data for the next run.
+        with open(capabilities.CACHE_FILE) as f:
+            assert json.load(f)["data"] == [fresh_item]
+
+    def test_no_cache_and_network_down_falls_back_hardcoded(self, capsys):
+        import os
+        import requests as real_requests
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_get(mock_get, error=real_requests.ConnectionError("down"))
+            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+        assert not os.path.exists(capabilities.CACHE_FILE)
+        assert "built-in defaults" in capsys.readouterr().out
+
+    def test_fresh_empty_catalog_is_honoured_not_refetched(self, capsys):
+        """A fresh cache with data: [] is a valid upstream answer, not a
+        missing cache — no re-fetch, and no 'unavailable' note (discovery
+        worked; the catalog is just empty)."""
+        import time
+
+        _write_cache_file(time.time() - 60, [])
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+        mock_get.assert_not_called()
+        assert "unavailable" not in capsys.readouterr().out
+
+    def test_corrupt_cache_file_treated_as_cold_start(self):
+        import os
+
+        os.makedirs(os.path.dirname(capabilities.CACHE_FILE), exist_ok=True)
+        with open(capabilities.CACHE_FILE, "w") as f:
+            f.write("{ not valid json")
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_get(mock_get, data=[SEEDREAM_ITEM])
+            caps = get_capabilities("bytedance-seed/seedream-4.5")
+        assert caps is not None
+        mock_get.assert_called_once()
+
+
+# --------------------------------------------------------------------------
+# Live pricing from /endpoints (issue #3).
+# --------------------------------------------------------------------------
+
+GROK_PRICING = [
+    {"billable": "input_image", "unit": "image", "cost_usd": 0.01},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.05, "variant": "1k"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.07, "variant": "2k"},
+]
+
+RECRAFT_PRICING = [
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.035},
+]
+
+MAI_PRICING = [
+    {"billable": "input_text", "unit": "token", "cost_usd": 5e-06},
+    {"billable": "output_image", "unit": "token", "cost_usd": 4.7e-05},
+]
+
+
+def _stub_endpoints(mock_get, pricing):
+    resp = MagicMock()
+    resp.json.return_value = {"data": {"endpoints": [{"pricing": pricing}]}}
+    resp.raise_for_status.return_value = None
+    mock_get.return_value = resp
+
+
+class TestLivePricing:
+    def test_variant_priced_tiers(self):
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, GROK_PRICING)
+            assert output_image_price("x-ai/grok-imagine-image-quality", "1K") == 0.05
+            assert output_image_price("x-ai/grok-imagine-image-quality", "2K") == 0.07
+        # Session cache: one endpoints call for both lookups.
+        assert mock_get.call_count == 1
+
+    def test_flat_price_applies_to_any_tier(self):
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, RECRAFT_PRICING)
+            assert output_image_price("recraft/recraft-v4.1", "Standard") == 0.035
+
+    def test_token_billed_model_returns_none(self):
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, MAI_PRICING)
+            assert output_image_price("microsoft/mai-image-2.5", "Standard") is None
+
+    def test_network_failure_prints_note_once(self, capsys):
+        import requests as real_requests
+
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            mock_get.side_effect = real_requests.ConnectionError("down")
+            assert output_image_price("a/b", "1K") is None
+            assert output_image_price("c/d", "1K") is None
+        out = capsys.readouterr().out
+        assert out.count("Live pricing unavailable") == 1

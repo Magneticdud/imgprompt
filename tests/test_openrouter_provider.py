@@ -64,10 +64,14 @@ def no_live_capabilities(monkeypatch):
     """Force the offline/fallback path: no test may depend on the network.
 
     Tests exercising descriptor-driven behaviour override this by patching
-    get_capabilities with a fake ModelCapabilities."""
+    get_capabilities / output_image_price with fakes."""
     monkeypatch.setattr(
         "imgprompt.providers.openrouter_provider.get_capabilities",
         lambda model: None,
+    )
+    monkeypatch.setattr(
+        "imgprompt.providers.openrouter_provider.output_image_price",
+        lambda model, tier: None,
     )
 
 
@@ -875,6 +879,94 @@ class TestDescriptorDriven:
             )
             == []
         )
+
+
+# --------------------------------------------------------------------------
+# Live pricing in the wizard + estimate reconciliation (issue #3).
+# --------------------------------------------------------------------------
+
+
+class TestLivePricingIntegration:
+    def test_quality_labels_use_live_price_when_available(
+        self, provider_with_key, monkeypatch
+    ):
+        """A drifted COSTS row must not survive in the wizard when the
+        endpoints API knows better."""
+        monkeypatch.setattr(
+            "imgprompt.providers.openrouter_provider.output_image_price",
+            lambda model, tier: 0.099 if tier == "1K" else None,
+        )
+        choices, _ = provider_with_key.get_quality_choices(
+            "bytedance-seed/seedream-4.5", "1024x1024", None, None, None
+        )
+        one_k = next(c for c in choices if c.startswith("1K"))
+        assert "$0.099" in one_k
+        key, cost = provider_with_key.resolve_quality(
+            "bytedance-seed/seedream-4.5", "1024x1024", None, None, one_k
+        )
+        assert cost == 0.099
+
+    def test_quality_labels_fall_back_to_costs(self, provider_with_key):
+        # autouse fixture pins output_image_price to None → COSTS row.
+        choices, _ = provider_with_key.get_quality_choices(
+            "bytedance-seed/seedream-4.5", "1024x1024", None, None, None
+        )
+        assert "$0.040" in choices[0]
+
+    def test_reported_cost_divergence_over_10_percent_is_flagged(
+        self, provider_with_key, capsys
+    ):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.08)
+            req = GenerationRequest(
+                prompt="x",
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                estimated_cost=0.04,
+            )
+            provider_with_key._call_api(req, n=1)
+        out = capsys.readouterr().out
+        assert "differ by 100%" in out
+        assert "$0.040" in out and "$0.0800" in out
+
+    def test_reported_cost_within_10_percent_stays_quiet(
+        self, provider_with_key, capsys
+    ):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.041)
+            req = GenerationRequest(
+                prompt="x",
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                estimated_cost=0.04,
+            )
+            provider_with_key._call_api(req, n=1)
+        out = capsys.readouterr().out
+        assert "reported cost" in out  # normal report still prints
+        assert "differ" not in out
+
+    def test_no_estimate_no_reconciliation(self, provider_with_key, capsys):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.5)
+            req = GenerationRequest(
+                prompt="x",
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+            )
+            provider_with_key._call_api(req, n=1)
+        assert "differ" not in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------
