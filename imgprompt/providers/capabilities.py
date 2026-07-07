@@ -47,11 +47,19 @@ def _parse_item(item: dict) -> ModelCapabilities | None:
         values = d.get("values") if d.get("type") == "enum" else None
         return tuple(values) if isinstance(values, list) else ()
 
+    def _safe_int(value) -> int | None:
+        # External API data: a stringy "10" must not crash the min()/max()
+        # clamps downstream, and garbage must degrade to "no bound".
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     def _range(name: str) -> tuple[int | None, int | None]:
         d = sp.get(name) or {}
         if d.get("type") != "range":
             return None, None
-        return d.get("min"), d.get("max")
+        return _safe_int(d.get("min")), _safe_int(d.get("max"))
 
     n_min, n_max = _range("n")
     _, refs_max = _range("input_references")
@@ -62,7 +70,7 @@ def _parse_item(item: dict) -> ModelCapabilities | None:
         model=model_id,
         aspect_ratios=_enum("aspect_ratio"),
         resolutions=_enum("resolution"),
-        n_min=n_min or 1,
+        n_min=1 if n_min is None else n_min,
         n_max=n_max,
         input_refs_max=refs_max,
         extra_flags=flags,

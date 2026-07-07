@@ -67,6 +67,44 @@ class TestParseItem:
     def test_item_without_id_is_dropped(self):
         assert _parse_item({"supported_parameters": {}}) is None
 
+    def test_stringy_range_values_are_coerced(self):
+        """External API data: numeric strings must not crash the min()/max()
+        clamps downstream."""
+        caps = _parse_item(
+            {
+                "id": "a/b",
+                "supported_parameters": {
+                    "n": {"type": "range", "min": "1", "max": "10"},
+                },
+            }
+        )
+        assert caps.n_min == 1
+        assert caps.n_max == 10
+
+    def test_garbage_range_values_degrade_to_no_bound(self):
+        caps = _parse_item(
+            {
+                "id": "a/b",
+                "supported_parameters": {
+                    "n": {"type": "range", "min": "lots", "max": None},
+                },
+            }
+        )
+        assert caps.n_min == 1  # unparseable min falls back to the default
+        assert caps.n_max is None
+
+    def test_zero_n_min_is_preserved(self):
+        """`0` is falsy but it is still the API's answer — no `or 1` here."""
+        caps = _parse_item(
+            {
+                "id": "a/b",
+                "supported_parameters": {
+                    "n": {"type": "range", "min": 0, "max": 10},
+                },
+            }
+        )
+        assert caps.n_min == 0
+
 
 class TestCatalogFetch:
     def test_hit_returns_parsed_descriptor(self):
