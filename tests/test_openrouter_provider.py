@@ -73,14 +73,14 @@ class TestBuildPayload:
     def test_text_to_image_uses_aspect_ratio_and_resolution(self, provider_with_key):
         req = GenerationRequest(
             prompt="a fox",
-            model="bytedance-seed/seedream-4.5",
+            model="sourceful/riverflow-v2.5-pro",
             aspect_ratio="16:9",
             res_key="1344x768",
             quality_key="2K",
         )
         body = provider_with_key._build_payload(req)
 
-        assert body["model"] == "bytedance-seed/seedream-4.5"
+        assert body["model"] == "sourceful/riverflow-v2.5-pro"
         assert body["prompt"] == "a fox"
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "2K"
@@ -93,7 +93,7 @@ class TestBuildPayload:
     def test_custom_dims_use_size_shorthand_instead_of_ratio(self, provider_with_key):
         req = GenerationRequest(
             prompt="a fox",
-            model="bytedance-seed/seedream-4.5",
+            model="sourceful/riverflow-v2.5-pro",
             aspect_ratio="1:1",  # ignored when width/height set
             res_key="custom",
             quality_key="2K",
@@ -111,7 +111,7 @@ class TestBuildPayload:
         accepts 1K too — verify we forward it."""
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="sourceful/riverflow-v2.5-pro",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="1K",
@@ -122,7 +122,7 @@ class TestBuildPayload:
     def test_non_tier_quality_key_omits_resolution(self, provider_with_key):
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="sourceful/riverflow-v2.5-pro",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="high",  # OpenAI-style legacy value, not a tier
@@ -683,6 +683,94 @@ class TestRunInputBatch:
         assert len(saved_paths) == 4  # 2 inputs × 2 variants
         for call in mock_post.call_args_list:
             assert call.kwargs["json"]["n"] == 2
+
+
+# --------------------------------------------------------------------------
+# seedream-4.5 upstream pixel floor (issue #10): the Seed provider 400s any
+# output below 3,686,400 px, so the provider resolves an explicit `size`
+# that clears the floor instead of the aspect_ratio+resolution shorthand.
+# --------------------------------------------------------------------------
+
+
+class TestSeedreamPixelFloor:
+    FLOOR = 3_686_400
+
+    def _payload(self, provider, ratio, tier, **kw):
+        req = GenerationRequest(
+            prompt="x",
+            model="bytedance-seed/seedream-4.5",
+            aspect_ratio=ratio,
+            res_key="768x1344",
+            quality_key=tier,
+            **kw,
+        )
+        return provider._build_payload(req)
+
+    @pytest.mark.parametrize("ratio", ["9:16", "16:9", "2:3", "3:2", "21:9", "1:1"])
+    @pytest.mark.parametrize("tier", ["1K", "2K", "4K"])
+    def test_explicit_size_clears_floor(self, provider_with_key, ratio, tier):
+        body = self._payload(provider_with_key, ratio, tier)
+        assert "aspect_ratio" not in body
+        assert "resolution" not in body
+        w, h = map(int, body["size"].split("x"))
+        assert w * h >= self.FLOOR
+        assert w % 16 == 0 and h % 16 == 0
+
+    def test_9_16_1k_lands_exactly_on_floor(self, provider_with_key, capsys):
+        """1K is below the floor for every ratio; 9:16 resolves to the
+        canonical 1440x2560 = 3,686,400 px minimum, with a visible note."""
+        body = self._payload(provider_with_key, "9:16", "1K")
+        assert body["size"] == "1440x2560"
+        assert "3,686,400" in capsys.readouterr().out
+
+    def test_2k_preserves_requested_ratio(self, provider_with_key):
+        body = self._payload(provider_with_key, "9:16", "2K")
+        w, h = map(int, body["size"].split("x"))
+        # 2K targets ~4.19MP which already clears the floor; shape must
+        # still be ~9:16 (16px rounding allows small drift).
+        assert abs(w / h - 9 / 16) < 0.02
+        assert w * h >= 2048 * 2048
+
+    def test_no_note_when_tier_already_clears_floor(self, provider_with_key, capsys):
+        self._payload(provider_with_key, "1:1", "4K")
+        assert "minimum" not in capsys.readouterr().out
+
+    def test_custom_dims_below_floor_are_raised(self, provider_with_key, capsys):
+        body = self._payload(provider_with_key, "1:1", "2K", width=768, height=1344)
+        w, h = map(int, body["size"].split("x"))
+        assert w * h >= self.FLOOR
+        assert w % 16 == 0 and h % 16 == 0
+        assert abs(w / h - 768 / 1344) < 0.02
+        assert "minimum" in capsys.readouterr().out
+
+    def test_unknown_ratio_falls_back_to_shorthand(self, provider_with_key):
+        """A ratio we can't resolve numerically falls back to the plain
+        aspect_ratio+resolution fields rather than guessing a size."""
+        body = self._payload(provider_with_key, "7:5", "2K")
+        assert body["aspect_ratio"] == "7:5"
+        assert body["resolution"] == "2K"
+        assert "size" not in body
+
+    def test_models_without_floor_are_untouched(self, provider_with_key):
+        req = GenerationRequest(
+            prompt="x",
+            model="black-forest-labs/flux.2-pro",
+            aspect_ratio="9:16",
+            res_key="768x1344",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "9:16"
+        assert "size" not in body
+
+    def test_wizard_labels_flag_floored_tiers(self, provider_with_key):
+        choices, _ = provider_with_key.get_quality_choices(
+            "bytedance-seed/seedream-4.5", "768x1344", None, None, None
+        )
+        one_k = next(c for c in choices if c.startswith("1K"))
+        two_k = next(c for c in choices if c.startswith("2K"))
+        assert "minimum" in one_k  # 1K (~1MP) sits below the 3.69MP floor
+        assert "minimum" not in two_k  # 2K (~4.19MP) clears it
 
 
 # --------------------------------------------------------------------------

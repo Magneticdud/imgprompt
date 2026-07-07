@@ -2,6 +2,7 @@ import os
 import sys
 import io
 import base64
+import math
 from datetime import datetime
 
 import requests
@@ -30,6 +31,30 @@ _MAX_N = 10
 # (5min) matches the lower end of the OpenAI SDK's defaults and covers the
 # long tail without letting a truly wedged server hang the CLI forever.
 _DEFAULT_TIMEOUT = (10, 300)
+
+# Some upstream providers enforce a hard minimum on the OUTPUT pixel count
+# and 400 anything below it (Seed: "image size must be at least 3686400
+# pixels"). OpenRouter's own (aspect_ratio, resolution) → size translation
+# lands below that floor for most non-square ratios, so for these models we
+# resolve the size client-side and send it explicitly. See issue #10.
+_MODEL_PIXEL_FLOORS = {
+    "bytedance-seed/seedream-4.5": 3_686_400,
+}
+
+# Nominal pixel targets per resolution tier (the square each tier names).
+# Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
+_TIER_PIXELS = {
+    "512": 512 * 512,
+    "1K": 1024 * 1024,
+    "2K": 2048 * 2048,
+    "4K": 4096 * 4096,
+}
+
+
+def _ceil16(value: float) -> int:
+    """Round up to a multiple of 16 (dimension granularity of /api/v1/images)."""
+    return math.ceil(value / 16) * 16
+
 
 # Markup the wizard / logs can detect when the provider hands back a vector
 # output (Recraft and similar models). Used to route SVG bytes to a real .svg
@@ -155,7 +180,16 @@ class OpenRouterProvider(ImageProvider):
         # would round $0.034 down to "$0.03" and look cheaper than 3.1's
         # $0.07, which is misleading. Trailing zero on $0.07 → $0.070 is
         # fine and matches OpenRouter's usage-report format.
-        choices = [f"{s} (${COSTS[model][s]['fixed']:.3f})" for s in sizes]
+        floor = _MODEL_PIXEL_FLOORS.get(model)
+        choices = []
+        for s in sizes:
+            label = f"{s} (${COSTS[model][s]['fixed']:.3f})"
+            # Pre-flight signal for tiers the upstream floor overrides (e.g.
+            # seedream 1K): the user should know before confirming that the
+            # output will be larger than the tier name suggests.
+            if floor and _TIER_PIXELS.get(s, floor) < floor:
+                label += f" — raised to upstream {floor / 1e6:.1f}MP minimum"
+            choices.append(label)
         return choices, choices[0]
 
     def resolve_quality(
@@ -353,16 +387,32 @@ class OpenRouterProvider(ImageProvider):
         # per-call override that input-batch fan-out uses. Leaving it out
         # here avoids two copies of the same logic drifting apart.
 
+        floor = _MODEL_PIXEL_FLOORS.get(request.model)
         if request.width and request.height:
-            payload["size"] = f"{request.width}x{request.height}"
+            width, height = request.width, request.height
+            if floor and width * height < floor:
+                scale = (floor / (width * height)) ** 0.5
+                width, height = _ceil16(width * scale), _ceil16(height * scale)
+                print(
+                    f"[OpenRouter] {request.model}: raising "
+                    f"{request.width}x{request.height} to {width}x{height} to "
+                    f"meet the upstream {floor:,}-pixel minimum."
+                )
+            payload["size"] = f"{width}x{height}"
         else:
-            payload["aspect_ratio"] = request.aspect_ratio
-            # The new API also accepts "512" as a normalized tier — pass
-            # through anything in the {512,1K,2K,4K} set (older code omitted
-            # "1K" because chat-completions had no resolution field, so this
-            # is also a small bugfix).
-            if request.quality_key in ("512", "1K", "2K", "4K"):
-                payload["resolution"] = request.quality_key
+            explicit = floor and self._floor_size(
+                request.model, request.aspect_ratio, request.quality_key
+            )
+            if explicit:
+                payload["size"] = explicit
+            else:
+                payload["aspect_ratio"] = request.aspect_ratio
+                # The new API also accepts "512" as a normalized tier — pass
+                # through anything in the {512,1K,2K,4K} set (older code omitted
+                # "1K" because chat-completions had no resolution field, so this
+                # is also a small bugfix).
+                if request.quality_key in ("512", "1K", "2K", "4K"):
+                    payload["resolution"] = request.quality_key
 
         if img_paths:
             payload["input_references"] = [
@@ -373,6 +423,35 @@ class OpenRouterProvider(ImageProvider):
                 for p in img_paths
             ]
         return payload
+
+    def _floor_size(
+        self, model: str, aspect_ratio: str, quality_key: str
+    ) -> str | None:
+        """Explicit WxH for models with an upstream output-pixel floor.
+
+        Targets the tier's nominal pixel count (1K/2K/4K square), raised to
+        the model's floor when the tier sits below it, then shapes the box
+        to the chosen aspect ratio with both edges rounded UP to a multiple
+        of 16 so the result can never dip back under the floor. Returns
+        None when the ratio is unknown — the caller then falls back to the
+        plain aspect_ratio+resolution fields and lets upstream decide.
+        """
+        from imgprompt.presets import ASPECT_RATIO_VALUES
+
+        floor = _MODEL_PIXEL_FLOORS.get(model)
+        ratio = ASPECT_RATIO_VALUES.get(aspect_ratio)
+        if floor is None or ratio is None:
+            return None
+        target = max(_TIER_PIXELS.get(quality_key, floor), floor)
+        height = _ceil16((target / ratio) ** 0.5)
+        width = _ceil16(height * ratio)
+        if target == floor and _TIER_PIXELS.get(quality_key, floor) < floor:
+            print(
+                f"[OpenRouter] {model}: {quality_key} on {aspect_ratio} is "
+                f"below the upstream {floor:,}-pixel minimum; sending "
+                f"{width}x{height} instead."
+            )
+        return f"{width}x{height}"
 
     def _call_api(
         self,
