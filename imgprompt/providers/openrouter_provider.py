@@ -9,6 +9,7 @@ import requests
 from PIL import Image
 
 from imgprompt.providers.base import ImageProvider, GenerationRequest
+from imgprompt.providers.capabilities import get_capabilities
 from imgprompt.images import save_image_bytes
 
 # OpenRouter Image API base URL (replaces the legacy /chat/completions+modalities path).
@@ -179,6 +180,18 @@ class OpenRouterProvider(ImageProvider):
             return ["Auto"], "Auto"
         else:
             ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
+
+        # Descriptor-driven override (issue #11): when the live catalog
+        # advertises an aspect_ratio enum, show exactly that — filtered to
+        # ratios the wizard can preview (RATIO_TO_RESOLUTION keys, canonical
+        # order). The hardcoded lists above remain the offline fallback.
+        caps = get_capabilities(model)
+        if caps and caps.aspect_ratios:
+            descriptor_options = [
+                r for r in OPENROUTER_RESOLUTIONS if r in caps.aspect_ratios
+            ]
+            if descriptor_options:
+                ratio_options = descriptor_options
         default = "1:1"
         if image_path:
             from imgprompt.images import get_closest_aspect_ratio
@@ -247,6 +260,22 @@ class OpenRouterProvider(ImageProvider):
             sizes = ["Standard"]
         else:
             sizes = ["1K", "2K"]
+
+        # Descriptor-driven override (issue #11): keep only tiers the live
+        # catalog advertises AND presets can price. Models whose descriptor
+        # has no resolution enum (gpt: quality-based; MAI/Recraft: none) and
+        # offline runs keep the hardcoded branch result.
+        caps = get_capabilities(model)
+        if caps and caps.resolutions:
+            from imgprompt.presets import COSTS as _costs
+
+            descriptor_sizes = [
+                s
+                for s in ("512", "1K", "2K", "4K")
+                if s in caps.resolutions and s in _costs.get(model, {})
+            ]
+            if descriptor_sizes:
+                sizes = descriptor_sizes
         # .3f for cents-precise Lite pricing ($0.034). Without it the wizard
         # would round $0.034 down to "$0.03" and look cheaper than 3.1's
         # $0.07, which is misleading. Trailing zero on $0.07 → $0.070 is
@@ -283,6 +312,40 @@ class OpenRouterProvider(ImageProvider):
     @property
     def supports_dual(self) -> bool:
         return True
+
+    def preflight_warnings(
+        self, model: str, aspect_ratio: str | None, quality_key: str | None
+    ) -> list[str]:
+        """Descriptor mismatches worth surfacing before the API call.
+
+        Choices made through the wizard are already descriptor-driven, so
+        this mainly catches stale replays and hardcoded-fallback drift.
+        Empty when discovery is unavailable (nothing to check against).
+        """
+        caps = get_capabilities(model)
+        if caps is None:
+            return []
+        warnings = []
+        if (
+            caps.aspect_ratios
+            and aspect_ratio
+            and aspect_ratio != "Auto"
+            and aspect_ratio not in caps.aspect_ratios
+        ):
+            warnings.append(
+                f"{model} does not advertise aspect ratio {aspect_ratio} "
+                f"(supported: {', '.join(caps.aspect_ratios)})"
+            )
+        if (
+            caps.resolutions
+            and quality_key in ("512", "1K", "2K", "4K")
+            and quality_key not in caps.resolutions
+        ):
+            warnings.append(
+                f"{model} does not advertise resolution {quality_key} "
+                f"(supported: {', '.join(caps.resolutions)})"
+            )
+        return warnings
 
     # ------------------------------------------------------------------ entry
 
@@ -553,8 +616,35 @@ class OpenRouterProvider(ImageProvider):
         `n` so silent truncation from server-side caps doesn't surprise
         the user.
         """
+        caps = get_capabilities(request.model)
+
+        # Per-model input_references cap (descriptor-driven): trim instead
+        # of letting upstream 400 on "too many references".
+        if (
+            img_paths
+            and caps
+            and caps.input_refs_max is not None
+            and len(img_paths) > caps.input_refs_max
+        ):
+            print(
+                f"\n[OpenRouter] {request.model} accepts at most "
+                f"{caps.input_refs_max} input reference(s); using the first "
+                f"{caps.input_refs_max} of {len(img_paths)}."
+            )
+            img_paths = img_paths[: caps.input_refs_max]
+
         payload = self._build_payload(request, img_paths=img_paths)
-        payload["n"] = max(1, min(_max_n_for(request.model), n))
+        requested_n = max(1, min(_max_n_for(request.model), n))
+        # Per-model n cap: the descriptor's n.max wins over the hardcoded
+        # prefix table when available (e.g. gemini/flux/sourceful cap at 1).
+        cap_n = caps.n_max if caps and caps.n_max else _max_n_for(request.model)
+        clamped_n = max(1, min(cap_n, requested_n))
+        if clamped_n < requested_n:
+            print(
+                f"\n[OpenRouter] {request.model} caps n at {cap_n}; "
+                f"requesting {clamped_n} instead of {requested_n}."
+            )
+        payload["n"] = clamped_n
 
         resp = requests.post(
             OPENROUTER_IMAGES_URL,

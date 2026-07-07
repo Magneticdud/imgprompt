@@ -1136,6 +1136,13 @@ def main():
                         print(f"Colors:     {', '.join(recraft_colors)}")
                 if n_variants > 1:
                     print(f"Variants:   {n_variants}")
+                # Pre-flight capability check (issue #11): mirrors the >4MP
+                # BFL downscale warning style — surface descriptor
+                # mismatches before money is spent on a doomed call.
+                for warning in provider_obj.preflight_warnings(
+                    model_choice, aspect_ratio, quality_key
+                ):
+                    print(f"⚠ Warning:  {warning}")
             else:
                 print(f"Ratio:      {aspect_ratio}")
                 print(f"Size:       {quality_key}")
