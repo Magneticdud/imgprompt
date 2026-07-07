@@ -1029,6 +1029,11 @@ def main():
             current_step = 2
 
         elif current_step == 2:
+            # Fresh slate on every entry: without this, picking a Recraft
+            # style and then backing out to a non-Recraft model would leave
+            # stale style/colors that the summary happily prints.
+            recraft_style = None
+            recraft_colors = []
             # Step 3: Select Resolution
             result_res, result_key, result_width, result_height = step_resolution(
                 provider_obj, model_choice, image_path
