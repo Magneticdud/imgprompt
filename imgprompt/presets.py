@@ -294,6 +294,52 @@ COSTS["x-ai/grok-imagine-image-quality"] = {
     "input_flat": 0.01,
 }
 
+# Recraft v4.1 family (via OpenRouter). Two axes: output (raster vs. SVG
+# vector) × tier (base/utility vs. pro). Flat per-image pricing from each
+# model's /endpoints entry, snapshot 2026-07-07; no resolution tiers (the
+# API exposes no resolution/aspect_ratio parameter for the family), hence
+# the single "Standard" key. No input megapixel billing.
+COSTS["recraft/recraft-v4.1"] = {"Standard": {"fixed": 0.035}}
+COSTS["recraft/recraft-v4.1-pro"] = {"Standard": {"fixed": 0.21}}
+COSTS["recraft/recraft-v4.1-utility"] = {"Standard": {"fixed": 0.035}}
+COSTS["recraft/recraft-v4.1-utility-pro"] = {"Standard": {"fixed": 0.21}}
+COSTS["recraft/recraft-v4.1-vector"] = {"Standard": {"fixed": 0.08}}
+COSTS["recraft/recraft-v4.1-pro-vector"] = {"Standard": {"fixed": 0.30}}
+
+# Recraft style axis (issue #9). The slug set is shared across the v4.1
+# family and comes from Recraft's public style taxonomy; it changes rarely,
+# so a hardcoded list is the right cut until live discovery (#3) grows a
+# style source. Forwarded verbatim through GenerationRequest.extras.
+RECRAFT_STYLE_SLUGS = [
+    "any",
+    "realistic_image",
+    "digital_illustration",
+    "vector_illustration",
+    "icon",
+]
+
+RECRAFT_STYLE_LABELS = {
+    "any": "any — model decides",
+    "realistic_image": "realistic_image — photographic look",
+    "digital_illustration": "digital_illustration — painted/drawn look",
+    "vector_illustration": "vector_illustration — flat geometric shapes",
+    "icon": "icon — simple pictogram",
+}
+
+RECRAFT_BRAND_COLOR_HELP = (
+    "comma-separated #RRGGBB values, e.g. #FFAA00, #112233 (empty = none)"
+)
+
+
+def recraft_default_style(model: str) -> str:
+    """Default style slug for a Recraft variant.
+
+    Vector variants pair naturally with vector_illustration; every raster
+    variant defaults to realistic_image (Recraft's own default). Guarantees
+    extras["style"] is never silently empty when the user skips the picker.
+    """
+    return "vector_illustration" if "vector" in model else "realistic_image"
+
 RATIO_TO_RESOLUTION = {
     "1:1": "1024x1024",
     "2:3": "832x1248",

@@ -9,6 +9,7 @@ without touching disk or hitting OpenRouter.
 
 import base64
 import io
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -784,6 +785,141 @@ class TestGrokImagine:
         # Flat per-input-image billing (not per-megapixel): the wizard's
         # summary adds $0.01 per reference image for this model.
         assert COSTS[self.MODEL]["input_flat"] == 0.01
+
+
+# --------------------------------------------------------------------------
+# Recraft v4.1 family (issue #8): six variants, no aspect_ratio/resolution
+# parameters upstream (geometry is model-chosen), n capped at 6, vector
+# variants return SVG natively. Descriptor snapshot 2026-07-07.
+# --------------------------------------------------------------------------
+
+RECRAFT_MODELS = [
+    "recraft/recraft-v4.1",
+    "recraft/recraft-v4.1-pro",
+    "recraft/recraft-v4.1-utility",
+    "recraft/recraft-v4.1-utility-pro",
+    "recraft/recraft-v4.1-vector",
+    "recraft/recraft-v4.1-pro-vector",
+]
+
+
+class TestRecraftFamily:
+    @pytest.mark.parametrize("model", RECRAFT_MODELS)
+    def test_all_variants_in_supported_models(self, model):
+        assert model in OpenRouterProvider.supported_models()
+
+    def test_default_model_unchanged(self):
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    @pytest.mark.parametrize("model", RECRAFT_MODELS)
+    def test_resolution_choices_are_auto_only(self, model, provider_with_key):
+        choices, default = provider_with_key.get_resolution_choices(model, None)
+        assert choices == ["Auto"]
+        assert default == "Auto"
+
+    def test_auto_resolves_to_model_default(self, provider_with_key):
+        res_key, w, h = provider_with_key.resolve_resolution(
+            "recraft/recraft-v4.1", "Auto"
+        )
+        assert res_key == "model default"
+        assert w is None and h is None
+
+    @pytest.mark.parametrize(
+        "model,price",
+        [
+            ("recraft/recraft-v4.1", 0.035),
+            ("recraft/recraft-v4.1-pro", 0.21),
+            ("recraft/recraft-v4.1-utility", 0.035),
+            ("recraft/recraft-v4.1-utility-pro", 0.21),
+            ("recraft/recraft-v4.1-vector", 0.08),
+            ("recraft/recraft-v4.1-pro-vector", 0.30),
+        ],
+    )
+    def test_quality_single_standard_tier_with_price(
+        self, model, price, provider_with_key
+    ):
+        choices, default = provider_with_key.get_quality_choices(
+            model, "model default", None, None, None
+        )
+        assert len(choices) == 1
+        assert choices[0] == f"Standard (${price:.3f})"
+        key, cost = provider_with_key.resolve_quality(
+            model, "model default", None, None, choices[0]
+        )
+        assert key == "Standard"
+        assert cost == price
+
+    def test_payload_has_no_geometry_fields(self, provider_with_key):
+        """No aspect_ratio / resolution / size on the wire: the descriptor
+        exposes none of them and unknown values would be rejected."""
+        req = GenerationRequest(
+            prompt="a fox logo",
+            model="recraft/recraft-v4.1-vector",
+            aspect_ratio="Auto",
+            res_key="model default",
+            quality_key="Standard",
+        )
+        body = provider_with_key._build_payload(req)
+        assert "aspect_ratio" not in body
+        assert "resolution" not in body
+        assert "size" not in body
+
+    def test_n_clamped_to_six_for_recraft(self, provider_with_key):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model="recraft/recraft-v4.1",
+                aspect_ratio="Auto",
+                res_key="model default",
+                quality_key="Standard",
+                n=9,
+            )
+            provider_with_key._call_api(req, n=9)
+        assert mock_post.call_args.kwargs["json"]["n"] == 6
+
+    def test_n_ten_still_allowed_for_other_models(self, provider_with_key):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model="openai/gpt-5.4-image-2",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                n=10,
+            )
+            provider_with_key._call_api(req, n=10)
+        assert mock_post.call_args.kwargs["json"]["n"] == 10
+
+    def test_svg_without_media_type_is_sniffed(self, provider_with_key, tmp_path):
+        """Defensive fallback pinned by the issue: an SVG body with no
+        media_type must still land in a .svg file, not a broken .png."""
+        svg = b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            provider_with_key._save_one((svg, None), None)
+        finally:
+            os.chdir(cwd)
+        written = list(tmp_path.glob("generated_*.svg"))
+        assert len(written) == 1
+        assert written[0].read_bytes() == svg
+
+    def test_raster_bytes_without_media_type_stay_raster(
+        self, provider_with_key, tmp_path, monkeypatch
+    ):
+        saved = []
+        monkeypatch.setattr(
+            "imgprompt.providers.openrouter_provider.save_image_bytes",
+            lambda b, src: saved.append(b),
+        )
+        provider_with_key._save_one((_png_bytes(), None), None)
+        assert len(saved) == 1
 
 
 # --------------------------------------------------------------------------

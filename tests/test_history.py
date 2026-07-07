@@ -91,6 +91,23 @@ def test_pre_dual_history_file_loads_with_default(monkeypatch, tmp_path):
     assert loaded_req.is_batch is True
 
 
+def test_recraft_style_extras_survive_roundtrip(monkeypatch, tmp_path):
+    """--replay must reproduce the exact style/colors of a Recraft run."""
+    _patch_file(monkeypatch, tmp_path)
+    req = GenerationRequest(
+        prompt="a fox logo",
+        model="recraft/recraft-v4.1-vector",
+        aspect_ratio="Auto",
+        res_key="model default",
+        quality_key="Standard",
+        extras={"style": "vector_illustration", "colors": ["#FFAA00", "#112233"]},
+    )
+    history.save_last_generation("OpenRouter", req)
+    _, loaded_req = history.load_last_generation()
+    assert loaded_req.extras["style"] == "vector_illustration"
+    assert loaded_req.extras["colors"] == ["#FFAA00", "#112233"]
+
+
 def test_multiline_prompt_survives_roundtrip(monkeypatch, tmp_path):
     _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
