@@ -146,13 +146,14 @@ def resolve_pdf_inputs(paths: list[str]) -> list[str]:
     return resolved
 
 
-def select_inputs(provided_path: str | None) -> tuple[list[str], bool, bool]:
+def select_inputs(provided_path: str | None) -> tuple[list[str], bool, str | None]:
     """Selects images either from arguments or from a list of files.
 
-    Returns (paths, is_dual, is_replay)."""
+    Returns (paths, is_dual, replay_choice) where replay_choice is None or
+    one of REPLAY_OPTION / REPLAY_DIFFERENT_OPTION."""
     if provided_path:
         if os.path.isfile(provided_path):
-            return [provided_path], False, False
+            return [provided_path], False, None
         else:
             print(f"Error: {provided_path} is not a valid file.")
             sys.exit(1)
@@ -164,9 +165,10 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, bool]:
     dual_option = "Two Images (Dual Input)"
 
     choices = []
-    # Offer replay as the first choice only if a previous run was saved.
+    # Offer replay as the first choices only if a previous run was saved.
     if load_last_generation() is not None:
         choices.append(REPLAY_OPTION)
+        choices.append(REPLAY_DIFFERENT_OPTION)
     choices.append(t2i_option)
     if len(images) >= 2:
         choices.append(dual_option)
@@ -179,11 +181,11 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, bool]:
     if not selected:
         sys.exit(0)
 
-    if selected == REPLAY_OPTION:
-        return [], False, True
+    if selected in (REPLAY_OPTION, REPLAY_DIFFERENT_OPTION):
+        return [], False, selected
 
     if selected == t2i_option:
-        return [], False, False
+        return [], False, None
 
     if selected == dual_option:
         img1 = questionary.select("Select first image (IMG_1):", choices=images).ask()
@@ -197,41 +199,81 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, bool]:
         if not img2:
             sys.exit(0)
 
-        return [img1, img2], True, False
+        return [img1, img2], True, None
 
-    return [selected], False, False
+    return [selected], False, None
 
 
 REPLAY_OPTION = "🔁 Replay last generation"
+REPLAY_DIFFERENT_OPTION = "🔁 Replay on a different model"
 
 
-def run_replay(iterations_arg: int | None) -> None:
-    """Re-run the last saved generation verbatim. Exits on error."""
+def run_replay(
+    iterations_arg: int | None,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+) -> None:
+    """Re-run the last saved generation, optionally on a different
+    provider/model (issue #12: retry a refused prompt elsewhere without
+    re-walking the wizard). Prompt, images, ratio, resolution tier, n and
+    extras are reused verbatim. Exits on error."""
     loaded = load_last_generation()
     if not loaded:
         print("Error: no saved generation found to replay.")
         sys.exit(1)
     provider, request = loaded
+
+    if provider_override:
+        matched = next(
+            (p for p in PROVIDER_MAP if p.lower() == provider_override.lower()),
+            None,
+        )
+        if matched is None:
+            print(
+                f"Error: unknown provider '{provider_override}'. "
+                f"Choices: {', '.join(PROVIDER_MAP)}"
+            )
+            sys.exit(1)
+        provider = matched
+
     provider_cls = PROVIDER_MAP.get(provider)
     if provider_cls is None:
         print(f"Error: unknown provider in saved generation: {provider}")
         sys.exit(1)
 
+    if model_override:
+        request.model = model_override
+
     # Catch retired-model references (e.g. .last_generation.json saved when
-    # gemini-2.5-flash-image was still shipped). Without this we'd POST to the
-    # upstream API and surface a cryptic 404 from OpenRouter / Google. Better
-    # to bail early with an actionable message. We check *before* constructing
-    # a provider instance: a side-effecting constructor on a stale-model
+    # gemini-2.5-flash-image was still shipped) AND bad --model overrides.
+    # Without this we'd POST to the upstream API and surface a cryptic 404
+    # from OpenRouter / Google. Better to bail early with an actionable
+    # message, before any network call. We check *before* constructing a
+    # provider instance: a side-effecting constructor on a stale-model
     # OVHProvider could otherwise noisily fail.
     if request.model not in provider_cls.supported_models():
-        print(
-            f"Error: model '{request.model}' is no longer supported by '{provider}'."
-        )
-        print(
-            "The saved generation references a model that has been retired; "
-            "please start a new one (drop --replay and run the wizard again)."
-        )
+        if model_override:
+            print(
+                f"Error: model '{request.model}' is not supported by "
+                f"'{provider}'. Supported models: "
+                f"{', '.join(provider_cls.supported_models())}"
+            )
+        else:
+            print(
+                f"Error: model '{request.model}' is no longer supported by "
+                f"'{provider}'."
+            )
+            print(
+                "The saved generation references a model that has been retired; "
+                "please start a new one (drop --replay and run the wizard again)."
+            )
         sys.exit(1)
+
+    if provider == "OVH" and request.images:
+        print("Error: OVH provider only supports Text-to-Image mode; the saved")
+        print("generation has input images and cannot be replayed there.")
+        sys.exit(1)
+
     provider_obj = provider_cls()
 
     print("\n--- Replaying last generation ---")
@@ -243,6 +285,10 @@ def run_replay(iterations_arg: int | None) -> None:
         print("Image:      None (Text-to-Image)")
     print(f"Prompt:     {request.prompt}")
 
+    # Persist the (possibly overridden) request so a further bare --replay
+    # repeats THIS attempt — enabling quick A → B → B retry chains.
+    save_last_generation(provider, request)
+
     iterations = max(1, iterations_arg or 1)
     for i in range(1, iterations + 1):
         if iterations > 1:
@@ -250,13 +296,46 @@ def run_replay(iterations_arg: int | None) -> None:
         provider_obj.run(request)
 
 
+def run_replay_on_different_model(iterations_arg: int | None) -> None:
+    """Interactive flavour of the replay override: a one-shot provider →
+    model picker seeded with the saved values, then the same replay path."""
+    loaded = load_last_generation()
+    if not loaded:
+        print("Error: no saved generation found to replay.")
+        sys.exit(1)
+    saved_provider, request = loaded
+
+    provider_names = list(PROVIDER_MAP.keys())
+    provider = questionary.select(
+        "Select Provider:",
+        choices=provider_names,
+        default=saved_provider if saved_provider in provider_names else None,
+    ).ask()
+    if not provider:
+        sys.exit(0)
+
+    provider_cls = PROVIDER_MAP[provider]
+    models = provider_cls.supported_models()
+    model = questionary.select(
+        f"Select {provider} model:",
+        choices=models,
+        default=request.model if request.model in models else models[0],
+    ).ask()
+    if not model:
+        sys.exit(0)
+
+    run_replay(iterations_arg, model_override=model, provider_override=provider)
+
+
 def step_provider() -> str | None:
-    """Step 1: Select provider. Returns provider name, REPLAY_OPTION or BACK_OPTION."""
+    """Step 1: Select provider. Returns provider name, REPLAY_OPTION,
+    REPLAY_DIFFERENT_OPTION or BACK_OPTION."""
     choices = [BACK_OPTION]
     # Offer replay here too so it's reachable even when an image was passed as an
     # argument (which skips the image-selection menu).
     if load_last_generation() is not None:
         choices.append(REPLAY_OPTION)
+        choices.append(REPLAY_DIFFERENT_OPTION)
     choices.extend(PROVIDER_MAP.keys())
     provider = questionary.select(
         "Select Provider:",
@@ -762,6 +841,18 @@ def main():
         "(any image arguments are ignored)",
     )
     parser.add_argument(
+        "--model",
+        default=None,
+        help="With --replay: retry the saved generation on a different model "
+        "(e.g. --replay --model bytedance-seed/seedream-4.5)",
+    )
+    parser.add_argument(
+        "--provider",
+        default=None,
+        help="With --replay: retry the saved generation on a different "
+        f"provider ({', '.join(PROVIDER_MAP)}); case-insensitive",
+    )
+    parser.add_argument(
         "-p",
         "--prompt-file",
         default=None,
@@ -770,13 +861,19 @@ def main():
     )
     args = parser.parse_args()
 
-    # Replay mode: skip the wizard and reuse the last saved request verbatim.
-    # Any image arguments are ignored so users can just append --replay to their
-    # previous command (e.g. arrow-up then add the flag).
+    # --model/--provider only make sense as replay modifiers: outside replay
+    # the wizard owns those choices and a silent no-op would be confusing.
+    if (args.model or args.provider) and not args.replay:
+        parser.error("--model and --provider require --replay")
+
+    # Replay mode: skip the wizard and reuse the last saved request verbatim
+    # (or retry it on a different provider/model via --provider/--model).
+    # Any image arguments are ignored so users can just append --replay to
+    # their previous command (e.g. arrow-up then add the flag).
     if args.replay:
         if args.images:
             print("Note: image arguments are ignored in --replay mode.")
-        run_replay(args.iterations)
+        run_replay(args.iterations, args.model, args.provider)
         return
 
     # Resolve a CLI-supplied prompt: an explicit --prompt-file, or a .txt found
@@ -852,8 +949,11 @@ def main():
         if len(input_images) > 1:
             print(f"\nBatch mode: {len(input_images)} images selected")
     else:
-        input_images, is_dual, is_replay = select_inputs(None)
-        if is_replay:
+        input_images, is_dual, replay_choice = select_inputs(None)
+        if replay_choice == REPLAY_DIFFERENT_OPTION:
+            run_replay_on_different_model(args.iterations)
+            return
+        if replay_choice == REPLAY_OPTION:
             run_replay(args.iterations)
             return
 
@@ -901,10 +1001,13 @@ def main():
             if result == BACK_OPTION:
                 print("Cancelled.")
                 return
-            if result == REPLAY_OPTION:
+            if result in (REPLAY_OPTION, REPLAY_DIFFERENT_OPTION):
                 if input_images:
                     print("Note: selected image is ignored in replay mode.")
-                run_replay(args.iterations)
+                if result == REPLAY_DIFFERENT_OPTION:
+                    run_replay_on_different_model(args.iterations)
+                else:
+                    run_replay(args.iterations)
                 return
             provider = result
             provider_obj = PROVIDER_MAP[provider]()
@@ -1038,6 +1141,13 @@ def main():
                         print(f"Colors:     {', '.join(recraft_colors)}")
                 if n_variants > 1:
                     print(f"Variants:   {n_variants}")
+                # Pre-flight capability check (issue #11): mirrors the >4MP
+                # BFL downscale warning style — surface descriptor
+                # mismatches before money is spent on a doomed call.
+                for warning in provider_obj.preflight_warnings(
+                    model_choice, aspect_ratio, quality_key
+                ):
+                    print(f"⚠ Warning:  {warning}")
             else:
                 print(f"Ratio:      {aspect_ratio}")
                 print(f"Size:       {quality_key}")

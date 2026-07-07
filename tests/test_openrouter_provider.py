@@ -59,6 +59,18 @@ def _fake_image(tmp_path, name="img.png", size=(64, 64), fmt="PNG"):
     return str(p)
 
 
+@pytest.fixture(autouse=True)
+def no_live_capabilities(monkeypatch):
+    """Force the offline/fallback path: no test may depend on the network.
+
+    Tests exercising descriptor-driven behaviour override this by patching
+    get_capabilities with a fake ModelCapabilities."""
+    monkeypatch.setattr(
+        "imgprompt.providers.openrouter_provider.get_capabilities",
+        lambda model: None,
+    )
+
+
 @pytest.fixture
 def provider_with_key(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -684,6 +696,185 @@ class TestRunInputBatch:
         assert len(saved_paths) == 4  # 2 inputs × 2 variants
         for call in mock_post.call_args_list:
             assert call.kwargs["json"]["n"] == 2
+
+
+# --------------------------------------------------------------------------
+# Descriptor-driven wizard choices and clamps (issue #11). The autouse
+# fixture pins get_capabilities to None; these tests re-patch it with fake
+# descriptors to exercise the live path.
+# --------------------------------------------------------------------------
+
+
+def _patch_caps(monkeypatch, caps):
+    from imgprompt.providers.capabilities import ModelCapabilities
+
+    def fake(model):
+        if isinstance(caps, ModelCapabilities) and model == caps.model:
+            return caps
+        return None
+
+    monkeypatch.setattr(
+        "imgprompt.providers.openrouter_provider.get_capabilities", fake
+    )
+
+
+class TestDescriptorDriven:
+    def test_ratio_choices_follow_descriptor(self, provider_with_key, monkeypatch):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratios=("1:1", "9:16", "auto", "9:19.5"),
+            ),
+        )
+        choices, _ = provider_with_key.get_resolution_choices(
+            "bytedance-seed/seedream-4.5", None
+        )
+        # Only ratios the wizard can preview survive; "auto"/phone ratios
+        # have no RATIO_TO_RESOLUTION entry and are dropped.
+        assert choices == ["1:1", "9:16"]
+
+    def test_ratio_choices_fall_back_without_descriptor(self, provider_with_key):
+        choices, _ = provider_with_key.get_resolution_choices(
+            "bytedance-seed/seedream-4.5", None
+        )
+        # autouse fixture = no descriptor → hardcoded 10-ratio fallback.
+        assert "21:9" in choices
+        assert len(choices) == 10
+
+    def test_tier_choices_follow_descriptor(self, provider_with_key, monkeypatch):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(
+                model="sourceful/riverflow-v2.5-pro",
+                resolutions=("1K", "2K"),  # descriptor tighter than COSTS
+            ),
+        )
+        choices, _ = provider_with_key.get_quality_choices(
+            "sourceful/riverflow-v2.5-pro", "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+
+    def test_tier_choices_ignore_unpriced_descriptor_values(
+        self, provider_with_key, monkeypatch
+    ):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(
+                model="google/gemini-3.1-flash-image",
+                resolutions=("512", "1K", "2K", "4K"),  # 512 has no COSTS row
+            ),
+        )
+        choices, _ = provider_with_key.get_quality_choices(
+            "google/gemini-3.1-flash-image", "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K", "4K"]
+
+    def test_n_clamped_to_descriptor_max(self, provider_with_key, monkeypatch, capsys):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(model="google/gemini-3.1-flash-image", n_max=1),
+        )
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model="google/gemini-3.1-flash-image",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+        assert mock_post.call_args.kwargs["json"]["n"] == 1
+        assert "caps n at 1" in capsys.readouterr().out
+
+    def test_input_refs_trimmed_to_descriptor_max(
+        self, provider_with_key, monkeypatch, tmp_path, capsys
+    ):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(model="microsoft/mai-image-2.5", input_refs_max=1),
+        )
+        img_a = _fake_image(tmp_path, name="a.png")
+        img_b = _fake_image(tmp_path, name="b.png")
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model="microsoft/mai-image-2.5",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="Standard",
+                images=[img_a, img_b],
+                is_dual=True,
+            )
+            provider_with_key._call_api(req, img_paths=[img_a, img_b], n=1)
+        refs = mock_post.call_args.kwargs["json"]["input_references"]
+        assert len(refs) == 1
+        assert "at most 1 input reference" in capsys.readouterr().out
+
+    def test_preflight_warns_on_unadvertised_ratio(
+        self, provider_with_key, monkeypatch
+    ):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratios=("1:1", "16:9"),
+                resolutions=("1K", "2K"),
+            ),
+        )
+        warnings = provider_with_key.preflight_warnings(
+            "bytedance-seed/seedream-4.5", "21:9", "4K"
+        )
+        assert len(warnings) == 2
+        assert "21:9" in warnings[0]
+        assert "4K" in warnings[1]
+
+    def test_preflight_silent_when_choice_is_advertised(
+        self, provider_with_key, monkeypatch
+    ):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratios=("1:1", "16:9"),
+                resolutions=("1K", "2K"),
+            ),
+        )
+        assert (
+            provider_with_key.preflight_warnings(
+                "bytedance-seed/seedream-4.5", "16:9", "2K"
+            )
+            == []
+        )
+
+    def test_preflight_silent_without_descriptor(self, provider_with_key):
+        assert (
+            provider_with_key.preflight_warnings(
+                "bytedance-seed/seedream-4.5", "21:9", "4K"
+            )
+            == []
+        )
 
 
 # --------------------------------------------------------------------------
