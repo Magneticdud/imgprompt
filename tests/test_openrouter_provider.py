@@ -686,6 +686,107 @@ class TestRunInputBatch:
 
 
 # --------------------------------------------------------------------------
+# Dual mode (issue #2): two input images must reach the API in ONE combined
+# call, never fan out to one call per image like batch mode does.
+# --------------------------------------------------------------------------
+
+
+class TestDualDispatch:
+    def test_is_dual_two_images_is_not_batch(self):
+        req = GenerationRequest(
+            prompt="combine IMG_1 and IMG_2",
+            model="bytedance-seed/seedream-4.5",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="1K",
+            images=["a.png", "b.png"],
+            is_dual=True,
+        )
+        assert req.is_batch is False
+
+    def test_two_images_without_dual_flag_stays_batch(self):
+        req = GenerationRequest(
+            prompt="x",
+            model="bytedance-seed/seedream-4.5",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="1K",
+            images=["a.png", "b.png"],
+        )
+        assert req.is_batch is True
+
+    def test_dual_run_makes_single_call_with_both_references(
+        self, provider_with_key, tmp_path, monkeypatch
+    ):
+        saved_paths = []
+
+        def fake_save(b, src):
+            p = tmp_path / f"save_{len(saved_paths)}.png"
+            p.write_bytes(b)
+            saved_paths.append(str(p))
+            return str(p)
+
+        monkeypatch.setattr(
+            "imgprompt.providers.openrouter_provider.save_image_bytes",
+            fake_save,
+        )
+
+        img_a = _fake_image(tmp_path, name="a.png")
+        img_b = _fake_image(tmp_path, name="b.png")
+
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+
+            req = GenerationRequest(
+                prompt="use the composition of IMG_1 and the style of IMG_2",
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                images=[img_a, img_b],
+                is_dual=True,
+            )
+            provider_with_key.run(req)
+
+        # The whole point of dual mode: ONE HTTP call carrying BOTH images.
+        assert mock_post.call_count == 1
+        refs = mock_post.call_args.kwargs["json"]["input_references"]
+        assert len(refs) == 2
+        assert len(saved_paths) == 1
+
+    def test_batch_run_still_fans_out(self, provider_with_key, tmp_path, monkeypatch):
+        """Regression guard: the dual fix must not collapse real batch mode
+        (is_dual=False) into a single combined call."""
+        monkeypatch.setattr(
+            "imgprompt.providers.openrouter_provider.save_image_bytes",
+            lambda b, src: str(tmp_path / "out.png"),
+        )
+        img_a = _fake_image(tmp_path, name="a.png")
+        img_b = _fake_image(tmp_path, name="b.png")
+
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+
+            req = GenerationRequest(
+                prompt="x",
+                model="bytedance-seed/seedream-4.5",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                images=[img_a, img_b],
+            )
+            provider_with_key.run(req)
+
+        assert mock_post.call_count == 2
+        for call in mock_post.call_args_list:
+            assert len(call.kwargs["json"]["input_references"]) == 1
+
+
+# --------------------------------------------------------------------------
 # Gemini 3.1 Flash Lite image (the new budget model, $0.034/1K, 14 ratios).
 # Added when Nano Banana 2 Lite shipped (June 2026); gemini-2.5-flash-image
 # was retired at the same time and the tests below also pin its removal so

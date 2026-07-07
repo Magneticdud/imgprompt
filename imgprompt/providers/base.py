@@ -22,10 +22,17 @@ class GenerationRequest:
     # etc.). Forwarded verbatim into the request body for providers that
     # support it.
     extras: dict = field(default_factory=dict)
+    # Dual-input intent: both images belong to ONE api call (IMG_1 + IMG_2
+    # referenced together in the prompt), as opposed to batch mode where each
+    # image is an independent single-input call. Defaults to False so
+    # .last_generation.json files saved before this field existed still load.
+    is_dual: bool = False
 
     @property
     def is_batch(self) -> bool:
-        return len(self.images) > 1
+        # Dual mode also carries 2 images but is NOT a batch: the pair must
+        # reach the provider in a single combined call, not one call each.
+        return len(self.images) > 1 and not self.is_dual
 
     @property
     def is_text_to_image(self) -> bool:

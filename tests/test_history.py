@@ -51,6 +51,46 @@ def test_load_missing_keys_returns_none(monkeypatch, tmp_path):
     assert history.load_last_generation() is None
 
 
+def test_is_dual_survives_roundtrip(monkeypatch, tmp_path):
+    _patch_file(monkeypatch, tmp_path)
+    req = GenerationRequest(
+        prompt="combine IMG_1 and IMG_2",
+        model="bytedance-seed/seedream-4.5",
+        aspect_ratio="1:1",
+        res_key="1024x1024",
+        quality_key="1K",
+        images=["a.png", "b.png"],
+        is_dual=True,
+    )
+    history.save_last_generation("OpenRouter", req)
+    _, loaded_req = history.load_last_generation()
+    assert loaded_req.is_dual is True
+    assert loaded_req.is_batch is False
+
+
+def test_pre_dual_history_file_loads_with_default(monkeypatch, tmp_path):
+    """A .last_generation.json written before is_dual existed has no such
+    key; loading must default it to False (plain batch semantics)."""
+    import dataclasses
+    import json
+
+    target = _patch_file(monkeypatch, tmp_path)
+    req = GenerationRequest(
+        prompt="x",
+        model="gpt-image-2",
+        aspect_ratio="1:1",
+        res_key="1K",
+        quality_key="high",
+        images=["a.png", "b.png"],
+    )
+    data = dataclasses.asdict(req)
+    del data["is_dual"]
+    target.write_text(json.dumps({"provider": "OpenAI", "request": data}))
+    _, loaded_req = history.load_last_generation()
+    assert loaded_req.is_dual is False
+    assert loaded_req.is_batch is True
+
+
 def test_multiline_prompt_survives_roundtrip(monkeypatch, tmp_path):
     _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(

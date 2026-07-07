@@ -191,7 +191,10 @@ class OpenRouterProvider(ImageProvider):
         # doesn't suppress this run's announcement when the value repeats.
         self._reported_cost = None
 
-        if len(request.images) > 1:
+        # request.is_batch (not a raw len() check) so dual mode — two images
+        # in ONE combined call — routes to _run_variants, which forwards all
+        # request.images as input_references of a single POST.
+        if request.is_batch:
             self._run_input_batch(request)
         else:
             self._run_variants(request)
@@ -199,9 +202,10 @@ class OpenRouterProvider(ImageProvider):
     # ------------------------------------------------------------------ flow
 
     def _run_variants(self, request: GenerationRequest) -> None:
-        """Single-input call: returns 1..N images depending on request.n.
+        """Single-call path: returns 1..N images depending on request.n.
 
-        Used for text-to-image (no input image) and 1-image edits.
+        Used for text-to-image (no input image), 1-image edits, and dual
+        mode (both input images as input_references of the same call).
         Server-side batching via the `n` parameter means a single HTTP call
         yields all variants in parallel instead of looping N times.
         """
