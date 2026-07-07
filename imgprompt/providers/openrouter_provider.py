@@ -70,6 +70,36 @@ _TIER_PIXELS = {
     "4K": 4096 * 4096,
 }
 
+# Canonical resolution-tier keys for the OpenRouter wizard and the
+# payload gate. Kept in lockstep with `_TIER_PIXELS` above (per-tier
+# pixel targets) — this is the pairing the load-time guard enforces.
+# The per-model `COSTS` rows in `presets.py` carry per-tier prices,
+# but their priceable tiers are only a SUBSET of these keys (e.g.
+# `512` is a resolution floor with no `COSTS` entry, and most rows
+# price just `1K`/`2K`/`4K`), so `COSTS` is intentionally NOT part of
+# the guarded contract. Used at the four module callsites below with
+# deliberately distinct semantics — see the per-callsite comments for
+# why each one tests the membership.
+_VALID_TIER_QUALITY_KEYS = ("512", "1K", "2K", "4K")
+
+# Pin the constant/`_TIER_PIXELS` pairing: if a future commit adds a
+# new tier to one but not the other, the import below fails
+# immediately (and `python -m pytest` short-circuits on collection)
+# instead of silently producing a tier with no pixel target or a
+# missing `resolution` field on the wire. Cheap insurance.
+#
+# We use `raise` instead of a bare `assert` so the check
+# survives `python -O` (CI optimisation flag strips asserts).
+# The error message includes BOTH sides so the mismatch is
+# diagnosable without re-reading the source.
+if set(_VALID_TIER_QUALITY_KEYS) != set(_TIER_PIXELS):
+    raise RuntimeError(
+        "_VALID_TIER_QUALITY_KEYS and _TIER_PIXELS drifted — "
+        "every tier key must be listed in BOTH "
+        f"(constant={_VALID_TIER_QUALITY_KEYS!r}, "
+        f"_TIER_PIXELS keys={tuple(_TIER_PIXELS)!r})."
+    )
+
 
 def _ceil16(value: float) -> int:
     """Round up to a multiple of 16 (dimension granularity of /api/v1/images)."""
@@ -339,7 +369,14 @@ class OpenRouterProvider(ImageProvider):
             return None
         if aspect_ratio is None or aspect_ratio == "Auto":
             return None
-        if quality_key not in ("512", "1K", "2K", "4K"):
+        # Wizard-summary gate: only canonical tier resolution keys
+        # (`512`/`1K`/`2K`/`4K`) get a size computed here. Non-tier
+        # values (`'Standard'` for MAI/Recraft, `'high'` from the
+        # OpenAI legacy) fall through to the `res_key` preset —
+        # without this gate they would silently fall back to the
+        # floor constant as a target and produce a misleading WxH
+        # in the wizard summary.
+        if quality_key not in _VALID_TIER_QUALITY_KEYS:
             return None
         result = _compute_pixel_size(model, aspect_ratio, quality_key)
         if result is None:
@@ -406,9 +443,15 @@ class OpenRouterProvider(ImageProvider):
         if caps and caps.resolutions:
             from imgprompt.presets import COSTS as _costs
 
+            # Descriptor-driven tier filter: enumerate canonical tier
+            # keys from the live catalog, keeping only those the
+            # per-model `COSTS` row can price. Pre-existing per-
+            # model hardcoded `sizes = [...]` lists (e.g. Grok
+            # Imagine's `["1K","2K"]`) stay separate — they are
+            # intentionally narrower than the canonical list.
             descriptor_sizes = [
                 s
-                for s in ("512", "1K", "2K", "4K")
+                for s in _VALID_TIER_QUALITY_KEYS
                 if s in caps.resolutions and s in _costs.get(model, {})
             ]
             if descriptor_sizes:
@@ -482,9 +525,15 @@ class OpenRouterProvider(ImageProvider):
                 f"{model} does not advertise aspect ratio {aspect_ratio} "
                 f"(supported: {', '.join(caps.aspect_ratios)})"
             )
+        # Pre-flight regex: distinguish a canonical tier quality_key
+        # (`'1K'`/`'2K'`/...) from a non-tier value (legacy `'high'`,
+        # MAI/Recraft `'Standard'`). The model can still surface a
+        # non-canonical tier internally; we only warn when the user
+        # picked a CANONICAL tier that the live descriptor doesn't
+        # advertise — a hard mismatch, not a stylistic pick.
         if (
             caps.resolutions
-            and quality_key in ("512", "1K", "2K", "4K")
+            and quality_key in _VALID_TIER_QUALITY_KEYS
             and quality_key not in caps.resolutions
         ):
             warnings.append(
@@ -714,7 +763,13 @@ class OpenRouterProvider(ImageProvider):
                 # through anything in the {512,1K,2K,4K} set (older code omitted
                 # "1K" because chat-completions had no resolution field, so this
                 # is also a small bugfix).
-                if request.quality_key in ("512", "1K", "2K", "4K"):
+                # Payload gate: only canonical tier keys are forwarded
+                # as `resolution` on the wire. Other values (`'high'`
+                # legacy, `'Standard'` for MAI/Recraft, `'Auto'`) would
+                # 400 upstream if sent as `resolution` — by skipping
+                # them here we fall through to either a `size`
+                # shorthand or the no-resolution path.
+                if request.quality_key in _VALID_TIER_QUALITY_KEYS:
                     payload["resolution"] = request.quality_key
 
         if img_paths:
