@@ -738,6 +738,55 @@ class TestMaiImage:
 
 
 # --------------------------------------------------------------------------
+# xAI Grok Imagine image-quality (issue #7): 1K/2K only, seven standard
+# ratios surfaced (phone-screen ratios exist upstream but have no wizard
+# preview entry), flat $0.01 per input image. Descriptor snapshot 2026-07-07.
+# --------------------------------------------------------------------------
+
+
+class TestGrokImagine:
+    MODEL = "x-ai/grok-imagine-image-quality"
+
+    def test_in_supported_models(self):
+        assert self.MODEL in OpenRouterProvider.supported_models()
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    def test_resolution_choices_match_descriptor(self, provider_with_key):
+        choices, default = provider_with_key.get_resolution_choices(self.MODEL, None)
+        assert choices == ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
+        assert default == "1:1"
+
+    def test_quality_choices_cap_at_2k(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            self.MODEL, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+        assert "$0.050" in choices[0]
+        assert "$0.070" in choices[1]
+        assert default == choices[0]
+
+    def test_payload_passes_ratio_and_resolution(self, provider_with_key):
+        req = GenerationRequest(
+            prompt="x",
+            model=self.MODEL,
+            aspect_ratio="16:9",
+            res_key="1344x768",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "16:9"
+        assert body["resolution"] == "2K"
+        assert "size" not in body
+
+    def test_input_flat_rate_is_priced(self):
+        from imgprompt.presets import COSTS
+
+        # Flat per-input-image billing (not per-megapixel): the wizard's
+        # summary adds $0.01 per reference image for this model.
+        assert COSTS[self.MODEL]["input_flat"] == 0.01
+
+
+# --------------------------------------------------------------------------
 # seedream-4.5 upstream pixel floor (issue #10): the Seed provider 400s any
 # output below 3,686,400 px, so the provider resolves an explicit `size`
 # that clears the floor instead of the aspect_ratio+resolution shorthand.

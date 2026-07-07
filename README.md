@@ -134,6 +134,7 @@ When you provide 2+ images, the script automatically enters **batch mode**:
   - `microsoft/mai-image-2.5`: token-billed (output $47/Mtok, input image $8/Mtok, input text $5/Mtok — ≈$0.19 for a typical image; the real charge is reported after each call). No resolution tiers: the model picks the output size from the aspect ratio (1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9). Single image per call (`n` capped at 1 upstream).
   - `sourceful/riverflow-v2.5-fast`: $0.02 (1K), $0.04 (2K).
   - `sourceful/riverflow-v2.5-pro`: $0.15 (1K/2K), $0.33 (4K).
+  - `x-ai/grok-imagine-image-quality`: $0.05 (1K), $0.07 (2K), capped at 2K; input reference images cost a flat $0.01 each. Single image per call (`n` capped at 1 upstream).
 - **OVH AI Endpoints**:
   - `stabilityai/stable-diffusion-xl-base-1.0`: Free (Rate limited: 2 per minute without API key, 400 per minute with API key). Fixed 1024x1024. With such generous rate limits it does not need API keys, but if needed you can [read how to get one](https://help.ovhcloud.com/csm/en-gb-public-cloud-ai-endpoints-getting-started?id=kb_article_view&sysparm_article=KB0065401)
 

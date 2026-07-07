@@ -284,6 +284,16 @@ COSTS["microsoft/mai-image-2.5"] = {
     "Standard": {"fixed": 0.19},
 }
 
+# xAI Grok Imagine (image-quality tier, via OpenRouter). Per-image pricing
+# from /api/v1/images/models/x-ai/grok-imagine-image-quality/endpoints,
+# snapshot 2026-07-07: output $0.05 (1K) / $0.07 (2K); input images are a
+# flat $0.01 each regardless of size (input_flat, not per-megapixel).
+COSTS["x-ai/grok-imagine-image-quality"] = {
+    "1K": {"fixed": 0.05},
+    "2K": {"fixed": 0.07},
+    "input_flat": 0.01,
+}
+
 RATIO_TO_RESOLUTION = {
     "1:1": "1024x1024",
     "2:3": "832x1248",

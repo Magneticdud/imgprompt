@@ -974,6 +974,16 @@ def main():
                             mp = (img.width * img.height) / 1_000_000
                         input_cost += mp * input_mp_rate
 
+            # Flat per-input-image billing (e.g. Grok Imagine: $0.01 per
+            # reference image regardless of size), as opposed to the
+            # per-megapixel Flux rate handled above.
+            if (
+                provider == "OpenRouter"
+                and input_images
+                and "input_flat" in COSTS.get(model_choice, {})
+            ):
+                input_cost += COSTS[model_choice]["input_flat"] * len(input_images)
+
             total_cost = final_cost + input_cost
 
             if is_batch_mode:

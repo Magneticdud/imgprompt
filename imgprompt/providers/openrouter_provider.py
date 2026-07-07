@@ -108,6 +108,7 @@ class OpenRouterProvider(ImageProvider):
             "google/gemini-3-pro-image",
             "google/gemini-3.1-flash-lite-image",
             "microsoft/mai-image-2.5",
+            "x-ai/grok-imagine-image-quality",
         ]
 
     def get_resolution_choices(
@@ -135,6 +136,13 @@ class OpenRouterProvider(ImageProvider):
             # concrete ratios (plus "auto", which the wizard doesn't surface
             # for OpenRouter): no 4:5/5:4/21:9. Verified 2026-07-07 against
             # /api/v1/images/models — sending anything else 400s upstream.
+            ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
+        elif model == "x-ai/grok-imagine-image-quality":
+            # Grok's descriptor (verified 2026-07-07) lists these seven plus
+            # phone-screen ratios (9:19.5, 19.5:9, 9:20, 20:9, 1:2, 2:1) and
+            # "auto". The phone ratios have no RATIO_TO_RESOLUTION entry for
+            # the wizard's pixel preview, so we keep them off the picker; no
+            # 4:5/5:4/21:9 upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
         else:
             ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
@@ -188,6 +196,12 @@ class OpenRouterProvider(ImageProvider):
             # outside the {512,1K,2K,4K} set so _build_payload never emits
             # a resolution field for it.
             sizes = ["Standard"]
+        elif model == "x-ai/grok-imagine-image-quality":
+            # Grok Imagine caps at 2K — descriptor lists exactly ["1K","2K"]
+            # (verified 2026-07-07 against /api/v1/images/models). Explicit
+            # branch (same values as the generic fallback) so the cap is
+            # documented rather than accidental.
+            sizes = ["1K", "2K"]
         else:
             sizes = ["1K", "2K"]
         # .3f for cents-precise Lite pricing ($0.034). Without it the wizard
