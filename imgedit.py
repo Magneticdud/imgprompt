@@ -1056,6 +1056,7 @@ def main():
         width=dim_width,
         height=dim_height,
         n=n_variants,
+        is_dual=is_dual,
     )
 
     # Persist the request so it can be replayed verbatim with --replay.
