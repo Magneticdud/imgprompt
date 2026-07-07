@@ -70,19 +70,22 @@ _TIER_PIXELS = {
 }
 
 # Canonical resolution-tier keys for the OpenRouter wizard and the
-# payload gate. Must stay in lockstep with `_TIER_PIXELS` above
-# (per-tier pixel targets) AND with the per-model `COSTS` rows in
-# `presets.py` (per-tier prices). Adding a new tier here means
-# adding an entry to both. Used at the four module callsites below
-# with deliberately distinct semantics — see the per-callsite
-# comments for why each one tests the membership.
+# payload gate. Kept in lockstep with `_TIER_PIXELS` above (per-tier
+# pixel targets) — this is the pairing the load-time guard enforces.
+# The per-model `COSTS` rows in `presets.py` carry per-tier prices,
+# but their priceable tiers are only a SUBSET of these keys (e.g.
+# `512` is a resolution floor with no `COSTS` entry, and most rows
+# price just `1K`/`2K`/`4K`), so `COSTS` is intentionally NOT part of
+# the guarded contract. Used at the four module callsites below with
+# deliberately distinct semantics — see the per-callsite comments for
+# why each one tests the membership.
 _VALID_TIER_QUALITY_KEYS = ("512", "1K", "2K", "4K")
 
-# Pin the documented lockstep: if a future commit adds a new tier
-# to one but not the other, the import below fails immediately
-# (and `python -m pytest` short-circuits on collection) instead
-# of silently producing a mis-priced tier or a missing
-# `resolution` field on the wire. Cheap insurance.
+# Pin the constant/`_TIER_PIXELS` pairing: if a future commit adds a
+# new tier to one but not the other, the import below fails
+# immediately (and `python -m pytest` short-circuits on collection)
+# instead of silently producing a tier with no pixel target or a
+# missing `resolution` field on the wire. Cheap insurance.
 #
 # We use `raise` instead of a bare `assert` so the check
 # survives `python -O` (CI optimisation flag strips asserts).
