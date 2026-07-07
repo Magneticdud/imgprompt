@@ -82,31 +82,31 @@ def _floor16(value: float) -> int:
 
 
 def _shrink_to_ceiling(width: int, height: int, ceiling: int) -> tuple[int, int]:
-    """Scale (w, h) down uniformly so w*h <= ceiling; both edges floored to /16.
+    """Uniformly scale (w, h) down so w*h <= ceiling; both edges floored to /16.
 
-    First entry: if the box already fits, return it unchanged. Otherwise
-    halve the ratio via `_floor16` on the scaled edges. Flooring each
-    edge independently can still overshoot the cap by a few pixels
-    (one edge up, the other down by up to 15), so we re-tighten by
-    ~2% per pass until the box settles under the ceiling; in practice
-    1-2 passes (worst-case ~31 iters for a 20->17 MP shrink, still
-    milliseconds). The 0.5 lower bound on scale is a defensive exit
-    against pathological inputs; on that path we hand back the
-    ORIGINAL (width, height) -- better to let upstream 400 with a
-    meaningful error than to silently emit a box that violates the
-    contract (issue #23 safety review).
+    Invariant: ``_floor16`` rounds DOWN, so for any 0 < scale <= 1:
+
+        candidate_w  <= w * scale
+        candidate_h  <= h * scale
+        candidate_pixels <= w*h * scale**2
+
+    Setting ``scale = sqrt(ceiling / (w*h))`` makes that upper bound
+    exactly equal to ``ceiling``, so the first candidate produced
+    below is already ceiling-compliant — no re-tighten loop is
+    needed. Earlier versions had a while-loop with a ``scale < 0.5``
+    fallback on the wrong premise that ``_floor16`` could overshoot
+    the cap (rounding *down* can't) — removed on the
+    @kilocode-bot review of PR #24 (issue #23).
+
+    If the box already fits, return it unchanged.
     """
     if width * height <= ceiling:
         return width, height
     scale = (ceiling / (width * height)) ** 0.5
-    while True:
-        candidate_w = _floor16(width * scale)
-        candidate_h = _floor16(height * scale)
-        if candidate_w * candidate_h <= ceiling:
-            return candidate_w, candidate_h
-        scale *= 0.98
-        if scale < 0.5:
-            return width, height
+    new_width = _floor16(width * scale)
+    new_height = _floor16(height * scale)
+    # Invariant above guarantees new_width * new_height <= ceiling.
+    return new_width, new_height
 
 
 def _compute_pixel_size(
