@@ -454,6 +454,9 @@ class OpenRouterProvider(ImageProvider):
           chat-content array).
         - Forward any opt-in advanced params from `request.extras` verbatim
           (output_format, background, seed, provider.options, etc.).
+          The Recraft style picker (issue #9) relies on this merge for its
+          "style" and "colors" keys — don't strip unknown extras keys when
+          refactoring this path.
         """
         payload = {
             "model": request.model,

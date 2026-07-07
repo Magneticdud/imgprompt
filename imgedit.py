@@ -486,6 +486,76 @@ def step_quality(
     return quality_key, cost
 
 
+RECRAFT_CUSTOM_STYLE = "Custom (type slug)"
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def is_recraft_model(provider: str | None, model: str | None) -> bool:
+    """Gate for the Recraft style step: only OpenRouter Recraft models have
+    the style/colors payload axis; every other model must not see it."""
+    return provider == "OpenRouter" and bool(model) and model.startswith("recraft/")
+
+
+def step_recraft_style(model: str) -> tuple[str, list[str]] | str | None:
+    """Recraft-only step: pick a style slug and optional brand colors.
+
+    Runs between resolution and quality, only for recraft/* models. The
+    values land verbatim in GenerationRequest.extras ("style", "colors"),
+    which the OpenRouter provider merges into the JSON body untouched.
+
+    Returns:
+      - (style_slug, colors) on success; colors is possibly empty.
+      - BACK_OPTION if the user backed out (returns to the resolution step).
+      - None if cancelled (Ctrl+C / EOF); the wizard should exit.
+    """
+    from imgprompt.presets import (
+        RECRAFT_STYLE_SLUGS,
+        RECRAFT_STYLE_LABELS,
+        RECRAFT_BRAND_COLOR_HELP,
+        recraft_default_style,
+    )
+
+    default_slug = recraft_default_style(model)
+    # Default first so accepting the highlighted entry picks the documented
+    # default for this variant (vector models default to vector styles).
+    ordered = [default_slug] + [s for s in RECRAFT_STYLE_SLUGS if s != default_slug]
+    style_choices = [
+        questionary.Choice(title=RECRAFT_STYLE_LABELS.get(s, s), value=s)
+        for s in ordered
+    ]
+    selection = questionary.select(
+        "Select Recraft style:",
+        choices=[BACK_OPTION] + style_choices + [RECRAFT_CUSTOM_STYLE],
+    ).ask()
+    if selection is None:
+        return None
+    if selection == BACK_OPTION:
+        return BACK_OPTION
+
+    if selection == RECRAFT_CUSTOM_STYLE:
+        while True:
+            custom = questionary.text("Recraft style slug:").ask()
+            if custom is None or not custom.strip():
+                return BACK_OPTION
+            custom = custom.strip()
+            if re.fullmatch(r"[a-z0-9_]+", custom):
+                selection = custom
+                break
+            print("Error: style slugs are lowercase letters, digits and underscores.")
+
+    while True:
+        raw = questionary.text(f"Brand colors ({RECRAFT_BRAND_COLOR_HELP}):").ask()
+        if raw is None:
+            return None
+        raw = raw.strip()
+        if not raw:
+            return selection, []
+        colors = [p.strip() for p in raw.split(",") if p.strip()]
+        if colors and all(_HEX_COLOR_RE.match(c) for c in colors):
+            return selection, colors
+        print(f"Error: expected {RECRAFT_BRAND_COLOR_HELP}.")
+
+
 def step_variants() -> int | str | None:
     """Step 6: number of variants to generate server-side via the OpenRouter
     `n` parameter (1..10). Other providers currently ignore this value, so
@@ -821,6 +891,8 @@ def main():
     dim_width = None
     dim_height = None
     n_variants = 1  # populated by step_variants (only triggered for OpenRouter)
+    recraft_style = None  # populated by step_recraft_style (Recraft only)
+    recraft_colors: list[str] = []
 
     while current_step >= 0:
         if current_step == 0:
@@ -865,6 +937,17 @@ def main():
             res_key = result_key
             dim_width = result_width
             dim_height = result_height
+            # Recraft-only sub-step (issue #9): the style picker rides with
+            # the resolution step so the state-machine numbering stays
+            # untouched for every other model. Go back re-runs resolution.
+            if is_recraft_model(provider, model_choice):
+                style_result = step_recraft_style(model_choice)
+                if style_result is None:
+                    print("Cancelled.")
+                    return
+                if style_result == BACK_OPTION:
+                    continue
+                recraft_style, recraft_colors = style_result
             current_step = 3
 
         elif current_step == 3:
@@ -944,6 +1027,10 @@ def main():
                 print(f"Ratio:      {aspect_ratio}")
                 print(f"Resolution: {quality_key}")
                 print(f"Pixels:     {res_key}")
+                if recraft_style:
+                    print(f"Style:      {recraft_style}")
+                    if recraft_colors:
+                        print(f"Colors:     {', '.join(recraft_colors)}")
                 if n_variants > 1:
                     print(f"Variants:   {n_variants}")
             else:
@@ -1056,6 +1143,16 @@ def main():
     if args.iterations is not None:
         n_variants = max(1, args.iterations)
 
+    extras = {}
+    if is_recraft_model(provider, model_choice):
+        from imgprompt.presets import recraft_default_style
+
+        # Never silently empty: a skipped picker still pins the documented
+        # default for the chosen variant.
+        extras["style"] = recraft_style or recraft_default_style(model_choice)
+        if recraft_colors:
+            extras["colors"] = recraft_colors
+
     request = GenerationRequest(
         prompt=final_prompt,
         model=model_choice,
@@ -1067,6 +1164,7 @@ def main():
         height=dim_height,
         n=n_variants,
         is_dual=is_dual,
+        extras=extras,
     )
 
     # Persist the request so it can be replayed verbatim with --replay.

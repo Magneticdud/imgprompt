@@ -142,6 +142,8 @@ When you provide 2+ images, the script automatically enters **batch mode**:
     - `recraft/recraft-v4.1-utility-pro`: $0.21 — product/icon-grade raster, premium.
     - `recraft/recraft-v4.1-vector`: $0.08 — SVG output (saved as a real `.svg`).
     - `recraft/recraft-v4.1-pro-vector`: $0.30 — SVG output, premium.
+
+    **Style picker**: choosing any Recraft model adds a wizard step to pick a style slug (`realistic_image`, `digital_illustration`, `vector_illustration`, `icon`, `any`, or a custom slug) and optional brand colors as comma-separated `#RRGGBB` values. Example: pick `vector_illustration` with colors `#FFAA00, #112233` to get an SVG logo constrained to your palette. The choice is saved with the run, so `--replay` reproduces it exactly.
 - **OVH AI Endpoints**:
   - `stabilityai/stable-diffusion-xl-base-1.0`: Free (Rate limited: 2 per minute without API key, 400 per minute with API key). Fixed 1024x1024. With such generous rate limits it does not need API keys, but if needed you can [read how to get one](https://help.ovhcloud.com/csm/en-gb-public-cloud-ai-endpoints-getting-started?id=kb_article_view&sysparm_article=KB0065401)
 
