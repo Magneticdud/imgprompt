@@ -193,5 +193,13 @@ add new cases there when you touch that math.
 ## OpenRouter Usage Stats
 You can track this app's usage on OpenRouter here: [OpenRouter app usage](https://openrouter.ai/apps?url=https%3A%2F%2Fgithub.com/Magneticdud/imgprompt).
 
+## AI Disclosure
+Full disclosure: parts of this project were written with the help of AI coding
+assistants. That felt worth a second thought at first — but honestly, this is a
+tool whose entire job is to pipe prompts into generative-AI image models. Drawing
+a hard line at "the code, however, must be handcrafted by human hands only" was
+always going to be a bit of a fig leaf. So the code, like the images it produces,
+is a human–AI collaboration, and it's reviewed before it ships.
+
 ## License
 This is licensed under GPL-3.0-or-later

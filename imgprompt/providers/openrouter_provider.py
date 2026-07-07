@@ -32,6 +32,7 @@ def _max_n_for(model: str) -> int:
             return cap
     return _MAX_N
 
+
 # (connect_timeout, read_timeout) for POST /api/v1/images. The legacy adapter
 # inherited the OpenAI SDK's built-in defaults; bare `requests.post` has no
 # timeout by default, so without this the CLI would hang indefinitely on
@@ -166,9 +167,7 @@ def _compute_pixel_size(
 def _looks_like_svg(data: bytes) -> bool:
     """Sniff an SVG document from its head (used when media_type is absent)."""
     head = data[:512].lstrip()
-    return head.startswith(b"<svg") or (
-        head.startswith(b"<?xml") and b"<svg" in head
-    )
+    return head.startswith(b"<svg") or (head.startswith(b"<?xml") and b"<svg" in head)
 
 
 # Markup the wizard / logs can detect when the provider hands back a vector
@@ -806,9 +805,7 @@ class OpenRouterProvider(ImageProvider):
         # `is not None` rather than truthiness so a (nonsensical but
         # possible) n_max=0 from upstream isn't mistaken for "no cap".
         cap_n = (
-            caps.n_max
-            if caps and caps.n_max is not None
-            else _max_n_for(request.model)
+            caps.n_max if caps and caps.n_max is not None else _max_n_for(request.model)
         )
         clamped_n = max(1, min(cap_n, requested_n))
         if clamped_n < requested_n:

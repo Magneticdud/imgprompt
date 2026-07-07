@@ -1319,7 +1319,7 @@ class TestSeedreamPixelCeiling:
     @pytest.mark.parametrize(
         "ratio,tier",
         [
-            ("4:5", "4K"),   # Reproduces issue #23 verbatim.
+            ("4:5", "4K"),  # Reproduces issue #23 verbatim.
             ("16:9", "4K"),
             ("2:3", "4K"),
             ("3:2", "4K"),
@@ -1342,9 +1342,7 @@ class TestSeedreamPixelCeiling:
         out = capsys.readouterr().out
         assert "maximum" in out
 
-    def test_ratio_preserved_within_16px_rounding(
-        self, provider_with_key, capsys
-    ):
+    def test_ratio_preserved_within_16px_rounding(self, provider_with_key, capsys):
         # After the ceiling clamp the shape is still ~4:5, just a few
         # multiples of 16 shy because of the conservative floor-down
         # rounding. Catches a future regression that scales the long
@@ -1374,9 +1372,7 @@ class TestSeedreamPixelCeiling:
         out = capsys.readouterr().out
         assert "maximum" not in out
 
-    def test_one_k_at_4_5_still_raises_to_floor(
-        self, provider_with_key, capsys
-    ):
+    def test_one_k_at_4_5_still_raises_to_floor(self, provider_with_key, capsys):
         # Regression pin for #10: the new ceiling clamp must not weaken
         # the existing floor behaviour. 1K @ 4:5 (~1MP) is still below
         # the 3.69MP floor; once we raise to satisfy the floor we must
@@ -1391,15 +1387,11 @@ class TestSeedreamPixelCeiling:
         # clamp should fire here, even with the new code path live.
         assert "maximum" not in out
 
-    def test_custom_dims_above_ceiling_clamped_down(
-        self, provider_with_key, capsys
-    ):
+    def test_custom_dims_above_ceiling_clamped_down(self, provider_with_key, capsys):
         # 10000x2000 = 20MP → more than double the ceiling. Custom-dims
         # branch must apply the same down-scaling as the aspect-shaped
         # path and surface the same diagnostic note style.
-        body = self._payload(
-            provider_with_key, "1:1", "2K", width=10000, height=2000
-        )
+        body = self._payload(provider_with_key, "1:1", "2K", width=10000, height=2000)
         assert "size" in body
         w, h = (int(part) for part in body["size"].split("x"))
         assert w * h <= self.CEIL
@@ -1408,15 +1400,11 @@ class TestSeedreamPixelCeiling:
         assert "lowering" in out
         assert "maximum" in out
 
-    def test_custom_dims_below_floor_uses_floor_branch(
-        self, provider_with_key, capsys
-    ):
+    def test_custom_dims_below_floor_uses_floor_branch(self, provider_with_key, capsys):
         # Regression pin: custom dims below the floor take the floor
         # path, not the ceiling path (the elif is exclusive). 768x768
         # = 0.59MP → below the 3.69MP floor.
-        body = self._payload(
-            provider_with_key, "1:1", "2K", width=768, height=768
-        )
+        body = self._payload(provider_with_key, "1:1", "2K", width=768, height=768)
         w, h = (int(part) for part in body["size"].split("x"))
         assert w * h >= 3_686_400
         out = capsys.readouterr().out
@@ -1448,9 +1436,7 @@ class TestResolveEffectivePixels:
     on-the-wire ``size`` field must agree (the whole point of the method).
     """
 
-    def test_returns_clamped_size_for_seedream_4k_4_5(
-        self, provider_with_key
-    ):
+    def test_returns_clamped_size_for_seedream_4k_4_5(self, provider_with_key):
         w, h = provider_with_key.resolve_effective_pixels(
             "bytedance-seed/seedream-4.5", "4:5", "4K"
         )
@@ -1458,9 +1444,7 @@ class TestResolveEffectivePixels:
         assert w % 16 == 0 and h % 16 == 0
         assert abs(w / h - 4 / 5) < 0.02
 
-    def test_returns_none_for_models_without_floor_or_ceiling(
-        self, provider_with_key
-    ):
+    def test_returns_none_for_models_without_floor_or_ceiling(self, provider_with_key):
         # flux.2-pro has no clamp entries — wizard falls back to the
         # ``RATIO_TO_RESOLUTION`` preset as before.
         assert (
@@ -1508,9 +1492,7 @@ class TestResolveEffectivePixels:
             is None
         )
 
-    def test_silent_does_not_print_diagnostics(
-        self, provider_with_key, capsys
-    ):
+    def test_silent_does_not_print_diagnostics(self, provider_with_key, capsys):
         # The wizard summary calls this BEFORE the API call; the API
         # call's _build_payload will later call _floor_size itself and
         # print exactly one diagnostic. resolve_effective_pixels must
@@ -1546,9 +1528,7 @@ class TestResolveEffectivePixels:
         ],
     )
     @pytest.mark.parametrize("tier", ["1K", "2K", "4K"])
-    def test_summary_matches_payload_for_seedream(
-        self, provider_with_key, ratio, tier
-    ):
+    def test_summary_matches_payload_for_seedream(self, provider_with_key, ratio, tier):
         """The whole point of resolve_effective_pixels: whatever the
         wizard summary prints, the API call must send the SAME WxH.
         Lock the contract across the realistic (ratio, tier) matrix
@@ -1698,8 +1678,7 @@ class TestGeminiFlashLite:
         # from `supported_models()` so the wizard never surfaces it. If a
         # re-introduction is attempted, this test fails loudly.
         assert (
-            "google/gemini-2.5-flash-image"
-            not in OpenRouterProvider.supported_models()
+            "google/gemini-2.5-flash-image" not in OpenRouterProvider.supported_models()
         )
 
     def test_lite_quality_choices_are_1k_only(self, provider_with_key):
@@ -1728,7 +1707,9 @@ class TestGeminiFlashLite:
         assert "1:4" in choices and "1:8" in choices
         assert default == "1:1"
 
-    def test_lite_resolution_choices_honours_image_default(self, provider_with_key, tmp_path):
+    def test_lite_resolution_choices_honours_image_default(
+        self, provider_with_key, tmp_path
+    ):
         # An input image's aspect ratio should still bias the default even
         # when the full 14-ratio table is exposed.
         p = tmp_path / "wide.png"
@@ -1741,9 +1722,9 @@ class TestGeminiFlashLite:
         # here so a regression in get_closest_aspect_ratio is caught against
         # Lite's bigger ratio set — the broader table only widens what the
         # closest-ratio helper has to discriminate between.
-        assert default == "4:1", (
-            f"expected 3200x900 (≈3.56:1) to map to '4:1', got {default!r}"
-        )
+        assert (
+            default == "4:1"
+        ), f"expected 3200x900 (≈3.56:1) to map to '4:1', got {default!r}"
 
     def test_lite_payload_passes_resolution_1k(self, provider_with_key):
         req = GenerationRequest(
@@ -1794,10 +1775,7 @@ class TestGeminiFlashNonLite:
     """
 
     def test_flash_in_supported_models(self):
-        assert (
-            "google/gemini-3.1-flash-image"
-            in OpenRouterProvider.supported_models()
-        )
+        assert "google/gemini-3.1-flash-image" in OpenRouterProvider.supported_models()
 
     def test_flash_resolution_choices_exposes_all_14(self, provider_with_key):
         from imgprompt.presets import OPENROUTER_RESOLUTIONS
@@ -1825,9 +1803,9 @@ class TestGeminiFlashNonLite:
         choices, default = provider_with_key.get_resolution_choices(
             "google/gemini-3.1-flash-image", str(p)
         )
-        assert default == "4:1", (
-            f"expected 3200x900 (≈3.56:1) to map to '4:1', got {default!r}"
-        )
+        assert (
+            default == "4:1"
+        ), f"expected 3200x900 (≈3.56:1) to map to '4:1', got {default!r}"
 
     @pytest.mark.parametrize(
         "ratio",
@@ -1871,9 +1849,9 @@ class TestGeminiFlashNonLite:
         expected = list(OPENROUTER_STANDARD_RATIOS) + ["21:9"]
         assert set(choices) == set(expected)
         for extreme in ("1:4", "4:1", "1:8", "8:1"):
-            assert extreme not in choices, (
-                f"3-Pro conservative set regressed: {extreme!r} sneaked in"
-            )
+            assert (
+                extreme not in choices
+            ), f"3-Pro conservative set regressed: {extreme!r} sneaked in"
 
     def test_flash_payload_passes_extreme_ratio_and_resolution(self, provider_with_key):
         # Smoke test: extreme ratios flow through _build_payload unchanged

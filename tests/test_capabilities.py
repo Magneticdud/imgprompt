@@ -214,7 +214,9 @@ class TestFileCache:
         import time
 
         stale_item = dict(SEEDREAM_ITEM)
-        _write_cache_file(time.time() - capabilities.CACHE_TTL_SECONDS - 60, [stale_item])
+        _write_cache_file(
+            time.time() - capabilities.CACHE_TTL_SECONDS - 60, [stale_item]
+        )
 
         # Run the "background" refresh synchronously for determinism.
         started = []

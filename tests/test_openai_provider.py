@@ -141,9 +141,7 @@ class TestReportUsage:
             + 400 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
         )
 
-    def test_dict_shape_total_only_falls_back_to_output_rate(
-        self, provider, capsys
-    ):
+    def test_dict_shape_total_only_falls_back_to_output_rate(self, provider, capsys):
         """Dict variant of the total-only fallback path."""
         usage = {"total_tokens": 300}
         resp = _resp_with_usage(usage)
@@ -151,13 +149,9 @@ class TestReportUsage:
         tokens, cost = provider._report_usage(resp)
         assert tokens == 300
         # All treated as output (higher rate), per the documented fence.
-        assert cost == pytest.approx(
-            300 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
-        )
+        assert cost == pytest.approx(300 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000)
 
-    def test_missing_usage_attribute_returns_none_silently(
-        self, provider, capsys
-    ):
+    def test_missing_usage_attribute_returns_none_silently(self, provider, capsys):
         """Legacy / non-gpt-image-2 image endpoints never set `usage`.
         The function must return None and *not* print anything — the user
         keeps relying on the wizard's pre-call estimate, which was already

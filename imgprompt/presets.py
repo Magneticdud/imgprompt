@@ -340,6 +340,7 @@ def recraft_default_style(model: str) -> str:
     """
     return "vector_illustration" if "vector" in model else "realistic_image"
 
+
 RATIO_TO_RESOLUTION = {
     "1:1": "1024x1024",
     "2:3": "832x1248",
