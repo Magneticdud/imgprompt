@@ -82,21 +82,24 @@ def _floor16(value: float) -> int:
 
 
 def _shrink_to_ceiling(width: int, height: int, ceiling: int) -> tuple[int, int]:
-    """Uniformly scale (w, h) down so w*h <= ceiling; both edges floored to /16.
+    """Return a uniformly-scaled (w, h) with w*h <= ceiling; edges floored to /16.
 
-    Invariant: ``_floor16`` rounds DOWN, so for any 0 < scale <= 1:
+    Sets ``scale = sqrt(ceiling / (w*h))`` and floors each scaled edge
+    to a /16 multiple. Holds under the precondition that
+    ``min(width, height) >= 16`` — if not, ``_floor16``'s
+    ``max(..., 16)`` guard can round *up* and produce a box that
+    violates the ceiling. Every current caller satisfies this:
+    ``_floor_size`` passes ``_ceil16``-rounded edges (always
+    >= 16); ``_build_payload``'s custom-dims branch passes
+    user-supplied widths/heights but never reaches a precondition
+    violation in practice today.
 
-        candidate_w  <= w * scale
-        candidate_h  <= h * scale
-        candidate_pixels <= w*h * scale**2
-
-    Setting ``scale = sqrt(ceiling / (w*h))`` makes that upper bound
-    exactly equal to ``ceiling``, so the first candidate produced
-    below is already ceiling-compliant — no re-tighten loop is
-    needed. Earlier versions had a while-loop with a ``scale < 0.5``
-    fallback on the wrong premise that ``_floor16`` could overshoot
-    the cap (rounding *down* can't) — removed on the
-    @kilocode-bot review of PR #24 (issue #23).
+    Pathological inputs like ``width=8, height=2_100_000`` (w*h
+    above seedream's 16.78 MP ceiling with one edge under 16) are
+    NOT protected here. If a future caller can produce one, add
+    an explicit guard at the caller rather than papering over it
+    in this helper — see @kilocode-bot follow-up review on PR #24
+    (issue #23).
 
     If the box already fits, return it unchanged.
     """
@@ -105,7 +108,6 @@ def _shrink_to_ceiling(width: int, height: int, ceiling: int) -> tuple[int, int]
     scale = (ceiling / (width * height)) ** 0.5
     new_width = _floor16(width * scale)
     new_height = _floor16(height * scale)
-    # Invariant above guarantees new_width * new_height <= ceiling.
     return new_width, new_height
 
 
