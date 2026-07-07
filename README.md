@@ -83,9 +83,18 @@ python imgedit.py --replay -n 3
 # Image arguments are ignored, so you can just press arrow-up to recall
 # your previous command and append --replay
 python imgedit.py photo.jpg --replay
+
+# Retry the same prompt/images on a DIFFERENT model (e.g. after a content
+# refusal) without re-walking the wizard:
+python imgedit.py --replay --model bytedance-seed/seedream-4.5
+
+# Swap the provider too (case-insensitive):
+python imgedit.py --replay --provider openrouter --model black-forest-labs/flux.2-pro
 ```
 
-Whenever a previous run is saved, a **"🔁 Replay last generation"** entry also appears in the first interactive menu — the image-selection menu when launched with no arguments, or the provider menu when an image was passed as an argument. This lets you simply press arrow-up to recall your last command and pick replay, without typing `--replay`.
+`--model` / `--provider` are replay-only modifiers: the override is validated against the target provider's supported models **before** any network call, and the overridden request is saved as the new "last generation", so a further bare `--replay` repeats the successful attempt.
+
+Whenever a previous run is saved, **"🔁 Replay last generation"** and **"🔁 Replay on a different model"** entries also appear in the first interactive menu — the image-selection menu when launched with no arguments, or the provider menu when an image was passed as an argument. The second entry opens a quick provider → model picker (seeded with the saved values) and then dispatches the same request. This lets you simply press arrow-up to recall your last command and pick replay, without typing `--replay`.
 
 ### Batch Processing
 Pass multiple images to process them all with the same model, resolution, quality, and prompt:

@@ -5,6 +5,8 @@ question returns the next scripted answer, so the tests drive the step
 functions without a TTY.
 """
 
+import sys
+
 import pytest
 
 import imgedit
@@ -12,8 +14,10 @@ from imgedit import (
     BACK_OPTION,
     RECRAFT_CUSTOM_STYLE,
     is_recraft_model,
+    run_replay,
     step_recraft_style,
 )
+from imgprompt.providers.base import GenerationRequest
 
 
 class _FakeQuestion:
@@ -147,3 +151,102 @@ class TestRecraftDefaults:
         step_recraft_style("recraft/recraft-v4.1-vector")
         first = captured["choices"][1]  # index 0 is Go back
         assert first.value == "vector_illustration"
+
+
+# --------------------------------------------------------------------------
+# --replay --model/--provider override (issue #12)
+# --------------------------------------------------------------------------
+
+
+class _DummyProvider:
+    """Stand-in provider recording run() calls; no network, no disk."""
+
+    runs: list = []
+
+    @classmethod
+    def provider_name(cls):
+        return "Dummy"
+
+    @classmethod
+    def supported_models(cls):
+        return ["model-a", "model-b"]
+
+    def run(self, request):
+        _DummyProvider.runs.append(request)
+
+
+@pytest.fixture
+def replay_env(monkeypatch):
+    """Wire run_replay to a dummy provider and an in-memory history."""
+    _DummyProvider.runs = []
+    saved = []
+    req = GenerationRequest(
+        prompt="write BORN 2 SHIT in fancy text",
+        model="model-a",
+        aspect_ratio="9:16",
+        res_key="768x1344",
+        quality_key="2K",
+        images=["photo.jpg"],
+        n=1,
+        extras={"seed": 7},
+    )
+    monkeypatch.setattr(imgedit, "PROVIDER_MAP", {"Dummy": _DummyProvider})
+    monkeypatch.setattr(imgedit, "load_last_generation", lambda: ("Dummy", req))
+    monkeypatch.setattr(
+        imgedit, "save_last_generation", lambda p, r: saved.append((p, r))
+    )
+    return req, saved
+
+
+class TestReplayOverride:
+    def test_bare_replay_keeps_saved_model(self, replay_env):
+        req, saved = replay_env
+        run_replay(None)
+        assert len(_DummyProvider.runs) == 1
+        assert _DummyProvider.runs[0].model == "model-a"
+
+    def test_model_override_rebinds_before_run(self, replay_env):
+        req, saved = replay_env
+        run_replay(None, model_override="model-b")
+        assert _DummyProvider.runs[0].model == "model-b"
+        # Everything else is preserved verbatim.
+        r = _DummyProvider.runs[0]
+        assert r.prompt == req.prompt
+        assert r.aspect_ratio == "9:16"
+        assert r.quality_key == "2K"
+        assert r.images == ["photo.jpg"]
+        assert r.extras == {"seed": 7}
+
+    def test_provider_override_is_case_insensitive(self, replay_env):
+        run_replay(None, model_override="model-b", provider_override="dummy")
+        assert len(_DummyProvider.runs) == 1
+
+    def test_unknown_model_fails_fast_without_running(self, replay_env, capsys):
+        with pytest.raises(SystemExit):
+            run_replay(None, model_override="nope/never-existed")
+        assert _DummyProvider.runs == []
+        out = capsys.readouterr().out
+        assert "not supported" in out
+        assert "model-a" in out  # the supported list is shown
+
+    def test_unknown_provider_fails_fast(self, replay_env, capsys):
+        with pytest.raises(SystemExit):
+            run_replay(None, provider_override="closedai")
+        assert _DummyProvider.runs == []
+        assert "unknown provider" in capsys.readouterr().out
+
+    def test_override_is_persisted_for_next_replay(self, replay_env):
+        """A further bare --replay must repeat THIS attempt (A→B→B chains)."""
+        req, saved = replay_env
+        run_replay(None, model_override="model-b")
+        assert len(saved) == 1
+        saved_provider, saved_req = saved[0]
+        assert saved_provider == "Dummy"
+        assert saved_req.model == "model-b"
+
+    def test_cli_rejects_model_without_replay(self, monkeypatch, capsys):
+        monkeypatch.setattr(sys, "argv", ["imgedit.py", "--model", "model-b"])
+        with pytest.raises(SystemExit) as exc:
+            imgedit.main()
+        assert exc.value.code == 2  # argparse usage error
+        assert "--replay" in capsys.readouterr().err
