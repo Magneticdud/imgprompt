@@ -646,7 +646,13 @@ class OpenRouterProvider(ImageProvider):
         requested_n = max(1, min(_max_n_for(request.model), n))
         # Per-model n cap: the descriptor's n.max wins over the hardcoded
         # prefix table when available (e.g. gemini/flux/sourceful cap at 1).
-        cap_n = caps.n_max if caps and caps.n_max else _max_n_for(request.model)
+        # `is not None` rather than truthiness so a (nonsensical but
+        # possible) n_max=0 from upstream isn't mistaken for "no cap".
+        cap_n = (
+            caps.n_max
+            if caps and caps.n_max is not None
+            else _max_n_for(request.model)
+        )
         clamped_n = max(1, min(cap_n, requested_n))
         if clamped_n < requested_n:
             print(
