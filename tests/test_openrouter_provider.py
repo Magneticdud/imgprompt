@@ -1294,6 +1294,286 @@ class TestSeedreamPixelFloor:
 
 
 # --------------------------------------------------------------------------
+# seedream-4.5 upstream pixel ceiling (issue #23): the Seed provider 400s
+# any output above 16,777,216 px. The aspect-ratio+resolution → size
+# translation overshoots for most non-square ratios at 4K, so we scale the
+# aspect-shaped box DOWN with floor-16 rounding on every path that writes
+# `size`.
+# --------------------------------------------------------------------------
+
+
+class TestSeedreamPixelCeiling:
+    CEIL = 16_777_216
+
+    def _payload(self, provider, ratio, tier, **kw):
+        req = GenerationRequest(
+            prompt="x",
+            model="bytedance-seed/seedream-4.5",
+            aspect_ratio=ratio,
+            res_key="768x1344",
+            quality_key=tier,
+            **kw,
+        )
+        return provider._build_payload(req)
+
+    @pytest.mark.parametrize(
+        "ratio,tier",
+        [
+            ("4:5", "4K"),   # Reproduces issue #23 verbatim.
+            ("16:9", "4K"),
+            ("2:3", "4K"),
+            ("3:2", "4K"),
+            ("21:9", "4K"),
+        ],
+    )
+    def test_explicit_size_stays_under_ceiling(
+        self, provider_with_key, ratio, tier, capsys
+    ):
+        body = self._payload(provider_with_key, ratio, tier)
+        assert "aspect_ratio" not in body
+        assert "resolution" not in body
+        w, h = (int(part) for part in body["size"].split("x"))
+        assert w * h <= self.CEIL
+        assert w % 16 == 0 and h % 16 == 0
+        # Floor (3.69MP) must still be honoured: the ceiling clamp can only
+        # shrink, never grow the box.
+        assert w * h >= 3_686_400
+        # Console confirms the user what happened to their request.
+        out = capsys.readouterr().out
+        assert "maximum" in out
+
+    def test_ratio_preserved_within_16px_rounding(
+        self, provider_with_key, capsys
+    ):
+        # After the ceiling clamp the shape is still ~4:5, just a few
+        # multiples of 16 shy because of the conservative floor-down
+        # rounding. Catches a future regression that scales the long
+        # edge only (which would collapse the ratio).
+        body = self._payload(provider_with_key, "4:5", "4K")
+        w, h = (int(part) for part in body["size"].split("x"))
+        assert w * h <= self.CEIL
+        assert abs(w / h - 4 / 5) < 0.02
+        assert "maximum" in capsys.readouterr().out
+
+    def test_one_to_one_4k_exactly_fits_no_clamp(self, provider_with_key, capsys):
+        # 1:1 at 4K shapes to 4096x4096 = exactly the ceiling, so neither
+        # the floor nor the ceiling note should fire.
+        body = self._payload(provider_with_key, "1:1", "4K")
+        assert body["size"] == "4096x4096"
+        out = capsys.readouterr().out
+        assert "minimum" not in out
+        assert "maximum" not in out
+
+    def test_two_k_below_ceiling_passes_through(self, provider_with_key, capsys):
+        # 2K @ 1:1 = ~4MP, well under the 16.78MP ceiling — must NOT
+        # trigger a clamp note, even though the model has a ceiling entry.
+        body = self._payload(provider_with_key, "1:1", "2K")
+        w, h = (int(part) for part in body["size"].split("x"))
+        assert w * h >= 2048 * 2048
+        assert w * h <= self.CEIL
+        out = capsys.readouterr().out
+        assert "maximum" not in out
+
+    def test_one_k_at_4_5_still_raises_to_floor(
+        self, provider_with_key, capsys
+    ):
+        # Regression pin for #10: the new ceiling clamp must not weaken
+        # the existing floor behaviour. 1K @ 4:5 (~1MP) is still below
+        # the 3.69MP floor; once we raise to satisfy the floor we must
+        # not immediately fall over the ceiling (4K-bumped shapes do).
+        body = self._payload(provider_with_key, "4:5", "1K")
+        w, h = (int(part) for part in body["size"].split("x"))
+        assert w * h >= 3_686_400
+        assert w * h <= self.CEIL
+        out = capsys.readouterr().out
+        assert "minimum" in out
+        # The 1K target is far below the 16.78MP ceiling so no ceiling
+        # clamp should fire here, even with the new code path live.
+        assert "maximum" not in out
+
+    def test_custom_dims_above_ceiling_clamped_down(
+        self, provider_with_key, capsys
+    ):
+        # 10000x2000 = 20MP → more than double the ceiling. Custom-dims
+        # branch must apply the same down-scaling as the aspect-shaped
+        # path and surface the same diagnostic note style.
+        body = self._payload(
+            provider_with_key, "1:1", "2K", width=10000, height=2000
+        )
+        assert "size" in body
+        w, h = (int(part) for part in body["size"].split("x"))
+        assert w * h <= self.CEIL
+        assert w % 16 == 0 and h % 16 == 0
+        out = capsys.readouterr().out
+        assert "lowering" in out
+        assert "maximum" in out
+
+    def test_custom_dims_below_floor_uses_floor_branch(
+        self, provider_with_key, capsys
+    ):
+        # Regression pin: custom dims below the floor take the floor
+        # path, not the ceiling path (the elif is exclusive). 768x768
+        # = 0.59MP → below the 3.69MP floor.
+        body = self._payload(
+            provider_with_key, "1:1", "2K", width=768, height=768
+        )
+        w, h = (int(part) for part in body["size"].split("x"))
+        assert w * h >= 3_686_400
+        out = capsys.readouterr().out
+        assert "raising" in out
+        assert "lowering" not in out  # not the ceiling branch
+        assert "maximum" not in out
+
+    def test_non_seedream_models_are_untouched(self, provider_with_key):
+        # Models without the ceiling entry must NOT receive an explicit
+        # `size` at 4K @ 4:5: only OpenRouter-translated upstreams need
+        # our clamp, the rest still rely on aspect_ratio+resolution.
+        req = GenerationRequest(
+            prompt="x",
+            model="sourceful/riverflow-v2.5-pro",
+            aspect_ratio="4:5",
+            res_key="896x1152",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert "size" not in body
+        assert body["aspect_ratio"] == "4:5"
+
+
+class TestResolveEffectivePixels:
+    """``resolve_effective_pixels`` mirrors the aspect-ratio+resolution
+    branch of ``_build_payload`` so the wizard summary can print the same
+    WxH the API will actually receive (issue #23). Includes a parity
+    matrix that locks the contract: whatever the summary prints, the
+    on-the-wire ``size`` field must agree (the whole point of the method).
+    """
+
+    def test_returns_clamped_size_for_seedream_4k_4_5(
+        self, provider_with_key
+    ):
+        w, h = provider_with_key.resolve_effective_pixels(
+            "bytedance-seed/seedream-4.5", "4:5", "4K"
+        )
+        assert w * h <= 16_777_216
+        assert w % 16 == 0 and h % 16 == 0
+        assert abs(w / h - 4 / 5) < 0.02
+
+    def test_returns_none_for_models_without_floor_or_ceiling(
+        self, provider_with_key
+    ):
+        # flux.2-pro has no clamp entries — wizard falls back to the
+        # ``RATIO_TO_RESOLUTION`` preset as before.
+        assert (
+            provider_with_key.resolve_effective_pixels(
+                "black-forest-labs/flux.2-pro", "4:5", "2K"
+            )
+            is None
+        )
+
+    def test_returns_none_for_auto_aspect(self, provider_with_key):
+        # Recraft-variants model-chosen geometry: no shape to compute.
+        assert (
+            provider_with_key.resolve_effective_pixels(
+                "recraft/recraft-v4.1", "Auto", "Standard"
+            )
+            is None
+        )
+
+    def test_returns_none_for_unknown_ratio(self, provider_with_key):
+        # 7:5 isn't in ASPECT_RATIO_VALUES; we degrade silently instead
+        # of guessing a shape.
+        assert (
+            provider_with_key.resolve_effective_pixels(
+                "bytedance-seed/seedream-4.5", "7:5", "4K"
+            )
+            is None
+        )
+
+    def test_returns_none_when_quality_missing(self, provider_with_key):
+        assert (
+            provider_with_key.resolve_effective_pixels(
+                "bytedance-seed/seedream-4.5", "4:5", None
+            )
+            is None
+        )
+
+    def test_returns_none_for_non_tier_quality_key(self, provider_with_key):
+        # "Standard" is what Recraft / MAI pass; for a clamped model it
+        # would silently fall back to the floor as the target. Reject it
+        # so the wizard falls back to the ``res_key`` preset instead.
+        assert (
+            provider_with_key.resolve_effective_pixels(
+                "bytedance-seed/seedream-4.5", "4:5", "Standard"
+            )
+            is None
+        )
+
+    def test_silent_does_not_print_diagnostics(
+        self, provider_with_key, capsys
+    ):
+        # The wizard summary calls this BEFORE the API call; the API
+        # call's _build_payload will later call _floor_size itself and
+        # print exactly one diagnostic. resolve_effective_pixels must
+        # print NOTHING — otherwise the user sees the clamp note twice.
+        provider_with_key.resolve_effective_pixels(
+            "bytedance-seed/seedream-4.5", "4:5", "4K"
+        )
+        out = capsys.readouterr().out
+        assert out == ""
+
+    def test_one_to_one_4k_returns_exact_target(self, provider_with_key):
+        # Edge case: 1:1 @ 4K sits at the ceiling exactly (no clamp
+        # active). Pin the exact dimensions so a future rounding drift
+        # is caught.
+        w, h = provider_with_key.resolve_effective_pixels(
+            "bytedance-seed/seedream-4.5", "1:1", "4K"
+        )
+        assert (w, h) == (4096, 4096)
+
+    @pytest.mark.parametrize(
+        "ratio",
+        [
+            "1:1",
+            "2:3",
+            "3:2",
+            "3:4",
+            "4:3",
+            "4:5",
+            "5:4",
+            "9:16",
+            "16:9",
+            "21:9",
+        ],
+    )
+    @pytest.mark.parametrize("tier", ["1K", "2K", "4K"])
+    def test_summary_matches_payload_for_seedream(
+        self, provider_with_key, ratio, tier
+    ):
+        """The whole point of resolve_effective_pixels: whatever the
+        wizard summary prints, the API call must send the SAME WxH.
+        Lock the contract across the realistic (ratio, tier) matrix
+        so any future drift between the two paths is caught here.
+        """
+        eff = provider_with_key.resolve_effective_pixels(
+            "bytedance-seed/seedream-4.5", ratio, tier
+        )
+        req = GenerationRequest(
+            prompt="x",
+            model="bytedance-seed/seedream-4.5",
+            aspect_ratio=ratio,
+            res_key="768x1344",
+            quality_key=tier,
+        )
+        body = provider_with_key._build_payload(req)
+        assert "size" in body
+        payload_w, payload_h = (int(part) for part in body["size"].split("x"))
+        assert eff == (payload_w, payload_h)
+        # Independently: the box always lives within (floor, ceiling).
+        assert payload_w * payload_h >= 3_686_400
+        assert payload_w * payload_h <= 16_777_216
+
+
+# --------------------------------------------------------------------------
 # Dual mode (issue #2): two input images must reach the API in ONE combined
 # call, never fan out to one call per image like batch mode does.
 # --------------------------------------------------------------------------

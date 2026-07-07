@@ -1135,7 +1135,18 @@ def main():
             elif provider == "OpenRouter":
                 print(f"Ratio:      {aspect_ratio}")
                 print(f"Resolution: {quality_key}")
-                print(f"Pixels:     {res_key}")
+                # Show the WxH the API will actually receive — i.e. after
+                # any floor/ceiling clamp the provider applies — instead of
+                # the misleading RATIO_TO_RESOLUTION preset (issue #23:
+                # 4:5 / 1K preset key is "896x1152" but a 4K request goes
+                # out at, e.g., 3664x4576 after the ceiling clamp).
+                eff = provider_obj.resolve_effective_pixels(
+                    model_choice, aspect_ratio, quality_key
+                )
+                if eff is not None:
+                    print(f"Pixels:     {eff[0]}x{eff[1]}")
+                else:
+                    print(f"Pixels:     {res_key}")
                 if recraft_style:
                     print(f"Style:      {recraft_style}")
                     if recraft_colors:
