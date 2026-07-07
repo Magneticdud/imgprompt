@@ -294,6 +294,18 @@ COSTS["x-ai/grok-imagine-image-quality"] = {
     "input_flat": 0.01,
 }
 
+# Recraft v4.1 family (via OpenRouter). Two axes: output (raster vs. SVG
+# vector) × tier (base/utility vs. pro). Flat per-image pricing from each
+# model's /endpoints entry, snapshot 2026-07-07; no resolution tiers (the
+# API exposes no resolution/aspect_ratio parameter for the family), hence
+# the single "Standard" key. No input megapixel billing.
+COSTS["recraft/recraft-v4.1"] = {"Standard": {"fixed": 0.035}}
+COSTS["recraft/recraft-v4.1-pro"] = {"Standard": {"fixed": 0.21}}
+COSTS["recraft/recraft-v4.1-utility"] = {"Standard": {"fixed": 0.035}}
+COSTS["recraft/recraft-v4.1-utility-pro"] = {"Standard": {"fixed": 0.21}}
+COSTS["recraft/recraft-v4.1-vector"] = {"Standard": {"fixed": 0.08}}
+COSTS["recraft/recraft-v4.1-pro-vector"] = {"Standard": {"fixed": 0.30}}
+
 RATIO_TO_RESOLUTION = {
     "1:1": "1024x1024",
     "2:3": "832x1248",

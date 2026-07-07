@@ -20,6 +20,16 @@ _MAX_REQUEST_SIZE = 4.5 * 1024 * 1024
 _MAX_BFL_MEGAPIXELS = 4
 # The new API caps `n` at 10. We clamp regardless of the input.
 _MAX_N = 10
+# Per-model caps below the global one. Recraft's descriptor pins n at 1..6
+# (verified 2026-07-07); the full descriptor-driven clamp is issue #11.
+_MODEL_MAX_N_PREFIXES = {"recraft/": 6}
+
+
+def _max_n_for(model: str) -> int:
+    for prefix, cap in _MODEL_MAX_N_PREFIXES.items():
+        if model.startswith(prefix):
+            return cap
+    return _MAX_N
 
 # (connect_timeout, read_timeout) for POST /api/v1/images. The legacy adapter
 # inherited the OpenAI SDK's built-in defaults; bare `requests.post` has no
@@ -54,6 +64,14 @@ _TIER_PIXELS = {
 def _ceil16(value: float) -> int:
     """Round up to a multiple of 16 (dimension granularity of /api/v1/images)."""
     return math.ceil(value / 16) * 16
+
+
+def _looks_like_svg(data: bytes) -> bool:
+    """Sniff an SVG document from its head (used when media_type is absent)."""
+    head = data[:512].lstrip()
+    return head.startswith(b"<svg") or (
+        head.startswith(b"<?xml") and b"<svg" in head
+    )
 
 
 # Markup the wizard / logs can detect when the provider hands back a vector
@@ -109,6 +127,14 @@ class OpenRouterProvider(ImageProvider):
             "google/gemini-3.1-flash-lite-image",
             "microsoft/mai-image-2.5",
             "x-ai/grok-imagine-image-quality",
+            # Recraft v4.1 family, grouped at the end: two axes — output
+            # (raster vs. SVG vector) × tier (base/utility vs. pro).
+            "recraft/recraft-v4.1",
+            "recraft/recraft-v4.1-pro",
+            "recraft/recraft-v4.1-utility",
+            "recraft/recraft-v4.1-utility-pro",
+            "recraft/recraft-v4.1-vector",
+            "recraft/recraft-v4.1-pro-vector",
         ]
 
     def get_resolution_choices(
@@ -144,6 +170,13 @@ class OpenRouterProvider(ImageProvider):
             # the wizard's pixel preview, so we keep them off the picker; no
             # 4:5/5:4/21:9 upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
+        elif model.startswith("recraft/"):
+            # Recraft's descriptor exposes NO aspect_ratio or resolution
+            # parameter (verified 2026-07-07): geometry is entirely
+            # model-chosen. Single "Auto" entry; _build_payload omits the
+            # aspect_ratio field for it. Early return skips the
+            # closest-ratio-from-image default below (nothing to match).
+            return ["Auto"], "Auto"
         else:
             ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
         default = "1:1"
@@ -158,6 +191,10 @@ class OpenRouterProvider(ImageProvider):
     ) -> tuple[str, int | None, int | None]:
         from imgprompt.presets import OPENROUTER_RESOLUTIONS
 
+        if selection == "Auto":
+            # Recraft: geometry is model-chosen; "model default" keeps the
+            # summary's Pixels line honest instead of a fake 1024x1024.
+            return "model default", None, None
         return OPENROUTER_RESOLUTIONS.get(selection, "1024x1024"), None, None
 
     def get_quality_choices(
@@ -202,6 +239,12 @@ class OpenRouterProvider(ImageProvider):
             # branch (same values as the generic fallback) so the cap is
             # documented rather than accidental.
             sizes = ["1K", "2K"]
+        elif model.startswith("recraft/"):
+            # Like MAI: no resolution parameter on /api/v1/images (verified
+            # 2026-07-07). One flat-priced "Standard" tier per variant; the
+            # vector variants return SVG natively (routed by media_type in
+            # _save_one), so they stay good for vector edits.
+            sizes = ["Standard"]
         else:
             sizes = ["1K", "2K"]
         # .3f for cents-precise Lite pricing ($0.034). Without it the wizard
@@ -345,6 +388,12 @@ class OpenRouterProvider(ImageProvider):
         gets a file that opens in vector viewers without renaming.
         """
         img_bytes, media_type = item
+        if media_type is None and _looks_like_svg(img_bytes):
+            # Defensive: if the server ever omits media_type on a vector
+            # item, save_image_bytes would mis-detect the SVG text and write
+            # an unopenable .png. Sniffing the document head keeps the .svg
+            # path working regardless.
+            media_type = _SVG_MEDIA_TYPE
         if media_type == _SVG_MEDIA_TYPE:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             if original_path:
@@ -434,7 +483,11 @@ class OpenRouterProvider(ImageProvider):
             if explicit:
                 payload["size"] = explicit
             else:
-                payload["aspect_ratio"] = request.aspect_ratio
+                # "Auto" (Recraft: geometry is model-chosen, the descriptor
+                # has no aspect_ratio parameter at all) must not reach the
+                # wire — upstream would reject the unknown field value.
+                if request.aspect_ratio and request.aspect_ratio != "Auto":
+                    payload["aspect_ratio"] = request.aspect_ratio
                 # The new API also accepts "512" as a normalized tier — pass
                 # through anything in the {512,1K,2K,4K} set (older code omitted
                 # "1K" because chat-completions had no resolution field, so this
@@ -498,7 +551,7 @@ class OpenRouterProvider(ImageProvider):
         the user.
         """
         payload = self._build_payload(request, img_paths=img_paths)
-        payload["n"] = max(1, min(_MAX_N, n))
+        payload["n"] = max(1, min(_max_n_for(request.model), n))
 
         resp = requests.post(
             OPENROUTER_IMAGES_URL,

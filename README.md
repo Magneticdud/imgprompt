@@ -135,6 +135,13 @@ When you provide 2+ images, the script automatically enters **batch mode**:
   - `sourceful/riverflow-v2.5-fast`: $0.02 (1K), $0.04 (2K).
   - `sourceful/riverflow-v2.5-pro`: $0.15 (1K/2K), $0.33 (4K).
   - `x-ai/grok-imagine-image-quality`: $0.05 (1K), $0.07 (2K), capped at 2K; input reference images cost a flat $0.01 each. Single image per call (`n` capped at 1 upstream).
+  - **Recraft v4.1 family** (raster vs. SVG vector × base vs. pro; geometry is model-chosen — no ratio/resolution knobs; up to 6 variants per call; **`recraft/recraft-v4.1` is the recommended starting point**):
+    - `recraft/recraft-v4.1`: $0.035 — general raster.
+    - `recraft/recraft-v4.1-pro`: $0.21 — general raster, premium.
+    - `recraft/recraft-v4.1-utility`: $0.035 — product/icon-grade raster.
+    - `recraft/recraft-v4.1-utility-pro`: $0.21 — product/icon-grade raster, premium.
+    - `recraft/recraft-v4.1-vector`: $0.08 — SVG output (saved as a real `.svg`).
+    - `recraft/recraft-v4.1-pro-vector`: $0.30 — SVG output, premium.
 - **OVH AI Endpoints**:
   - `stabilityai/stable-diffusion-xl-base-1.0`: Free (Rate limited: 2 per minute without API key, 400 per minute with API key). Fixed 1024x1024. With such generous rate limits it does not need API keys, but if needed you can [read how to get one](https://help.ovhcloud.com/csm/en-gb-public-cloud-ai-endpoints-getting-started?id=kb_article_view&sysparm_article=KB0065401)
 
