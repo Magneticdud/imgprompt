@@ -43,13 +43,21 @@ def _max_n_for(model: str) -> int:
 # long tail without letting a truly wedged server hang the CLI forever.
 _DEFAULT_TIMEOUT = (10, 300)
 
-# Some upstream providers enforce a hard minimum on the OUTPUT pixel count
-# and 400 anything below it (Seed: "image size must be at least 3686400
-# pixels"). OpenRouter's own (aspect_ratio, resolution) → size translation
-# lands below that floor for most non-square ratios, so for these models we
-# resolve the size client-side and send it explicitly. See issue #10.
+# Some upstream providers enforce hard bounds on the OUTPUT pixel count
+# (Seed 4K family, see issues #10 and #23): a *floor* below which the
+# request 400s ("image size must be at least 3686400 pixels"), and a
+# *ceiling* above which it also 400s ("image size must be at most
+# 16777216 pixels"). OpenRouter's own (aspect_ratio, resolution) → size
+# translation lands both above and below those limits for most non-square
+# ratios, so for these models we resolve an explicit `size` client-side,
+# shaping the box to the aspect ratio with edges rounded to multiples of
+# 16 (the /api/v1/images grid), then clamping to the floor (ceil-16) and
+# the ceiling (floor-16, with a defensive re-check).
 _MODEL_PIXEL_FLOORS = {
     "bytedance-seed/seedream-4.5": 3_686_400,
+}
+_MODEL_PIXEL_CEILINGS = {
+    "bytedance-seed/seedream-4.5": 16_777_216,
 }
 
 # Nominal pixel targets per resolution tier (the square each tier names).
@@ -65,6 +73,92 @@ _TIER_PIXELS = {
 def _ceil16(value: float) -> int:
     """Round up to a multiple of 16 (dimension granularity of /api/v1/images)."""
     return math.ceil(value / 16) * 16
+
+
+def _floor16(value: float) -> int:
+    """Round down to a multiple of 16 (used when scaling DOWN to honour an
+    upstream pixel ceiling — see issues #10 + #23)."""
+    return max(math.floor(value / 16) * 16, 16)
+
+
+def _shrink_to_ceiling(width: int, height: int, ceiling: int) -> tuple[int, int]:
+    """Scale (w, h) down uniformly so w*h <= ceiling; both edges floored to /16.
+
+    First entry: if the box already fits, return it unchanged. Otherwise
+    halve the ratio via `_floor16` on the scaled edges. Flooring each
+    edge independently can still overshoot the cap by a few pixels
+    (one edge up, the other down by up to 15), so we re-tighten by
+    ~2% per pass until the box settles under the ceiling; in practice
+    1-2 passes (worst-case ~31 iters for a 20->17 MP shrink, still
+    milliseconds). The 0.5 lower bound on scale is a defensive exit
+    against pathological inputs; on that path we hand back the
+    ORIGINAL (width, height) -- better to let upstream 400 with a
+    meaningful error than to silently emit a box that violates the
+    contract (issue #23 safety review).
+    """
+    if width * height <= ceiling:
+        return width, height
+    scale = (ceiling / (width * height)) ** 0.5
+    while True:
+        candidate_w = _floor16(width * scale)
+        candidate_h = _floor16(height * scale)
+        if candidate_w * candidate_h <= ceiling:
+            return candidate_w, candidate_h
+        scale *= 0.98
+        if scale < 0.5:
+            return width, height
+
+
+def _compute_pixel_size(
+    model: str, aspect_ratio: str, quality_key: str
+) -> tuple[int, int, bool, bool] | None:
+    """Pure compute (no print) of the (w, h) that satisfies BOTH the
+    pixel floor and the pixel ceiling for the requested aspect-ratio
+    and tier. Returns ``(width, height, floor_active, ceiling_active)``
+    or None when the ratio or the absence of either bound precludes
+    an explicit size.
+
+    ``floor_active=True`` means the requested tier sits below the floor
+    AND the shaped box still cleared the floor (always, since the
+    floor raise is built into the shaping). ``ceiling_active=True`` means
+    the post-shaping box needed the ceiling clamp to fit (i.e. would
+    have overshot the cap without it).
+
+    The two callers — :meth:`OpenRouterProvider._floor_size` (which
+    prints) and :meth:`OpenRouterProvider.resolve_effective_pixels`
+    (the wizard's summary, no print) — both go through this; the
+    flags are the contract that decides whether each caller fires
+    its diagnostic note (no more `silent=...` private-channel kwarg).
+    """
+    from imgprompt.presets import ASPECT_RATIO_VALUES
+
+    floor = _MODEL_PIXEL_FLOORS.get(model)
+    ceil = _MODEL_PIXEL_CEILINGS.get(model)
+    if floor is None and ceil is None:
+        return None
+    ratio = ASPECT_RATIO_VALUES.get(aspect_ratio)
+    if ratio is None:
+        return None
+    if floor is not None:
+        target = max(_TIER_PIXELS.get(quality_key, floor), floor)
+    else:
+        # No floor but a ceiling (none configured today, but the code
+        # path needs to exist for a future single-cap model). Default
+        # to the ceiling so unknown tiers don't shoot past it.
+        target = _TIER_PIXELS.get(quality_key, ceil)
+    height = _ceil16((target / ratio) ** 0.5)
+    width = _ceil16(height * ratio)
+
+    floor_active = (
+        floor is not None
+        and target == floor
+        and _TIER_PIXELS.get(quality_key, floor) < floor
+    )
+    ceiling_active = False
+    if ceil is not None and width * height > ceil:
+        width, height = _shrink_to_ceiling(width, height, ceil)
+        ceiling_active = True
+    return width, height, floor_active, ceiling_active
 
 
 def _looks_like_svg(data: bytes) -> bool:
@@ -209,6 +303,48 @@ class OpenRouterProvider(ImageProvider):
             # summary's Pixels line honest instead of a fake 1024x1024.
             return "model default", None, None
         return OPENROUTER_RESOLUTIONS.get(selection, "1024x1024"), None, None
+
+    def resolve_effective_pixels(
+        self, model: str, aspect_ratio: str | None, quality_key: str | None
+    ) -> tuple[int, int] | None:
+        """Return the WxH actually written into the ``size`` field, or None.
+
+        Mirrors the aspect-ratio+resolution branch of :meth:`_build_payload`
+        (the one that sends an explicit ``size`` for models with a
+        pixel floor or ceiling). Lets the wizard's summary print the
+        *same* shape the API will see instead of the misleading
+        ``RATIO_TO_RESOLUTION`` preset (issue #23, where 4:5 /
+        1K prints "896x1152" but a 4K request actually goes out as
+        ─ e.g. ─ 3664x4576 after the ceiling clamp).
+
+        Returns None when:
+          - the model has no floor / ceiling configured (we delegate
+            to OpenRouter's own (aspect_ratio, resolution) translation);
+          - ``aspect_ratio`` is missing or "Auto" (model-chosen geometry);
+          - ``quality_key`` isn't one of the canonical resolution tiers
+            (``512`` / ``1K`` / ``2K`` / ``4K``) — if it were (e.g.
+            "Standard" for a clamped model) the helper would silently
+            fall back to the floor as the target, which would be
+            misleading rather than informational;
+          - the ratio isn't in :data:`ASPECT_RATIO_VALUES` (unknown shape).
+
+        The caller should then fall back to the ``res_key`` preset as
+        before. Goes through the pure :func:`_compute_pixel_size`
+        helper directly (no print) so the diagnostic notes don't fire
+        twice — once during the summary preview, once on the actual
+        call.
+        """
+        if not (_MODEL_PIXEL_FLOORS.get(model) or _MODEL_PIXEL_CEILINGS.get(model)):
+            return None
+        if aspect_ratio is None or aspect_ratio == "Auto":
+            return None
+        if quality_key not in ("512", "1K", "2K", "4K"):
+            return None
+        result = _compute_pixel_size(model, aspect_ratio, quality_key)
+        if result is None:
+            return None
+        width, height, _floor_active, _ceiling_active = result
+        return width, height
 
     def get_quality_choices(
         self,
@@ -540,6 +676,7 @@ class OpenRouterProvider(ImageProvider):
         # here avoids two copies of the same logic drifting apart.
 
         floor = _MODEL_PIXEL_FLOORS.get(request.model)
+        ceil = _MODEL_PIXEL_CEILINGS.get(request.model)
         if request.width and request.height:
             width, height = request.width, request.height
             if floor and width * height < floor:
@@ -550,9 +687,18 @@ class OpenRouterProvider(ImageProvider):
                     f"{request.width}x{request.height} to {width}x{height} to "
                     f"meet the upstream {floor:,}-pixel minimum."
                 )
+            elif ceil and width * height > ceil:
+                # Symmetric counterpart of the floor raise: large custom
+                # dimensions (e.g. 10000x2000) would 400 upstream otherwise.
+                width, height = _shrink_to_ceiling(width, height, ceil)
+                print(
+                    f"[OpenRouter] {request.model}: lowering "
+                    f"{request.width}x{request.height} to {width}x{height} to "
+                    f"meet the upstream {ceil:,}-pixel maximum."
+                )
             payload["size"] = f"{width}x{height}"
         else:
-            explicit = floor and self._floor_size(
+            explicit = (floor or ceil) and self._floor_size(
                 request.model, request.aspect_ratio, request.quality_key
             )
             if explicit:
@@ -583,28 +729,37 @@ class OpenRouterProvider(ImageProvider):
     def _floor_size(
         self, model: str, aspect_ratio: str, quality_key: str
     ) -> str | None:
-        """Explicit WxH for models with an upstream output-pixel floor.
+        """Compute the explicit WxH string AND emit the clamping diagnostic
+        the user sees on the wire.
 
-        Targets the tier's nominal pixel count (1K/2K/4K square), raised to
-        the model's floor when the tier sits below it, then shapes the box
-        to the chosen aspect ratio with both edges rounded UP to a multiple
-        of 16 so the result can never dip back under the floor. Returns
-        None when the ratio is unknown — the caller then falls back to the
-        plain aspect_ratio+resolution fields and lets upstream decide.
+        The actual number crunching lives in the module-level helper
+        :func:`_compute_pixel_size`: it returns the (w, h) plus
+        ``floor_active`` / ``ceiling_active`` flags so this wrapper
+        knows which (if any) note to print — without needing a
+        ``silent=...`` private channel (issue #23 — see the
+        ``resolve_effective_pixels`` callsite for the no-print
+        variant).
+
+        Returns None when the ratio is unknown — the caller then falls
+        back to the plain ``aspect_ratio``+``resolution`` fields and
+        lets upstream decide.
         """
-        from imgprompt.presets import ASPECT_RATIO_VALUES
-
-        floor = _MODEL_PIXEL_FLOORS.get(model)
-        ratio = ASPECT_RATIO_VALUES.get(aspect_ratio)
-        if floor is None or ratio is None:
+        result = _compute_pixel_size(model, aspect_ratio, quality_key)
+        if result is None:
             return None
-        target = max(_TIER_PIXELS.get(quality_key, floor), floor)
-        height = _ceil16((target / ratio) ** 0.5)
-        width = _ceil16(height * ratio)
-        if target == floor and _TIER_PIXELS.get(quality_key, floor) < floor:
+        width, height, floor_active, ceiling_active = result
+        floor = _MODEL_PIXEL_FLOORS.get(model)
+        ceil = _MODEL_PIXEL_CEILINGS.get(model)
+        if floor_active:
             print(
                 f"[OpenRouter] {model}: {quality_key} on {aspect_ratio} is "
                 f"below the upstream {floor:,}-pixel minimum; sending "
+                f"{width}x{height} instead."
+            )
+        if ceiling_active:
+            print(
+                f"[OpenRouter] {model}: {quality_key} on {aspect_ratio} is "
+                f"above the upstream {ceil:,}-pixel maximum; sending "
                 f"{width}x{height} instead."
             )
         return f"{width}x{height}"
