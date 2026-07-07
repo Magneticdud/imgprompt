@@ -107,6 +107,7 @@ class OpenRouterProvider(ImageProvider):
             "google/gemini-3.1-flash-image",
             "google/gemini-3-pro-image",
             "google/gemini-3.1-flash-lite-image",
+            "microsoft/mai-image-2.5",
         ]
 
     def get_resolution_choices(
@@ -129,6 +130,12 @@ class OpenRouterProvider(ImageProvider):
             "google/gemini-3.1-flash-lite-image",
         ):
             ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
+        elif model == "microsoft/mai-image-2.5":
+            # MAI's /api/v1/images descriptor advertises exactly these seven
+            # concrete ratios (plus "auto", which the wizard doesn't surface
+            # for OpenRouter): no 4:5/5:4/21:9. Verified 2026-07-07 against
+            # /api/v1/images/models — sending anything else 400s upstream.
+            ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
         else:
             ratio_options = OPENROUTER_STANDARD_RATIOS + ["21:9"]
         default = "1:1"
@@ -174,6 +181,13 @@ class OpenRouterProvider(ImageProvider):
             # whole point of choosing it; 2K/4K would silently no-op or 400
             # upstream.
             sizes = ["1K"]
+        elif model == "microsoft/mai-image-2.5":
+            # MAI exposes NO `resolution` parameter on /api/v1/images
+            # (descriptor verified 2026-07-07): the model picks the output
+            # size from the aspect ratio alone. "Standard" is deliberately
+            # outside the {512,1K,2K,4K} set so _build_payload never emits
+            # a resolution field for it.
+            sizes = ["Standard"]
         else:
             sizes = ["1K", "2K"]
         # .3f for cents-precise Lite pricing ($0.034). Without it the wizard

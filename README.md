@@ -131,6 +131,7 @@ When you provide 2+ images, the script automatically enters **batch mode**:
   - `black-forest-labs/flux.2-flex`: Output $0.06 (1K), $0.24 (2K); Input $0.06/MP.
   - `black-forest-labs/flux.2-pro`: Output $0.03 (1K), $0.075 (2K); Input $0.015/MP.
   - `black-forest-labs/flux.2-max`: Output $0.07 (1K), $0.16 (2K); Input $0.03/MP.
+  - `microsoft/mai-image-2.5`: token-billed (output $47/Mtok, input image $8/Mtok, input text $5/Mtok — ≈$0.19 for a typical image; the real charge is reported after each call). No resolution tiers: the model picks the output size from the aspect ratio (1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9). Single image per call (`n` capped at 1 upstream).
   - `sourceful/riverflow-v2.5-fast`: $0.02 (1K), $0.04 (2K).
   - `sourceful/riverflow-v2.5-pro`: $0.15 (1K/2K), $0.33 (4K).
 - **OVH AI Endpoints**:

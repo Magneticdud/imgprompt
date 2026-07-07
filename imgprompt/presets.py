@@ -274,6 +274,16 @@ COSTS["openai/gpt-5.4-image-2"] = {
     "4K": {"fixed": 0.08},
 }
 
+# Microsoft MAI Image 2.5 (Azure, via OpenRouter). Token-billed, not
+# per-image: output_image $47/Mtok, input_image $8/Mtok, input_text $5/Mtok
+# (snapshot 2026-07-07 from /api/v1/images/models/microsoft/mai-image-2.5/
+# endpoints). No resolution tiers — the single "Standard" entry estimates a
+# typical ~1MP output at ≈4,000 image tokens; the post-call usage.cost line
+# reports the real charge.
+COSTS["microsoft/mai-image-2.5"] = {
+    "Standard": {"fixed": 0.19},
+}
+
 RATIO_TO_RESOLUTION = {
     "1:1": "1024x1024",
     "2:3": "832x1248",

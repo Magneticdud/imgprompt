@@ -686,6 +686,58 @@ class TestRunInputBatch:
 
 
 # --------------------------------------------------------------------------
+# Microsoft MAI Image 2.5 (issue #6): Azure-served, token-billed, no
+# `resolution` parameter on /api/v1/images — aspect ratio is the only
+# geometry knob. Descriptor snapshot 2026-07-07.
+# --------------------------------------------------------------------------
+
+
+class TestMaiImage:
+    MODEL = "microsoft/mai-image-2.5"
+
+    def test_in_supported_models(self):
+        assert self.MODEL in OpenRouterProvider.supported_models()
+        # Default must stay the first entry, not MAI.
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    def test_resolution_choices_match_descriptor(self, provider_with_key):
+        choices, default = provider_with_key.get_resolution_choices(self.MODEL, None)
+        # Exactly the seven concrete ratios MAI advertises: no 4:5/5:4/21:9.
+        assert choices == ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
+        assert default == "1:1"
+
+    def test_quality_choices_single_standard_tier(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            self.MODEL, "1024x1024", None, None, None
+        )
+        assert len(choices) == 1
+        assert choices[0].startswith("Standard")
+        assert default == choices[0]
+
+    def test_resolve_quality_returns_standard_key(self, provider_with_key):
+        key, cost = provider_with_key.resolve_quality(
+            self.MODEL, "1024x1024", None, None, "Standard ($0.190)"
+        )
+        assert key == "Standard"
+        assert cost > 0
+
+    def test_payload_omits_resolution_field(self, provider_with_key):
+        """MAI has no resolution parameter; sending one would 400 upstream.
+        The "Standard" tier key sits outside {512,1K,2K,4K} on purpose."""
+        req = GenerationRequest(
+            prompt="x",
+            model=self.MODEL,
+            aspect_ratio="3:2",
+            res_key="1248x832",
+            quality_key="Standard",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "3:2"
+        assert "resolution" not in body
+        assert "size" not in body
+
+
+# --------------------------------------------------------------------------
 # seedream-4.5 upstream pixel floor (issue #10): the Seed provider 400s any
 # output below 3,686,400 px, so the provider resolves an explicit `size`
 # that clears the floor instead of the aspect_ratio+resolution shorthand.
