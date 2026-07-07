@@ -27,6 +27,11 @@ class GenerationRequest:
     # image is an independent single-input call. Defaults to False so
     # .last_generation.json files saved before this field existed still load.
     is_dual: bool = False
+    # Wizard's pre-call USD estimate for one API call. Used to reconcile
+    # against the provider-reported usage.cost after the call (a >10%
+    # divergence is printed). None when no estimate was shown (non-wizard
+    # entry points, providers without cost preview).
+    estimated_cost: float | None = None
 
     @property
     def is_batch(self) -> bool:

@@ -9,7 +9,7 @@ import requests
 from PIL import Image
 
 from imgprompt.providers.base import ImageProvider, GenerationRequest
-from imgprompt.providers.capabilities import get_capabilities
+from imgprompt.providers.capabilities import get_capabilities, output_image_price
 from imgprompt.images import save_image_bytes
 
 # OpenRouter Image API base URL (replaces the legacy /chat/completions+modalities path).
@@ -283,7 +283,7 @@ class OpenRouterProvider(ImageProvider):
         floor = _MODEL_PIXEL_FLOORS.get(model)
         choices = []
         for s in sizes:
-            label = f"{s} (${COSTS[model][s]['fixed']:.3f})"
+            label = f"{s} (${self._tier_price(model, s):.3f})"
             # Pre-flight signal for tiers the upstream floor overrides (e.g.
             # seedream 1K): the user should know before confirming that the
             # output will be larger than the tier name suggests.
@@ -291,6 +291,17 @@ class OpenRouterProvider(ImageProvider):
                 label += f" — raised to upstream {floor / 1e6:.1f}MP minimum"
             choices.append(label)
         return choices, choices[0]
+
+    def _tier_price(self, model: str, tier: str) -> float:
+        """Per-image price for a tier: live OpenRouter pricing when the
+        model is flat-priced per image (issue #3), hardcoded COSTS estimate
+        otherwise (token-billed models, network down)."""
+        from imgprompt.presets import COSTS
+
+        live = output_image_price(model, tier)
+        if live is not None:
+            return live
+        return COSTS[model][tier]["fixed"]
 
     def resolve_quality(
         self,
@@ -300,10 +311,8 @@ class OpenRouterProvider(ImageProvider):
         height: int | None,
         selection: str,
     ) -> tuple[str, float]:
-        from imgprompt.presets import COSTS
-
         quality_key = selection.split(" ")[0]
-        return quality_key, COSTS[model][quality_key]["fixed"]
+        return quality_key, self._tier_price(model, quality_key)
 
     @property
     def supports_batch(self) -> bool:
@@ -655,7 +664,7 @@ class OpenRouterProvider(ImageProvider):
         resp.raise_for_status()
         body = resp.json()
 
-        self._maybe_report_cost(body)
+        self._maybe_report_cost(body, request)
 
         decoded: list[tuple[bytes, str | None]] = []
         skipped_empty = 0
@@ -683,7 +692,9 @@ class OpenRouterProvider(ImageProvider):
             )
         return decoded
 
-    def _maybe_report_cost(self, body: dict) -> None:
+    def _maybe_report_cost(
+        self, body: dict, request: GenerationRequest | None = None
+    ) -> None:
         usage = body.get("usage") or {}
         cost_usd = usage.get("cost")
         if cost_usd is None:
@@ -696,6 +707,18 @@ class OpenRouterProvider(ImageProvider):
             return
         self._reported_cost = cost_float
         print(f"\n[OpenRouter] reported cost: ${cost_float:.4f}")
+        # Reconcile with the wizard's pre-call estimate (issue #3): a >10%
+        # divergence usually means the hardcoded COSTS row drifted from
+        # upstream pricing and is worth fixing.
+        estimate = getattr(request, "estimated_cost", None) if request else None
+        if estimate:
+            diff = abs(cost_float - estimate) / estimate
+            if diff > 0.10:
+                print(
+                    f"[OpenRouter] Estimate vs reported cost differ by "
+                    f"{diff * 100:.0f}% (estimated ${estimate:.3f}, "
+                    f"reported ${cost_float:.4f})."
+                )
 
     # ------------------------------------------------------------------ utils
 

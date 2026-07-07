@@ -158,6 +158,14 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 
 Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
 
+### Live discovery (OpenRouter only)
+The wizard's OpenRouter ratio/resolution choices and prices are driven by OpenRouter's live catalog when reachable:
+- The model catalog (`/api/v1/images/models`) is cached to `.cache/openrouter_models.json` (gitignored) for 24h; a stale cache is used immediately and refreshed in the background. With no cache and no network, the hardcoded lists above are used and a one-line note is printed.
+- Flat per-image prices come from each model's `/endpoints` pricing when available, so the wizard estimate tracks OpenRouter price changes; token-billed models keep the hardcoded estimates.
+- After each call, if the provider-reported `usage.cost` differs from the wizard estimate by more than 10%, a warning line is printed — that usually means a hardcoded price in `imgprompt/presets.py` drifted and is worth updating.
+
+OpenAI, Google direct and OVH expose no comparable pricing/capability API, so their tables stay hardcoded on purpose.
+
 ## Testing
 The pure logic (dimension/DPI math, pricing-token estimates, image helpers, and
 the replay-history round-trip) is covered by a `pytest` suite under `tests/`.

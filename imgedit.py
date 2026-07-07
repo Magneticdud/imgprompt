@@ -993,6 +993,7 @@ def main():
     n_variants = 1  # populated by step_variants (only triggered for OpenRouter)
     recraft_style = None  # populated by step_recraft_style (Recraft only)
     recraft_colors: list[str] = []
+    estimated_call_cost = None  # per-call USD estimate for reconciliation
 
     while current_step >= 0:
         if current_step == 0:
@@ -1221,6 +1222,15 @@ def main():
                     print(f"Input Cost:  ${input_cost:.3f}")
                 print(f"Total Cost: ${output_cost + input_cost:.3f}")
 
+            # Remember the per-call estimate the user just saw so the
+            # provider can flag a >10% divergence from usage.cost after
+            # the call (issue #3). Only OpenRouter reports usage.cost.
+            if provider == "OpenRouter":
+                if is_batch_mode:
+                    estimated_call_cost = per_call_cost
+                else:
+                    estimated_call_cost = output_cost + input_cost
+
             action = questionary.select(
                 "What would you like to do?",
                 choices=["Proceed with API call", "Edit Prompt", BACK_OPTION, "Cancel"],
@@ -1275,6 +1285,7 @@ def main():
         n=n_variants,
         is_dual=is_dual,
         extras=extras,
+        estimated_cost=estimated_call_cost,
     )
 
     # Persist the request so it can be replayed verbatim with --replay.
