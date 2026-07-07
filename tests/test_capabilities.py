@@ -251,6 +251,18 @@ class TestFileCache:
         assert not os.path.exists(capabilities.CACHE_FILE)
         assert "built-in defaults" in capsys.readouterr().out
 
+    def test_fresh_empty_catalog_is_honoured_not_refetched(self, capsys):
+        """A fresh cache with data: [] is a valid upstream answer, not a
+        missing cache — no re-fetch, and no 'unavailable' note (discovery
+        worked; the catalog is just empty)."""
+        import time
+
+        _write_cache_file(time.time() - 60, [])
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+        mock_get.assert_not_called()
+        assert "unavailable" not in capsys.readouterr().out
+
     def test_corrupt_cache_file_treated_as_cold_start(self):
         import os
 

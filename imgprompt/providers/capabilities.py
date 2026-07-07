@@ -146,16 +146,23 @@ class CapabilityCatalog:
 
     def _load(self) -> dict[str, ModelCapabilities]:
         cached = self._read_cache()
-        if cached is not None:
-            age = time.time() - cached.get("fetched_at", 0)
-            models = _parse_data(cached.get("data") or [])
-            if models and age <= CACHE_TTL_SECONDS:
+        # Structural validity, not content, decides whether the cache
+        # counts: a fresh-but-empty catalog is a valid answer from
+        # upstream and must not be mistaken for "no cache" (which would
+        # re-fetch on every session).
+        if (
+            cached is not None
+            and isinstance(cached.get("data"), list)
+            and "fetched_at" in cached
+        ):
+            age = time.time() - cached["fetched_at"]
+            models = _parse_data(cached["data"])
+            if age <= CACHE_TTL_SECONDS:
                 return models
-            if models:
-                # Stale: serve immediately (a stale catalog beats blocking
-                # the wizard) and refresh in the background for next run.
-                threading.Thread(target=self._refresh_cache, daemon=True).start()
-                return models
+            # Stale: serve immediately (a stale catalog beats blocking
+            # the wizard) and refresh in the background for next run.
+            threading.Thread(target=self._refresh_cache, daemon=True).start()
+            return models
         # Cold start: one synchronous, tightly-bounded fetch.
         data = self._fetch_data()
         if data is None:

@@ -713,9 +713,11 @@ class OpenRouterProvider(ImageProvider):
             return
         self._reported_cost = cost_float
         print(f"\n[OpenRouter] reported cost: ${cost_float:.4f}")
-        # Reconcile with the wizard's pre-call estimate (issue #3): a >10%
-        # divergence usually means the hardcoded COSTS row drifted from
-        # upstream pricing and is worth fixing.
+        # Reconcile with the wizard's pre-call estimate (issue #3). The
+        # estimate may come from live /endpoints pricing or the hardcoded
+        # COSTS row, so a >10% divergence isn't automatically "COSTS
+        # drifted" — it can also be un-modelled billing (input-image
+        # charges, per-tier surcharges). Either way it's worth surfacing.
         estimate = getattr(request, "estimated_cost", None) if request else None
         if estimate:
             diff = abs(cost_float - estimate) / estimate
