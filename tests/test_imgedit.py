@@ -195,7 +195,77 @@ def replay_env(monkeypatch):
     monkeypatch.setattr(
         imgedit, "save_last_generation", lambda p, r: saved.append((p, r))
     )
+    # Default: decline the "Edit the prompt?" confirm so the replay runs
+    # verbatim. The edit path is exercised separately in TestMaybeEditPrompt.
+    monkeypatch.setattr(
+        imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(False)
+    )
     return req, saved
+
+
+class TestMaybeEditPrompt:
+    """The optional one-off prompt tweak offered before a replay re-runs."""
+
+    def _req(self):
+        return GenerationRequest(
+            prompt="a cat, sitting",
+            model="model-a",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="2K",
+        )
+
+    def test_declining_leaves_prompt_untouched(self, monkeypatch):
+        monkeypatch.setattr(
+            imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(False)
+        )
+        req = self._req()
+        imgedit.maybe_edit_prompt(req)
+        assert req.prompt == "a cat, sitting"
+
+    def test_accepting_applies_the_edited_prompt(self, monkeypatch):
+        monkeypatch.setattr(
+            imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(True)
+        )
+        monkeypatch.setattr(
+            imgedit, "multiline_prompt", lambda *a, **k: "a cat, sitting, smiling"
+        )
+        req = self._req()
+        imgedit.maybe_edit_prompt(req)
+        assert req.prompt == "a cat, sitting, smiling"
+
+    def test_prefills_the_saved_prompt_as_default(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(
+            imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(True)
+        )
+
+        def fake_multiline(message, default=""):
+            seen["default"] = default
+            return default
+
+        monkeypatch.setattr(imgedit, "multiline_prompt", fake_multiline)
+        req = self._req()
+        imgedit.maybe_edit_prompt(req)
+        assert seen["default"] == "a cat, sitting"
+
+    def test_empty_edit_keeps_original_prompt(self, monkeypatch):
+        monkeypatch.setattr(
+            imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(True)
+        )
+        monkeypatch.setattr(imgedit, "multiline_prompt", lambda *a, **k: "   ")
+        req = self._req()
+        imgedit.maybe_edit_prompt(req)
+        assert req.prompt == "a cat, sitting"
+
+    def test_cancelled_edit_keeps_original_prompt(self, monkeypatch):
+        monkeypatch.setattr(
+            imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(True)
+        )
+        monkeypatch.setattr(imgedit, "multiline_prompt", lambda *a, **k: None)
+        req = self._req()
+        imgedit.maybe_edit_prompt(req)
+        assert req.prompt == "a cat, sitting"
 
 
 class TestReplayOverride:
