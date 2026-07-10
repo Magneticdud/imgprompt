@@ -603,6 +603,10 @@ class OpenRouterProvider(ImageProvider):
         print(f"\nStarting batch processing: {len(request.images)} images...")
         success = 0
         failed = 0
+        # Basenames of inputs that produced no image (HTTP/refusal/empty), so a
+        # skipped PDF page can be named in the summary. The loop always moves on
+        # to the next input rather than aborting the whole batch.
+        failed_inputs: list[str] = []
         for idx, img_path in enumerate(request.images, 1):
             print(
                 f"\n--- Processing image {idx}/{len(request.images)}: "
@@ -613,14 +617,17 @@ class OpenRouterProvider(ImageProvider):
             except requests.HTTPError as e:
                 self._print_http_error(e)
                 failed += 1
+                failed_inputs.append(os.path.basename(img_path))
                 continue
             except Exception as e:
                 print(f"An error occurred during OpenRouter call: {e}")
                 failed += 1
+                failed_inputs.append(os.path.basename(img_path))
                 continue
 
             if not results:
                 failed += 1
+                failed_inputs.append(os.path.basename(img_path))
                 continue
             if n > 1:
                 self._save_variants(results, img_path, label=f"Variant (img {idx})")
@@ -632,6 +639,11 @@ class OpenRouterProvider(ImageProvider):
             f"\n=== Batch complete: {success}/{len(request.images)} inputs OK, "
             f"{success * n} images saved, {failed} failed ==="
         )
+        if failed_inputs:
+            print(
+                f">> Skipped/failed ({len(failed_inputs)}): "
+                + ", ".join(failed_inputs)
+            )
 
     def _save_one(
         self,

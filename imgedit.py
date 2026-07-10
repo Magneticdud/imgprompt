@@ -45,6 +45,7 @@ from imgprompt.images import (
     is_pdf,
     pdf_page_count,
     rasterize_pdf,
+    rasterize_pdf_all_pages,
 )
 from imgprompt.history import save_last_generation, load_last_generation
 from imgprompt.providers.base import GenerationRequest
@@ -112,9 +113,12 @@ def resolve_pdf_inputs(paths: list[str]) -> list[str]:
 
     Image APIs accept raster formats only, never PDF, so each PDF is rendered to
     a PNG up front -- before any provider sees the path -- leaving all downstream
-    loading/resizing code unchanged. For a multi-page PDF the user picks which
-    page to use. Returns the input list with PDF paths swapped for PNG paths.
+    loading/resizing code unchanged. For a multi-page PDF the user picks a single
+    page or all of them; picking all expands the PDF into one input image per
+    page, which flows straight into batch mode. Returns the input list with PDF
+    paths swapped for PNG paths.
     """
+    all_pages_option = "All pages (batch)"
     resolved = []
     for p in paths:
         if not is_pdf(p):
@@ -130,10 +134,25 @@ def resolve_pdf_inputs(paths: list[str]) -> list[str]:
         if n_pages > 1:
             choice = questionary.select(
                 f"'{os.path.basename(p)}' has {n_pages} pages. Select a page to use:",
-                choices=[f"Page {i + 1}" for i in range(n_pages)],
+                choices=[
+                    f"{all_pages_option} — all {n_pages} pages",
+                    *[f"Page {i + 1}" for i in range(n_pages)],
+                ],
             ).ask()
             if not choice:
                 sys.exit(0)
+            if choice.startswith(all_pages_option):
+                try:
+                    png_paths = rasterize_pdf_all_pages(p)
+                except Exception as e:
+                    print(f"Error: could not rasterize PDF '{p}': {e}")
+                    sys.exit(1)
+                print(
+                    f"Rasterized {os.path.basename(p)} "
+                    f"(all {n_pages} pages) -> {len(png_paths)} images"
+                )
+                resolved.extend(png_paths)
+                continue
             page_index = int(choice.split()[1]) - 1
 
         try:
