@@ -26,6 +26,35 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
    OVH_AI_ENDPOINTS_ACCESS_TOKEN=your_ovh_token
    ```
 
+### Install as a global command (optional)
+To run the tool from any directory and any terminal without activating a
+virtualenv by hand:
+
+1. Create a `.venv` next to `imgedit.py` and install the deps into it. The
+   script auto-detects `.venv` and re-executes itself inside it, so you never
+   have to activate it manually:
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
+2. Drop a small wrapper on your `PATH` (e.g. `~/.local/bin`, which is already on
+   `PATH` on most distros):
+   ```bash
+   cat > ~/.local/bin/imgprompt <<'EOF'
+   #!/usr/bin/env bash
+   exec /absolute/path/to/imgprompt/imgedit.py "$@"
+   EOF
+   chmod +x ~/.local/bin/imgprompt
+   ```
+   Replace `/absolute/path/to/imgprompt` with your checkout location.
+
+Now `imgprompt [options] [image_paths...]` works everywhere.
+
+> **Why a wrapper and not a symlink?** `imgedit.py` locates its `.venv` via
+> `os.path.abspath(__file__)`, which does **not** resolve symlinks — a symlink in
+> `~/.local/bin` would make it look for `.venv` in the wrong directory. The
+> wrapper `exec`s the real path, so the venv auto-activation keeps working.
+
 ## Usage
 Run the script:
 ```bash
