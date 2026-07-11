@@ -290,6 +290,12 @@ def run_replay(
     save_last_generation(provider, request)
 
     iterations = max(1, iterations_arg or 1)
+    # One preview per iteration would flood the scrollback; keep it only for a
+    # single-result replay.
+    if iterations > 1:
+        from imgprompt.images import configure_preview
+
+        configure_preview(False)
     for i in range(1, iterations + 1):
         if iterations > 1:
             print(f"\n===== Iteration {i}/{iterations} =====")
@@ -859,7 +865,20 @@ def main():
         help="Read the prompt from a text file (preserves newlines). A .txt "
         "passed as a positional argument is auto-detected as the prompt file.",
     )
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Disable the inline terminal preview of generated images "
+        "(shown by default on terminals that support graphics)",
+    )
     args = parser.parse_args()
+
+    # Previews are on by default; --no-preview opts out for the whole run.
+    # Batch/multi-variant runs disable it again nearer the dispatch, and the
+    # renderer itself no-ops on a non-interactive (piped) stdout.
+    from imgprompt.images import configure_preview
+
+    configure_preview(not args.no_preview)
 
     # --model/--provider only make sense as replay modifiers: outside replay
     # the wizard owns those choices and a silent no-op would be confusing.
@@ -1306,6 +1325,14 @@ def main():
 
     # Persist the request so it can be replayed verbatim with --replay.
     save_last_generation(provider, request)
+
+    # A single interactive result gets an inline preview; batch (multiple input
+    # images) or multi-variant runs would print one preview per result and bury
+    # the wizard output, so suppress previews there.
+    if n_variants > 1 or (len(input_images) > 1 and not is_dual):
+        from imgprompt.images import configure_preview
+
+        configure_preview(False)
 
     # The OpenRouter provider now delivers all n_variants in a single API
     # call, and fan-out across input images is handled inside the provider
