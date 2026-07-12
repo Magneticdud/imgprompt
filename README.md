@@ -12,6 +12,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 - Pre-made and custom prompts.
 - **Multi-line prompts**: write custom prompts spanning several lines (handy for typographic prompts), or load a prompt from a text file.
 - **Replay**: re-run the last generation with identical parameters and prompt.
+- **Inline preview**: generated images are previewed in the terminal when it supports graphics (via `chafa`/`viu`/kitty `icat`); disable with `--no-preview`.
 
 ## Setup
 1. Install dependencies:
@@ -120,6 +121,15 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 - Shows total cost estimate (per image × number of images)
 - Processes each image sequentially
 - Reports success/failure count at the end
+
+### Inline Preview
+After each generated image is saved, a small preview is shown **inline in the terminal** when your terminal supports graphics. This is best-effort and delegates to whichever image-to-terminal tool you have installed — [`chafa`](https://hpjansson.org/chafa/), [`viu`](https://github.com/atanunq/viu), or kitty's `icat` — each of which auto-detects the terminal's graphics protocol (kitty/iTerm2/sixel) and falls back to Unicode blocks. If none is installed, or the terminal can't display images, the step is silently skipped.
+
+The preview is capped at 20 rows tall so it never scrolls the cost/path output out of view. It only appears for single interactive results — batch and multi-variant (`-n`) runs skip it to avoid flooding the scrollback — and never when stdout is redirected to a pipe or file.
+
+```bash
+python imgedit.py --no-preview   # disable the inline preview for the whole run
+```
 
 ### Supported Image Formats
 - PCX, PNG, JPG/JPEG, BMP, TIFF, WEBP

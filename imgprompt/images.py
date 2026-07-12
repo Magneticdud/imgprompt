@@ -1,7 +1,10 @@
 import os
 import io
+import sys
 import base64
+import shutil
 import tempfile
+import subprocess
 import requests
 from datetime import datetime
 from typing import Optional
@@ -11,6 +14,62 @@ from imgprompt.presets import ASPECT_RATIO_VALUES
 
 IMAGE_EXTENSIONS = (".pcx", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
 PDF_EXTENSIONS = (".pdf",)
+
+# Inline terminal preview of saved results. Enabled by default and toggled off
+# with --no-preview (or automatically for batch/multi-variant runs, where a
+# preview per result would flood the scrollback). Rendering is best-effort: it
+# only fires on an interactive TTY, delegates to whichever image-to-terminal
+# tool the user has installed, and swallows any failure silently so a missing
+# tool or an unsupported terminal never disrupts a real run.
+_PREVIEW_ENABLED = True
+_PREVIEW_MAX_HEIGHT = 20
+
+
+def configure_preview(enabled: bool) -> None:
+    """Enable or disable the inline terminal preview for the rest of the run."""
+    global _PREVIEW_ENABLED
+    _PREVIEW_ENABLED = enabled
+
+
+def _preview_command(path: str, max_height: int) -> Optional[list[str]]:
+    """Build the argv for the first available terminal image renderer, or None.
+
+    Prefers tools that let us cap the height so a large image never scrolls the
+    wizard output (cost, saved path) out of view: chafa and viu both take a
+    cell height. kitty's icat is a last resort (kitty terminals only) and is
+    left uncapped. All three auto-detect the terminal's graphics capability."""
+    if shutil.which("chafa"):
+        # chafa fits within WIDTHxHEIGHT preserving aspect ratio, so a wide
+        # terminal width plus a small height effectively caps the height.
+        cols = shutil.get_terminal_size((80, 24)).columns
+        return ["chafa", f"--size={cols}x{max_height}", path]
+    if shutil.which("viu"):
+        return ["viu", "-h", str(max_height), path]
+    if shutil.which("kitty") and (
+        os.environ.get("KITTY_WINDOW_ID") or "kitty" in os.environ.get("TERM", "")
+    ):
+        return ["kitty", "+kitten", "icat", "--align=left", path]
+    return None
+
+
+def preview_image_file(path: str, max_height: int = _PREVIEW_MAX_HEIGHT) -> None:
+    """Best-effort inline preview of a saved image file in the terminal.
+
+    Delegates to an installed image-to-terminal tool (chafa/viu/kitty icat),
+    each of which auto-detects the terminal's graphics protocol. Silently
+    no-ops when previews are disabled, stdout is not a TTY, no renderer is
+    installed, or the renderer fails for any reason."""
+    if not _PREVIEW_ENABLED or not sys.stdout.isatty():
+        return
+    cmd = _preview_command(path, max_height)
+    if not cmd:
+        return
+    try:
+        print()
+        subprocess.run(cmd, check=False)
+    except Exception:
+        # A preview is a nicety, never a hard requirement; never abort the run.
+        pass
 
 # DPI used when rasterizing PDF pages to bitmaps. ~200 DPI keeps an A4 page
 # around 1654x2339, sharp enough for editing while the later resize step trims
@@ -208,6 +267,7 @@ def save_image_bytes(img_bytes: bytes, original_path: str | None) -> None:
     with open(output_path, "wb") as f:
         f.write(img_bytes)
     print(f"File saved successfully as {output_path}")
+    preview_image_file(output_path)
 
 
 def save_api_image(
