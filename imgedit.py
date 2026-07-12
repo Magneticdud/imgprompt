@@ -290,9 +290,10 @@ def run_replay(
     save_last_generation(provider, request)
 
     iterations = max(1, iterations_arg or 1)
-    # One preview per iteration would flood the scrollback; keep it only for a
-    # single-result replay.
-    if iterations > 1:
+    # One preview per result would flood the scrollback; keep it only for a
+    # single-result replay. Multiple iterations OR a saved request that is
+    # itself multi-result (batch / n>1) each produce several images.
+    if iterations > 1 or request.n > 1 or request.is_batch:
         from imgprompt.images import configure_preview
 
         configure_preview(False)
@@ -1329,7 +1330,7 @@ def main():
     # A single interactive result gets an inline preview; batch (multiple input
     # images) or multi-variant runs would print one preview per result and bury
     # the wizard output, so suppress previews there.
-    if n_variants > 1 or (len(input_images) > 1 and not is_dual):
+    if request.n > 1 or request.is_batch:
         from imgprompt.images import configure_preview
 
         configure_preview(False)
