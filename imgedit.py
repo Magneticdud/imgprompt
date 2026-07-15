@@ -304,34 +304,168 @@ def run_replay(
 
 
 def run_replay_on_different_model(iterations_arg: int | None) -> None:
-    """Interactive flavour of the replay override: a one-shot provider →
-    model picker seeded with the saved values, then the same replay path."""
+    """Interactive replay onto a different provider/model. Reuses the saved
+    prompt and image set, but RE-RUNS the target model's resolution / quality
+    (and Recraft style / variants) wizard steps so those provider-specific
+    option fields are collected against the *new* model's capability
+    descriptors (issue #22).
+
+    The old behaviour forwarded the saved resolution/aspect-ratio/quality
+    tokens verbatim, which models with a different accepted set (e.g. Grok
+    Imagine, Seedream) reject with a 400 before any image is produced. By
+    walking the same steps a fresh generation would, the wizard re-prompts
+    for whatever the target model actually needs while keeping the original
+    prompt and inputs."""
     loaded = load_last_generation()
     if not loaded:
         print("Error: no saved generation found to replay.")
         sys.exit(1)
     saved_provider, request = loaded
 
-    provider_names = list(PROVIDER_MAP.keys())
-    provider = questionary.select(
-        "Select Provider:",
-        choices=provider_names,
-        default=saved_provider if saved_provider in provider_names else None,
-    ).ask()
-    if not provider:
-        sys.exit(0)
+    image_path = request.images[0] if request.images else None
 
-    provider_cls = PROVIDER_MAP[provider]
-    models = provider_cls.supported_models()
-    model = questionary.select(
-        f"Select {provider} model:",
-        choices=models,
-        default=request.model if request.model in models else models[0],
-    ).ask()
-    if not model:
-        sys.exit(0)
+    # State machine mirroring the main wizard's option steps, seeded from the
+    # saved provider/model. 0=provider, 1=model, 2=resolution, 3=quality,
+    # 4=variants. BACK walks backward; Ctrl+C / EOF exits cleanly.
+    current_step = 0
+    provider = None
+    provider_obj = None
+    model = None
+    aspect_ratio = None
+    res_key = None
+    quality_key = None
+    dim_width = None
+    dim_height = None
+    final_cost = 0.0
+    n_variants = request.n
+    recraft_style = None
+    recraft_colors: list[str] = []
 
-    run_replay(iterations_arg, model_override=model, provider_override=provider)
+    while current_step >= 0:
+        if current_step == 0:
+            provider_names = list(PROVIDER_MAP.keys())
+            provider = questionary.select(
+                "Select Provider:",
+                choices=provider_names,
+                default=saved_provider if saved_provider in provider_names else None,
+            ).ask()
+            if not provider:
+                sys.exit(0)
+            if provider == "OVH" and request.images:
+                print("Error: OVH provider only supports Text-to-Image mode; the saved")
+                print("generation has input images and cannot be replayed there.")
+                sys.exit(1)
+            provider_obj = PROVIDER_MAP[provider]()
+            current_step = 1
+
+        elif current_step == 1:
+            models = provider_obj.supported_models()
+            model = questionary.select(
+                f"Select {provider} model:",
+                choices=[BACK_OPTION] + models,
+                default=request.model if request.model in models else models[0],
+            ).ask()
+            if not model:
+                sys.exit(0)
+            if model == BACK_OPTION:
+                current_step = 0
+                continue
+            current_step = 2
+
+        elif current_step == 2:
+            recraft_style = None
+            recraft_colors = []
+            result_res, res_key, dim_width, dim_height = step_resolution(
+                provider_obj, model, image_path
+            )
+            if result_res == BACK_OPTION:
+                current_step = 1
+                continue
+            aspect_ratio = result_res
+            if is_recraft_model(provider, model):
+                style_result = step_recraft_style(model)
+                if style_result is None:
+                    print("Cancelled.")
+                    return
+                if style_result == BACK_OPTION:
+                    continue
+                recraft_style, recraft_colors = style_result
+            current_step = 3
+
+        elif current_step == 3:
+            result_quality, final_cost = step_quality(
+                provider_obj, model, res_key, dim_width, dim_height, image_path
+            )
+            if result_quality == BACK_OPTION:
+                current_step = 2
+                continue
+            quality_key = result_quality
+            current_step = 4
+
+        elif current_step == 4:
+            if provider == "OpenRouter":
+                result_n = step_variants()
+                if result_n is None:
+                    print("Cancelled.")
+                    return
+                if result_n == BACK_OPTION:
+                    current_step = 3
+                    continue
+                n_variants = result_n
+            else:
+                n_variants = 1
+            break
+
+    extras = {}
+    if is_recraft_model(provider, model):
+        from imgprompt.presets import recraft_default_style
+
+        extras["style"] = recraft_style or recraft_default_style(model)
+        if recraft_colors:
+            extras["colors"] = recraft_colors
+
+    # OpenRouter is the only provider that reports usage.cost, so it's the only
+    # one whose estimate feeds reconciliation. `n` variants ride in one call, so
+    # multiply the per-image quality cost. Input surcharges (Flux per-MP, Grok
+    # flat) aren't folded in here — the replay path keeps the estimate simple —
+    # but this is still far closer than the previous verbatim carry-over of the
+    # *source* model's cost.
+    estimated_call_cost = None
+    if provider == "OpenRouter":
+        estimated_call_cost = final_cost * n_variants
+
+    new_request = GenerationRequest(
+        prompt=request.prompt,
+        model=model,
+        aspect_ratio=aspect_ratio,
+        res_key=res_key,
+        quality_key=quality_key,
+        images=request.images,
+        width=dim_width,
+        height=dim_height,
+        n=n_variants,
+        is_dual=request.is_dual,
+        extras=extras,
+        estimated_cost=estimated_call_cost,
+    )
+
+    print("\n--- Replaying last generation on a different model ---")
+    print(f"Provider:   {provider}")
+    print(f"Model:      {model}")
+    if new_request.images:
+        print(f"Images:     {', '.join(new_request.images)}")
+    else:
+        print("Image:      None (Text-to-Image)")
+    print(f"Prompt:     {new_request.prompt}")
+
+    # Persist so a further bare --replay repeats THIS attempt.
+    save_last_generation(provider, new_request)
+
+    iterations = max(1, iterations_arg or 1)
+    for i in range(1, iterations + 1):
+        if iterations > 1:
+            print(f"\n===== Iteration {i}/{iterations} =====")
+        provider_obj.run(new_request)
 
 
 def step_provider() -> str | None:
