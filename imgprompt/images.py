@@ -153,6 +153,20 @@ def rasterize_pdf(pdf_path: str, page_index: int = 0, dpi: int = PDF_RASTER_DPI)
     return out_path
 
 
+def rasterize_pdf_all_pages(pdf_path: str, dpi: int = PDF_RASTER_DPI) -> list[str]:
+    """Render every page of a PDF to a PNG. Returns the list of PNG paths.
+
+    Thin loop over `rasterize_pdf` so the whole document can be fed into batch
+    mode (one input image per page). Pages come back in document order; each PNG
+    is named `<stem>_pN.png` (see `rasterize_pdf`) so the order is also visible
+    on disk.
+    """
+    return [
+        rasterize_pdf(pdf_path, page_index=i, dpi=dpi)
+        for i in range(pdf_page_count(pdf_path))
+    ]
+
+
 def process_image_for_api(image_path: str, target_res: str) -> tuple:
     """
     Checks if the image needs resizing and returns a tuple (filename, data, mime_type).

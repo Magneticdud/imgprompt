@@ -307,6 +307,9 @@ class GoogleProvider(ImageProvider):
         print(f"\nStarting batch processing: {len(request.images)} images...")
         success_count = 0
         fail_count = 0
+        # Basenames of inputs that produced no image, so a skipped PDF page can
+        # be named in the summary. A failed input never aborts the batch.
+        failed_inputs: list[str] = []
 
         for idx, img_path in enumerate(request.images, 1):
             print(
@@ -319,10 +322,16 @@ class GoogleProvider(ImageProvider):
                 success_count += 1
             else:
                 fail_count += 1
+                failed_inputs.append(os.path.basename(img_path))
 
         print(
             f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
         )
+        if failed_inputs:
+            print(
+                f">> Skipped/failed ({len(failed_inputs)}): "
+                + ", ".join(failed_inputs)
+            )
 
     def _run_single(self, request: GenerationRequest, config_args: dict) -> None:
         print(f"\nSending request to Google ({request.model})...")

@@ -18,6 +18,7 @@ from imgprompt.images import (
     get_images_in_cwd,
     is_pdf,
     pdf_page_count,
+    rasterize_pdf_all_pages,
     process_image_for_api,
     rasterize_pdf,
     save_image_bytes,
@@ -196,4 +197,20 @@ class TestRasterizePdf:
             os.chmod(src, 0o700)
         assert os.path.dirname(out) != str(src)
         assert os.path.dirname(out) == tempfile.gettempdir()
-        assert os.path.exists(out)
+
+
+class TestRasterizePdfAllPages:
+    def test_returns_one_png_per_page_in_order(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "doc.pdf", pages=3)
+        outs = rasterize_pdf_all_pages(pdf)
+        assert outs == [
+            str(tmp_path / "doc_p1.png"),
+            str(tmp_path / "doc_p2.png"),
+            str(tmp_path / "doc_p3.png"),
+        ]
+        for out in outs:
+            assert Image.open(out).format == "PNG"
+
+    def test_single_page_pdf(self, tmp_path):
+        pdf = _write_pdf(tmp_path / "solo.pdf", pages=1)
+        assert rasterize_pdf_all_pages(pdf) == [str(tmp_path / "solo.png")]

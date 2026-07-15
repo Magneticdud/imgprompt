@@ -140,6 +140,11 @@ class OpenAIProvider(ImageProvider):
         print(f"\nStarting batch processing: {len(request.images)} images...")
         success_count = 0
         fail_count = 0
+        # Inputs the model refused (moderation) vs. failed for other reasons.
+        # Kept separate so a rejected PDF page can be reported explicitly at the
+        # end while the loop keeps processing the remaining pages.
+        blocked_inputs: list[str] = []
+        failed_inputs: list[str] = []
         # Aggregators for the issue #4 real-cost report. Each batch call is an
         # independent API request, so token counts and costs add linearly
         # across images. Skipped (kept at the empty initial value) whenever
@@ -185,18 +190,31 @@ class OpenAIProvider(ImageProvider):
                 else:
                     print("Error: Could not retrieve image data from the API response.")
                     fail_count += 1
+                    failed_inputs.append(os.path.basename(img_path))
 
             except Exception as e:
                 error_msg = str(e)
                 if "moderation_blocked" in error_msg:
-                    print(">> The request was rejected by the OpenAI safety system.")
+                    print(
+                        ">> The model refused this input (OpenAI safety system); "
+                        "skipping and continuing with the rest."
+                    )
+                    blocked_inputs.append(os.path.basename(img_path))
                 else:
                     print(f"An error occurred during OpenAI call: {e}")
+                    failed_inputs.append(os.path.basename(img_path))
                 fail_count += 1
 
         print(
             f"\n=== Batch complete: {success_count} succeeded, {fail_count} failed ==="
         )
+        if blocked_inputs:
+            print(
+                f">> Skipped by the model ({len(blocked_inputs)}): "
+                + ", ".join(blocked_inputs)
+            )
+        if failed_inputs:
+            print(f">> Failed ({len(failed_inputs)}): " + ", ".join(failed_inputs))
         if batch_tokens > 0:
             print(
                 f"[OpenAI] batch usage total: {batch_tokens:,} tokens "

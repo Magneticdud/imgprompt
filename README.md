@@ -5,7 +5,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 ## Features
 - Direct image path input via CLI.
 - Interactive file selection if no path is provided.
-- **PDF input**: pass a `.pdf` and it is rasterized to a bitmap before upload (a PNG is saved next to the source); for multi-page PDFs you choose which page to use.
+- **PDF input**: pass a `.pdf` and it is rasterized to a bitmap before upload (a PNG is saved next to the source); for multi-page PDFs you choose a single page or **all pages** — picking all expands the PDF into one input image per page and runs the whole document through batch mode.
 - **Batch processing**: Process multiple images with the same model and prompt.
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.
@@ -149,7 +149,9 @@ python imgedit.py img1.jpg "*.png" ./other_folder
 When you provide 2+ images, the script automatically enters **batch mode**:
 - Shows total cost estimate (per image × number of images)
 - Processes each image sequentially
-- Reports success/failure count at the end
+- Reports success/failure count at the end, naming any inputs that were skipped (e.g. a PDF page the model refused on moderation grounds) so the rest of the batch still completes
+
+A multi-page PDF processed with **All pages** feeds straight into this batch flow — one input image per page.
 
 ### Inline Preview
 After each generated image is saved, a small preview is shown **inline in the terminal** when your terminal supports graphics. This is best-effort and delegates to whichever image-to-terminal tool you have installed — [`chafa`](https://hpjansson.org/chafa/), [`viu`](https://github.com/atanunq/viu), or kitty's `icat` — each of which auto-detects the terminal's graphics protocol (kitty/iTerm2/sixel) and falls back to Unicode blocks. If none is installed, or the terminal can't display images, the step is silently skipped.
