@@ -227,6 +227,35 @@ REPLAY_OPTION = "🔁 Replay last generation"
 REPLAY_DIFFERENT_OPTION = "🔁 Replay on a different model"
 
 
+def maybe_edit_prompt(request: GenerationRequest) -> None:
+    """Offer a quick one-off prompt tweak before a replay re-runs.
+
+    A replay often needs only a tiny wording change (a comma, a word) to land,
+    and re-walking the whole wizard just for that is overkill. Default is "no
+    edit" so a plain replay stays a single Enter away. On confirm, the saved
+    prompt is pre-filled so the user edits it in place. An empty edit result or
+    a cancel at the edit step (Ctrl+C / Ctrl+D) leaves the prompt untouched.
+
+    Cancelling the confirm itself (Ctrl+C) aborts the whole replay via
+    ``sys.exit(0)`` -- ``questionary.confirm().ask()`` returns ``None`` on
+    Ctrl+C, which is indistinguishable from a plain "no", so we must handle it
+    explicitly. Otherwise a user who changes their mind and hits Ctrl+C would
+    silently have the (unsent-looking) request dispatched anyway.
+
+    Mutates ``request.prompt`` in place and reprints it when changed.
+    """
+    edit_prompt = questionary.confirm(
+        "Edit the prompt before replaying?", default=False
+    ).ask()
+    if edit_prompt is None:
+        sys.exit(0)
+    if edit_prompt:
+        new_prompt = multiline_prompt("Edit prompt:", default=request.prompt)
+        if new_prompt is not None and new_prompt.strip():
+            request.prompt = new_prompt
+            print(f"Prompt:     {request.prompt}")
+
+
 def run_replay(
     iterations_arg: int | None,
     model_override: str | None = None,
@@ -303,6 +332,8 @@ def run_replay(
     else:
         print("Image:      None (Text-to-Image)")
     print(f"Prompt:     {request.prompt}")
+
+    maybe_edit_prompt(request)
 
     # Persist the (possibly overridden) request so a further bare --replay
     # repeats THIS attempt — enabling quick A → B → B retry chains.
@@ -476,6 +507,8 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
     else:
         print("Image:      None (Text-to-Image)")
     print(f"Prompt:     {new_request.prompt}")
+
+    maybe_edit_prompt(new_request)
 
     # Persist so a further bare --replay repeats THIS attempt.
     save_last_generation(provider, new_request)
