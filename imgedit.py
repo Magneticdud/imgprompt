@@ -233,13 +233,22 @@ def maybe_edit_prompt(request: GenerationRequest) -> None:
     A replay often needs only a tiny wording change (a comma, a word) to land,
     and re-walking the whole wizard just for that is overkill. Default is "no
     edit" so a plain replay stays a single Enter away. On confirm, the saved
-    prompt is pre-filled so the user edits it in place. An empty result or a
-    cancel (Ctrl+C / Ctrl+D) leaves the prompt untouched. Mutates
-    ``request.prompt`` in place and reprints it when changed.
+    prompt is pre-filled so the user edits it in place. An empty edit result or
+    a cancel at the edit step (Ctrl+C / Ctrl+D) leaves the prompt untouched.
+
+    Cancelling the confirm itself (Ctrl+C) aborts the whole replay via
+    ``sys.exit(0)`` -- ``questionary.confirm().ask()`` returns ``None`` on
+    Ctrl+C, which is indistinguishable from a plain "no", so we must handle it
+    explicitly. Otherwise a user who changes their mind and hits Ctrl+C would
+    silently have the (unsent-looking) request dispatched anyway.
+
+    Mutates ``request.prompt`` in place and reprints it when changed.
     """
     edit_prompt = questionary.confirm(
         "Edit the prompt before replaying?", default=False
     ).ask()
+    if edit_prompt is None:
+        sys.exit(0)
     if edit_prompt:
         new_prompt = multiline_prompt("Edit prompt:", default=request.prompt)
         if new_prompt is not None and new_prompt.strip():
