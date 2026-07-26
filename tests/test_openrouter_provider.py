@@ -1034,6 +1034,101 @@ def test_mai_pro_costs_more_than_base():
 
 
 # --------------------------------------------------------------------------
+# Krea 2 family: three tiers sharing one descriptor (snapshot 2026-07-26) —
+# seven aspect ratios, `resolution` enum pinned to the single value "1K",
+# max 1 input reference, and NO `n` parameter at all. Every case below runs
+# against all three tiers.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "model", ["krea/krea-2-medium-turbo", "krea/krea-2-medium", "krea/krea-2-large"]
+)
+class TestKrea2:
+    def test_in_supported_models(self, model):
+        assert model in OpenRouterProvider.supported_models()
+        # Default must stay the first entry, not Krea.
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    def test_resolution_choices_match_descriptor(self, provider_with_key, model):
+        choices, default = provider_with_key.get_resolution_choices(model, None)
+        # 4:5 without its 5:4 mirror, 2:3 without 3:4 — per the descriptor.
+        assert choices == ["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]
+        assert "5:4" not in choices and "3:4" not in choices
+        assert default == "1:1"
+
+    def test_quality_choices_are_1k_only(self, provider_with_key, model):
+        choices, default = provider_with_key.get_quality_choices(
+            model, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K"]
+        assert default == choices[0]
+
+    def test_resolve_quality_returns_tier_key_and_price(self, provider_with_key, model):
+        key, cost = provider_with_key.resolve_quality(
+            model, "1024x1024", None, None, choices_first(provider_with_key, model)
+        )
+        assert key == "1K"
+        assert cost > 0
+
+    def test_payload_sends_resolution_1k(self, provider_with_key, model):
+        """Unlike MAI/Recraft, Krea DOES expose a `resolution` parameter, so
+        "1K" is a canonical tier that must reach the wire."""
+        req = GenerationRequest(
+            prompt="x",
+            model=model,
+            aspect_ratio="4:5",
+            res_key="896x1152",
+            quality_key="1K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "4:5"
+        assert body["resolution"] == "1K"
+        assert "size" not in body
+
+    def test_n_clamped_to_one_without_descriptor(self, provider_with_key, model):
+        """Krea's descriptor omits `n` entirely, so `caps.n_max` is None and
+        the clamp falls through to the prefix table. Without the "krea/"
+        entry this would send n=4 (the global cap is 10) for a model that
+        returns one image — over-billing the estimate and 400ing or silently
+        truncating upstream. The autouse fixture pins get_capabilities to
+        None, which is exactly the descriptor-less case."""
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=model,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+
+        assert mock_post.call_args.kwargs["json"]["n"] == 1
+
+
+def choices_first(provider, model) -> str:
+    """The wizard always feeds `resolve_quality` a label it produced itself."""
+    choices, _ = provider.get_quality_choices(model, "1024x1024", None, None, None)
+    return choices[0]
+
+
+def test_krea_tier_prices_are_ordered():
+    """Turbo < Medium < Large. The /endpoints response carries an empty
+    `pricing` array for this family, so live discovery can never fill these
+    in — the hardcoded table is the only thing the estimate can use."""
+    from imgprompt.presets import COSTS
+
+    turbo = COSTS["krea/krea-2-medium-turbo"]["1K"]["fixed"]
+    medium = COSTS["krea/krea-2-medium"]["1K"]["fixed"]
+    large = COSTS["krea/krea-2-large"]["1K"]["fixed"]
+    assert turbo < medium < large
+
+
+# --------------------------------------------------------------------------
 # xAI Grok Imagine image-quality (issue #7): 1K/2K only, seven standard
 # ratios surfaced (phone-screen ratios exist upstream but have no wizard
 # preview entry), flat $0.01 per input image. Descriptor snapshot 2026-07-07.

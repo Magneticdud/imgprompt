@@ -23,7 +23,14 @@ _MAX_BFL_MEGAPIXELS = 4
 _MAX_N = 10
 # Per-model caps below the global one. Recraft's descriptor pins n at 1..6
 # (verified 2026-07-07); the full descriptor-driven clamp is issue #11.
-_MODEL_MAX_N_PREFIXES = {"recraft/": 6}
+#
+# Krea is the one family whose descriptor omits `n` ENTIRELY (verified
+# 2026-07-26) rather than pinning it to a 1..1 range like the other
+# single-image models. That means `caps.n_max` is None for it and the
+# descriptor-driven clamp in `_call_api` falls through to this table — so
+# without the entry below Krea would inherit the global cap of 10 and the
+# wizard would offer (and price) batches the model cannot produce.
+_MODEL_MAX_N_PREFIXES = {"recraft/": 6, "krea/": 1}
 
 
 def _max_n_for(model: str) -> int:
@@ -67,6 +74,23 @@ _MODEL_PIXEL_CEILINGS = {
 # per-token price differs, so the wizard branches below treat them as one.
 # Verified 2026-07-26 against /api/v1/images/models.
 _MAI_MODELS = ("microsoft/mai-image-2.5", "microsoft/mai-image-2.5-pro")
+
+# Krea 2 family on /api/v1/images. All three tiers ship an IDENTICAL
+# descriptor (verified 2026-07-26 against /api/v1/images/models) — same
+# seven aspect ratios, `resolution` pinned to the single value "1K", at
+# most 1 input reference, no `n` parameter — and differ only in price,
+# so the wizard branches below treat them as one.
+_KREA_MODELS = (
+    "krea/krea-2-medium-turbo",
+    "krea/krea-2-medium",
+    "krea/krea-2-large",
+)
+
+# The seven ratios Krea advertises, in the wizard's canonical
+# OPENROUTER_RESOLUTIONS order. Note the asymmetry: 4:5 is supported but
+# its mirror 5:4 is not, and 2:3 is supported but 3:4 is not — this is
+# what the descriptor says, not an oversight. Anything else 400s upstream.
+_KREA_RATIOS = ["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]
 
 # Nominal pixel targets per resolution tier (the square each tier names).
 # Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
@@ -261,6 +285,10 @@ class OpenRouterProvider(ImageProvider):
             "microsoft/mai-image-2.5",
             "microsoft/mai-image-2.5-pro",
             "x-ai/grok-imagine-image-quality",
+            # Krea 2 family, cheapest tier first (turbo $0.015 → large $0.06).
+            "krea/krea-2-medium-turbo",
+            "krea/krea-2-medium",
+            "krea/krea-2-large",
             # Recraft v4.1 family, grouped at the end: two axes — output
             # (raster vs. SVG vector) × tier (base/utility vs. pro).
             "recraft/recraft-v4.1",
@@ -298,6 +326,11 @@ class OpenRouterProvider(ImageProvider):
             # /api/v1/images/models (identical for 2.5 and 2.5 Pro) — sending
             # anything else 400s upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
+        elif model in _KREA_MODELS:
+            # Krea's descriptor lists exactly these seven (see _KREA_RATIOS
+            # for the 4:5-without-5:4 asymmetry). Every one has a
+            # RATIO_TO_RESOLUTION entry, so the picker can preview them all.
+            ratio_options = list(_KREA_RATIOS)
         elif model == "x-ai/grok-imagine-image-quality":
             # Grok's descriptor (verified 2026-07-07) lists these seven plus
             # phone-screen ratios (9:19.5, 19.5:9, 9:20, 20:9, 1:2, 2:1) and
@@ -429,6 +462,12 @@ class OpenRouterProvider(ImageProvider):
             # outside the {512,1K,2K,4K} set so _build_payload never emits
             # a resolution field for it.
             sizes = ["Standard"]
+        elif model in _KREA_MODELS:
+            # Krea's `resolution` enum holds the single value "1K" (verified
+            # 2026-07-26, all three tiers). Unlike MAI/Recraft the parameter
+            # DOES exist, so "1K" is a real canonical tier that _build_payload
+            # forwards on the wire — not a synthetic "Standard" placeholder.
+            sizes = ["1K"]
         elif model == "x-ai/grok-imagine-image-quality":
             # Grok Imagine caps at 2K — descriptor lists exactly ["1K","2K"]
             # (verified 2026-07-07 against /api/v1/images/models). Explicit

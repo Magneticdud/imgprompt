@@ -293,6 +293,17 @@ COSTS["microsoft/mai-image-2.5-pro"] = {
     "Standard": {"fixed": 0.43},
 }
 
+# Krea 2 family (via OpenRouter). Flat per-image pricing; 1K is the only
+# resolution tier the descriptor advertises, so each row has a single "1K"
+# key. NOTE: unlike every other OpenRouter model here, the /endpoints
+# response carries an EMPTY `pricing` array (checked 2026-07-26), so live
+# discovery cannot price these — `_tier_price` always falls back to this
+# table. Figures are the "from $X/image" headline on each model page
+# (snapshot 2026-07-26); usage.cost reports the real charge after the call.
+COSTS["krea/krea-2-medium-turbo"] = {"1K": {"fixed": 0.015}}
+COSTS["krea/krea-2-medium"] = {"1K": {"fixed": 0.03}}
+COSTS["krea/krea-2-large"] = {"1K": {"fixed": 0.06}}
+
 # xAI Grok Imagine (image-quality tier, via OpenRouter). Per-image pricing
 # from /api/v1/images/models/x-ai/grok-imagine-image-quality/endpoints,
 # snapshot 2026-07-07: output $0.05 (1K) / $0.07 (2K); input images are a

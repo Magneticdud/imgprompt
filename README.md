@@ -186,6 +186,10 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
   - `sourceful/riverflow-v2.5-fast`: $0.02 (1K), $0.04 (2K).
   - `sourceful/riverflow-v2.5-pro`: $0.15 (1K/2K), $0.33 (4K).
   - `x-ai/grok-imagine-image-quality`: $0.05 (1K), $0.07 (2K), capped at 2K; input reference images cost a flat $0.01 each. Single image per call (`n` capped at 1 upstream).
+  - **Krea 2 family** (all three tiers share one descriptor: 1K only, seven ratios — `1:1`, `2:3`, `3:2`, `4:3`, `4:5`, `9:16`, `16:9` (no `3:4`/`5:4`/`21:9`) — one input reference, single image per call. Prices are the model pages' headline figures: OpenRouter reports **no** pricing for this family through the API, so the pre-call estimate always comes from the hardcoded table and `usage.cost` is the authoritative charge):
+    - `krea/krea-2-medium-turbo`: $0.015 — distilled speed tier, for rapid iteration.
+    - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.
+    - `krea/krea-2-large`: $0.06 — 2x+ the size of Medium, lighter post-training: rawer, more textured.
   - **Recraft v4.1 family** (raster vs. SVG vector × base vs. pro; geometry is model-chosen — no ratio/resolution knobs; up to 6 variants per call; **`recraft/recraft-v4.1` is the recommended starting point**):
     - `recraft/recraft-v4.1`: $0.035 — general raster.
     - `recraft/recraft-v4.1-pro`: $0.21 — general raster, premium.
