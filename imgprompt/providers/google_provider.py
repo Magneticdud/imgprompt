@@ -329,8 +329,7 @@ class GoogleProvider(ImageProvider):
         )
         if failed_inputs:
             print(
-                f">> Skipped/failed ({len(failed_inputs)}): "
-                + ", ".join(failed_inputs)
+                f">> Skipped/failed ({len(failed_inputs)}): " + ", ".join(failed_inputs)
             )
 
     def _run_single(self, request: GenerationRequest, config_args: dict) -> None:

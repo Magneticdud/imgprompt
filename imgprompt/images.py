@@ -71,6 +71,7 @@ def preview_image_file(path: str, max_height: int = _PREVIEW_MAX_HEIGHT) -> None
         # A preview is a nicety, never a hard requirement; never abort the run.
         pass
 
+
 # DPI used when rasterizing PDF pages to bitmaps. ~200 DPI keeps an A4 page
 # around 1654x2339, sharp enough for editing while the later resize step trims
 # it to the chosen target resolution.

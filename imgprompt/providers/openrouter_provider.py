@@ -689,8 +689,7 @@ class OpenRouterProvider(ImageProvider):
         )
         if failed_inputs:
             print(
-                f">> Skipped/failed ({len(failed_inputs)}): "
-                + ", ".join(failed_inputs)
+                f">> Skipped/failed ({len(failed_inputs)}): " + ", ".join(failed_inputs)
             )
 
     def _save_one(
