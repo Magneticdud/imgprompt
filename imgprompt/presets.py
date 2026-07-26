@@ -284,6 +284,15 @@ COSTS["microsoft/mai-image-2.5"] = {
     "Standard": {"fixed": 0.19},
 }
 
+# MAI Image 2.5 Pro (same Azure endpoint family, ~2.3x the output price):
+# output_image $108/Mtok, input_image $8/Mtok, input_text $5/Mtok (snapshot
+# 2026-07-26 from /api/v1/images/models/microsoft/mai-image-2.5-pro/
+# endpoints). Same ~4,000-image-token assumption as the base tier, so
+# 4,000 x $108/Mtok ≈ $0.43; usage.cost reports the real charge.
+COSTS["microsoft/mai-image-2.5-pro"] = {
+    "Standard": {"fixed": 0.43},
+}
+
 # xAI Grok Imagine (image-quality tier, via OpenRouter). Per-image pricing
 # from /api/v1/images/models/x-ai/grok-imagine-image-quality/endpoints,
 # snapshot 2026-07-07: output $0.05 (1K) / $0.07 (2K); input images are a
