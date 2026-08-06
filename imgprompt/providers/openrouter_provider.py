@@ -30,7 +30,11 @@ _MAX_N = 10
 # descriptor-driven clamp in `_call_api` falls through to this table — so
 # without the entry below Krea would inherit the global cap of 10 and the
 # wizard would offer (and price) batches the model cannot produce.
-_MODEL_MAX_N_PREFIXES = {"recraft/": 6, "krea/": 1}
+#
+# Qwen's descriptor DOES pin n (1..6, verified 2026-08-06), so live
+# discovery already clamps it correctly — the entry here is only an
+# offline/cache-miss safety net, same role as Recraft's.
+_MODEL_MAX_N_PREFIXES = {"recraft/": 6, "krea/": 1, "qwen/": 6}
 
 
 def _max_n_for(model: str) -> int:
@@ -91,6 +95,31 @@ _KREA_MODELS = (
 # its mirror 5:4 is not, and 2:3 is supported but 3:4 is not — this is
 # what the descriptor says, not an oversight. Anything else 400s upstream.
 _KREA_RATIOS = ["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]
+
+# Qwen Image 3 family on /api/v1/images. Both tiers ship the SAME
+# descriptor (verified 2026-08-06 against /api/v1/images/models) — thirteen
+# aspect ratios, `resolution` enum {"1K", "2K"}, `n` range 1..6, up to 4
+# input references — and differ only in price, so the wizard branches below
+# treat them as one.
+_QWEN_MODELS = ("qwen/qwen-image-3", "qwen/qwen-image-3-pro")
+
+# Eleven of Qwen's thirteen ratios, in the wizard's canonical
+# OPENROUTER_RESOLUTIONS order. `1:2` and `2:1` are also in the descriptor
+# but have no RATIO_TO_RESOLUTION preset for the wizard's pixel preview —
+# same treatment as Grok's phone-screen ratios — so they stay off the picker.
+_QWEN_RATIOS = [
+    "1:1",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:3",
+    "4:5",
+    "5:4",
+    "9:16",
+    "16:9",
+    "1:4",
+    "4:1",
+]
 
 # Nominal pixel targets per resolution tier (the square each tier names).
 # Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
@@ -285,6 +314,9 @@ class OpenRouterProvider(ImageProvider):
             "microsoft/mai-image-2.5",
             "microsoft/mai-image-2.5-pro",
             "x-ai/grok-imagine-image-quality",
+            # Qwen Image 3 family, cheaper tier first.
+            "qwen/qwen-image-3",
+            "qwen/qwen-image-3-pro",
             # Krea 2 family, cheapest tier first (turbo $0.015 → large $0.06).
             "krea/krea-2-medium-turbo",
             "krea/krea-2-medium",
@@ -338,6 +370,9 @@ class OpenRouterProvider(ImageProvider):
             # the wizard's pixel preview, so we keep them off the picker; no
             # 4:5/5:4/21:9 upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
+        elif model in _QWEN_MODELS:
+            # See _QWEN_RATIOS for why 1:2/2:1 are excluded from the picker.
+            ratio_options = list(_QWEN_RATIOS)
         elif model.startswith("recraft/"):
             # Recraft's descriptor exposes NO aspect_ratio or resolution
             # parameter (verified 2026-07-07): geometry is entirely

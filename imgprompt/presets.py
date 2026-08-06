@@ -314,6 +314,21 @@ COSTS["x-ai/grok-imagine-image-quality"] = {
     "input_flat": 0.01,
 }
 
+# Qwen Image 3 family (via OpenRouter). Two tiers, flat per-image pricing
+# from /api/v1/images/models/qwen/qwen-image-3{,-pro}/endpoints, snapshot
+# 2026-08-06: base $0.03 flat (1K and 2K bill the same), pro $0.04 (1K) /
+# $0.075 (2K); input reference images cost a flat $0.003 each on both tiers.
+COSTS["qwen/qwen-image-3"] = {
+    "1K": {"fixed": 0.03},
+    "2K": {"fixed": 0.03},
+    "input_flat": 0.003,
+}
+COSTS["qwen/qwen-image-3-pro"] = {
+    "1K": {"fixed": 0.04},
+    "2K": {"fixed": 0.075},
+    "input_flat": 0.003,
+}
+
 # Recraft v4.1 family (via OpenRouter). Two axes: output (raster vs. SVG
 # vector) × tier (base/utility vs. pro). Flat per-image pricing from each
 # model's /endpoints entry, snapshot 2026-07-07; no resolution tiers (the

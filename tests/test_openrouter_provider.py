@@ -1178,6 +1178,102 @@ class TestGrokImagine:
 
 
 # --------------------------------------------------------------------------
+# Qwen Image 3 family: two tiers sharing one descriptor (snapshot
+# 2026-08-06) — thirteen aspect ratios, `resolution` enum {"1K","2K"}, `n`
+# range 1..6, up to 4 input references. Every case below runs against both.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model", ["qwen/qwen-image-3", "qwen/qwen-image-3-pro"])
+class TestQwenImage3:
+    def test_in_supported_models(self, model):
+        assert model in OpenRouterProvider.supported_models()
+        # Default must stay the first entry, not Qwen.
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    def test_resolution_choices_match_descriptor(self, provider_with_key, model):
+        choices, default = provider_with_key.get_resolution_choices(model, None)
+        # Eleven of the thirteen descriptor ratios: 1:2/2:1 have no
+        # RATIO_TO_RESOLUTION preset, so they're excluded from the picker.
+        assert choices == [
+            "1:1",
+            "2:3",
+            "3:2",
+            "3:4",
+            "4:3",
+            "4:5",
+            "5:4",
+            "9:16",
+            "16:9",
+            "1:4",
+            "4:1",
+        ]
+        assert default == "1:1"
+
+    def test_quality_choices_are_1k_2k(self, provider_with_key, model):
+        choices, default = provider_with_key.get_quality_choices(
+            model, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+        assert default == choices[0]
+
+    def test_resolve_quality_returns_tier_key_and_price(self, provider_with_key, model):
+        key, cost = provider_with_key.resolve_quality(
+            model, "1024x1024", None, None, choices_first(provider_with_key, model)
+        )
+        assert key == "1K"
+        assert cost > 0
+
+    def test_payload_passes_ratio_and_resolution(self, provider_with_key, model):
+        req = GenerationRequest(
+            prompt="x",
+            model=model,
+            aspect_ratio="4:1",
+            res_key="2048x512",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "4:1"
+        assert body["resolution"] == "2K"
+        assert "size" not in body
+
+    def test_n_clamped_to_six_without_descriptor(self, provider_with_key, model):
+        """Offline safety net: without the "qwen/" prefix-table entry a
+        descriptor-less run would inherit the global cap of 10, over an
+        upstream hard cap of 6."""
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=model,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                n=9,
+            )
+            provider_with_key._call_api(req, n=9)
+
+        assert mock_post.call_args.kwargs["json"]["n"] == 6
+
+    def test_input_flat_rate_is_priced(self, model):
+        from imgprompt.presets import COSTS
+
+        assert COSTS[model]["input_flat"] == 0.003
+
+
+def test_qwen_pro_costs_more_than_base_at_2k():
+    """Pro is billed at $0.075/image (2K) vs. the base tier's flat $0.03 —
+    the wizard's pre-call estimate must reflect that."""
+    from imgprompt.presets import COSTS
+
+    base = COSTS["qwen/qwen-image-3"]["2K"]["fixed"]
+    pro = COSTS["qwen/qwen-image-3-pro"]["2K"]["fixed"]
+    assert pro > base
+
+
+# --------------------------------------------------------------------------
 # Recraft v4.1 family (issue #8): six variants, no aspect_ratio/resolution
 # parameters upstream (geometry is model-chosen), n capped at 6, vector
 # variants return SVG natively. Descriptor snapshot 2026-07-07.
