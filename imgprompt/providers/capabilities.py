@@ -267,24 +267,45 @@ def get_live_pricing(model: str) -> tuple[PriceEntry, ...] | None:
     return entries
 
 
+# Pricing variants that do NOT spell their tier. Almost every variant-priced
+# model on /api/v1/images names the tier directly ("1k", "2k", "4k", or Grok
+# 2.0's "low_1k"/"medium_2k" quality+tier pairs), so the plain
+# `variant == tier` match below covers them. Seedream 5.0 Pro is the sole
+# exception in the whole catalog (surveyed across all 52 image models,
+# 2026-09-11): it prices its top tier as "high_resolution". Without this
+# mapping the lookup falls through to the variant-less entry and estimates
+# 2K at the 1K price — half the real charge, which then trips the >10%
+# cost-reconciliation warning on every 2K run.
+#
+# Keyed per model on purpose: "high_resolution" carries no inherent tier, so
+# a future model could use the same word for 4K.
+_MODEL_VARIANT_TIERS = {
+    "bytedance-seed/seedream-5-0-pro": {"high_resolution": "2k"},
+}
+
+
 def output_image_price(model: str, tier: str | None) -> float | None:
     """Flat per-image output price for a tier, from live pricing.
 
     Variant-priced entries (e.g. Grok: 1k/2k) are matched case-insensitively
-    against the tier; a variant-less output_image entry is the flat price
-    for every tier (Recraft, seedream). Token-billed models return None so
-    callers keep the hardcoded per-image estimate.
+    against the tier, after resolving any non-obvious variant name through
+    :data:`_MODEL_VARIANT_TIERS`; a variant-less output_image entry is the
+    flat price for every tier (Recraft, Seedream 5.0 Lite). Token-billed
+    models return None so callers keep the hardcoded per-image estimate.
     """
     entries = get_live_pricing(model)
     if not entries:
         return None
     tier_l = tier.lower() if tier else None
+    aliases = _MODEL_VARIANT_TIERS.get(model, {})
     flat = None
     for e in entries:
         if e.billable != "output_image" or e.unit != "image":
             continue
         if e.variant is not None:
-            if tier_l and e.variant.lower() == tier_l:
+            variant_l = e.variant.lower()
+            variant_l = aliases.get(variant_l, variant_l)
+            if tier_l and variant_l == tier_l:
                 return e.cost_usd
         else:
             flat = e.cost_usd

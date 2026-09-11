@@ -1037,7 +1037,7 @@ def main():
         "--model",
         default=None,
         help="With --replay: retry the saved generation on a different model "
-        "(e.g. --replay --model bytedance-seed/seedream-4.5)",
+        "(e.g. --replay --model bytedance-seed/seedream-5-0-lite)",
     )
     parser.add_argument(
         "--provider",

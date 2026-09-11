@@ -232,10 +232,21 @@ COSTS = {
         "2K": {"fixed": 0.15},
         "4K": {"fixed": 0.33},
     },
-    "bytedance-seed/seedream-4.5": {
-        "1K": {"fixed": 0.04},
-        "2K": {"fixed": 0.04},
-        "4K": {"fixed": 0.04},
+    # Seedream 5.0 Lite: one flat price at every tier, like the 4.5 it
+    # replaces, but cheaper ($0.035 vs $0.04) and with no 1K tier — its
+    # `resolution` enum is ["2K","4K"]. Input references are free.
+    "bytedance-seed/seedream-5-0-lite": {
+        "2K": {"fixed": 0.035},
+        "4K": {"fixed": 0.035},
+    },
+    # Seedream 5.0 Pro: the first Seed tier with a genuine per-resolution
+    # price — 2K bills as the `high_resolution` pricing variant at double
+    # the 1K rate — and the first to charge for input references at all
+    # ($0.003 flat each, like Qwen). Caps at 2K (no 4K).
+    "bytedance-seed/seedream-5-0-pro": {
+        "1K": {"fixed": 0.045},
+        "2K": {"fixed": 0.09},
+        "input_flat": 0.003,
     },
     "black-forest-labs/flux.2-klein-4b": {
         "1K": {"fixed": 0.014},

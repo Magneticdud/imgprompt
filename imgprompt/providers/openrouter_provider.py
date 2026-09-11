@@ -34,7 +34,21 @@ _MAX_N = 10
 # Qwen's descriptor DOES pin n (1..6, verified 2026-08-06), so live
 # discovery already clamps it correctly — the entry here is only an
 # offline/cache-miss safety net, same role as Recraft's.
-_MODEL_MAX_N_PREFIXES = {"recraft/": 6, "krea/": 1, "qwen/": 6}
+#
+# The two Seedream 5.0 entries are full model ids rather than family
+# prefixes: the tiers disagree (Lite 1..4, Pro 1..1, verified 2026-09-11)
+# so `bytedance-seed/` cannot carry one number for both. `startswith`
+# matches an exact id as a prefix of itself, and neither id is a prefix
+# of the other, so the lookup stays unambiguous. Without these the
+# offline path would inherit the global cap of 10 and the wizard would
+# price a 10-variant batch Pro can never produce.
+_MODEL_MAX_N_PREFIXES = {
+    "recraft/": 6,
+    "krea/": 1,
+    "qwen/": 6,
+    "bytedance-seed/seedream-5-0-lite": 4,
+    "bytedance-seed/seedream-5-0-pro": 1,
+}
 
 
 def _max_n_for(model: str) -> int:
@@ -65,11 +79,26 @@ _DEFAULT_TIMEOUT = (10, 300)
 # shaping the box to the aspect ratio with edges rounded to multiples of
 # 16 (the /api/v1/images grid), then clamping to the floor (ceil-16) and
 # the ceiling (floor-16, with a defensive re-check).
+#
+# Carried over from the retired seedream-4.5 to Seedream 5.0 Lite: same
+# upstream endpoint (`provider_slug: seed`), and Lite's descriptor DROPS
+# the 1K tier it inherited — exactly what you would expect from a model
+# whose smallest legal output is 3.69MP. Both of Lite's tiers (2K =
+# 4.19MP, 4K = 16.78MP) clear the floor on their own, so the floor is
+# inert for menu-driven runs and only bites on the custom-dimension path.
+# Keeping it is the safe direction: an unnecessary raise costs nothing
+# (Lite is flat-priced at any size) whereas a missing one is a 400.
+#
+# Seedream 5.0 Pro is deliberately in NEITHER table. It advertises 1K
+# (1.05MP, well under the old floor) AND prices it separately from its
+# `high_resolution` tier, so the floor demonstrably does not apply to it;
+# and it caps at 2K (4.19MP), nowhere near the ceiling. Do not add
+# entries for it without verifying against a real upstream response.
 _MODEL_PIXEL_FLOORS = {
-    "bytedance-seed/seedream-4.5": 3_686_400,
+    "bytedance-seed/seedream-5-0-lite": 3_686_400,
 }
 _MODEL_PIXEL_CEILINGS = {
-    "bytedance-seed/seedream-4.5": 16_777_216,
+    "bytedance-seed/seedream-5-0-lite": 16_777_216,
 }
 
 # Microsoft MAI family on /api/v1/images. Both tiers ship the SAME
@@ -303,7 +332,11 @@ class OpenRouterProvider(ImageProvider):
     def supported_models(cls) -> list[str]:
         return [
             "openai/gpt-5.4-image-2",
-            "bytedance-seed/seedream-4.5",
+            # Seedream 5.0, cheaper/higher-resolution tier first: Lite is the
+            # family default. It supersedes seedream-4.5 outright — $0.035 vs
+            # $0.04 flat, same 4K ceiling, same ratios — so 4.5 is retired.
+            "bytedance-seed/seedream-5-0-lite",
+            "bytedance-seed/seedream-5-0-pro",
             "black-forest-labs/flux.2-klein-4b",
             "black-forest-labs/flux.2-flex",
             "black-forest-labs/flux.2-pro",
@@ -506,6 +539,18 @@ class OpenRouterProvider(ImageProvider):
             # DOES exist, so "1K" is a real canonical tier that _build_payload
             # forwards on the wire — not a synthetic "Standard" placeholder.
             sizes = ["1K"]
+        elif model == "bytedance-seed/seedream-5-0-lite":
+            # Lite's `resolution` enum is ["2K","4K"] — no 1K (verified
+            # 2026-09-11). The retired 4.5 offered a 1K that the upstream
+            # pixel floor silently raised to 3.69MP anyway; Lite just drops
+            # the pretence, so there is no sub-floor tier left to flag.
+            sizes = ["2K", "4K"]
+        elif model == "bytedance-seed/seedream-5-0-pro":
+            # Pro is the mirror image: ["1K","2K"], no 4K (verified
+            # 2026-09-11). Its 2K is billed as the `high_resolution` pricing
+            # variant at double the 1K rate — see _MODEL_VARIANT_TIERS in
+            # capabilities.py for the variant→tier mapping.
+            sizes = ["1K", "2K"]
         elif model == "x-ai/grok-imagine-image-quality":
             # Grok Imagine caps at 2K — descriptor lists exactly ["1K","2K"]
             # (verified 2026-07-07 against /api/v1/images/models). Explicit
@@ -550,9 +595,12 @@ class OpenRouterProvider(ImageProvider):
         choices = []
         for s in sizes:
             label = f"{s} (${self._tier_price(model, s):.3f})"
-            # Pre-flight signal for tiers the upstream floor overrides (e.g.
-            # seedream 1K): the user should know before confirming that the
-            # output will be larger than the tier name suggests.
+            # Pre-flight signal for tiers the upstream floor overrides: the
+            # user should know before confirming that the output will be
+            # larger than the tier name suggests. No shipped model triggers
+            # this today (the retired seedream-4.5's 1K was the last one —
+            # 5.0 Lite drops that tier), but the rule stays so a future
+            # sub-floor tier is flagged rather than silently upsized.
             if floor and _TIER_PIXELS.get(s, floor) < floor:
                 label += f" — raised to upstream {floor / 1e6:.1f}MP minimum"
             choices.append(label)

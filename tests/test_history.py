@@ -55,7 +55,7 @@ def test_is_dual_survives_roundtrip(monkeypatch, tmp_path):
     _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
         prompt="combine IMG_1 and IMG_2",
-        model="bytedance-seed/seedream-4.5",
+        model="bytedance-seed/seedream-5-0-lite",
         aspect_ratio="1:1",
         res_key="1024x1024",
         quality_key="1K",

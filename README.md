@@ -116,7 +116,7 @@ python imgedit.py photo.jpg --replay
 
 # Retry the same prompt/images on a DIFFERENT model (e.g. after a content
 # refusal) without re-walking the wizard:
-python imgedit.py --replay --model bytedance-seed/seedream-4.5
+python imgedit.py --replay --model bytedance-seed/seedream-5-0-lite
 
 # Swap the provider too (case-insensitive):
 python imgedit.py --replay --provider openrouter --model black-forest-labs/flux.2-pro
@@ -176,7 +176,10 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
   > ⚠️ **Google direct API is currently untested.** Only the OpenRouter path is verified end-to-end in this project — the `Google` provider in `imgprompt/providers/google_provider.py` prints a banner on first use and may drift from Google's API without warning. Prefer the OpenRouter route for Gemini unless you have a specific reason to hit Google's API directly.
 - **OpenRouter**:
-  - `bytedance-seed/seedream-4.5`: $0.04 per image (any size).
+  - **Seedream 5.0 family**: the two tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
+    - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 4 images per call. The default Seed model.
+    - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each; single image per call (`n` capped at 1 upstream). The editing-precision tier.
+  - ~~`bytedance-seed/seedream-4.5`~~: removed in this release, superseded by Seedream 5.0 Lite — cheaper ($0.035 vs $0.04), same 4K ceiling and the same aspect ratios. Its nominal "1K" tier was never really 1K: the upstream floor of 3,686,400 px silently raised every 1K request to ~1920x1920, so you paid $0.04 for 3.69MP where Lite now gives 4.19MP for $0.035. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
   - `black-forest-labs/flux.2-klein-4b`: $0.014 (1K), $0.017 (2K).
   - `black-forest-labs/flux.2-flex`: Output $0.06 (1K), $0.24 (2K); Input $0.06/MP.
   - `black-forest-labs/flux.2-pro`: Output $0.03 (1K), $0.075 (2K); Input $0.015/MP.

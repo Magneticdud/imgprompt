@@ -17,8 +17,11 @@ from imgprompt.providers.capabilities import (
     reset_catalog,
 )
 
-SEEDREAM_ITEM = {
-    "id": "bytedance-seed/seedream-4.5",
+# A synthetic full descriptor: one of every parameter shape the catalog
+# emits (enum, range, boolean). Deliberately not tied to a real model id so
+# retiring a model never invalidates the parser tests.
+FULL_ITEM = {
+    "id": "vendor/model-full",
     "supported_parameters": {
         "resolution": {"type": "enum", "values": ["1K", "2K", "4K"]},
         "aspect_ratio": {"type": "enum", "values": ["1:1", "16:9", "9:16"]},
@@ -54,8 +57,8 @@ def _stub_get(mock_get, data=None, error=None):
 
 class TestParseItem:
     def test_full_descriptor(self):
-        caps = _parse_item(SEEDREAM_ITEM)
-        assert caps.model == "bytedance-seed/seedream-4.5"
+        caps = _parse_item(FULL_ITEM)
+        assert caps.model == "vendor/model-full"
         assert caps.aspect_ratios == ("1:1", "16:9", "9:16")
         assert caps.resolutions == ("1K", "2K", "4K")
         assert caps.n_min == 1 and caps.n_max == 10
@@ -114,22 +117,22 @@ class TestParseItem:
 class TestCatalogFetch:
     def test_hit_returns_parsed_descriptor(self):
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_get(mock_get, data=[SEEDREAM_ITEM])
-            caps = get_capabilities("bytedance-seed/seedream-4.5")
+            _stub_get(mock_get, data=[FULL_ITEM])
+            caps = get_capabilities("vendor/model-full")
         assert isinstance(caps, ModelCapabilities)
         assert caps.n_max == 10
 
     def test_unknown_model_returns_none(self):
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_get(mock_get, data=[SEEDREAM_ITEM])
+            _stub_get(mock_get, data=[FULL_ITEM])
             assert get_capabilities("nope/never") is None
 
     def test_single_fetch_per_session(self):
         """The catalog is fetched once and reused across lookups."""
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_get(mock_get, data=[SEEDREAM_ITEM])
-            get_capabilities("bytedance-seed/seedream-4.5")
-            get_capabilities("bytedance-seed/seedream-4.5")
+            _stub_get(mock_get, data=[FULL_ITEM])
+            get_capabilities("vendor/model-full")
+            get_capabilities("vendor/model-full")
             get_capabilities("other/model")
         assert mock_get.call_count == 1
 
@@ -138,9 +141,9 @@ class TestCatalogFetch:
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
             _stub_get(mock_get, error=real_requests.ConnectionError("down"))
-            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+            assert get_capabilities("vendor/model-full") is None
             # Failure is cached: one attempt, one note for the whole session.
-            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+            assert get_capabilities("vendor/model-full") is None
         assert mock_get.call_count == 1
         assert capsys.readouterr().out.count("unavailable") == 1
 
@@ -150,7 +153,7 @@ class TestCatalogFetch:
             resp.json.side_effect = ValueError("not json")
             resp.raise_for_status.return_value = None
             mock_get.return_value = resp
-            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+            assert get_capabilities("vendor/model-full") is None
 
     def test_api_key_forwarded_when_present(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
@@ -187,9 +190,9 @@ class TestFileCache:
     def test_fresh_cache_hit_skips_network(self):
         import time
 
-        _write_cache_file(time.time() - 60, [SEEDREAM_ITEM])
+        _write_cache_file(time.time() - 60, [FULL_ITEM])
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            caps = get_capabilities("bytedance-seed/seedream-4.5")
+            caps = get_capabilities("vendor/model-full")
         assert caps is not None and caps.n_max == 10
         mock_get.assert_not_called()
 
@@ -198,13 +201,13 @@ class TestFileCache:
         import os
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_get(mock_get, data=[SEEDREAM_ITEM])
-            caps = get_capabilities("bytedance-seed/seedream-4.5")
+            _stub_get(mock_get, data=[FULL_ITEM])
+            caps = get_capabilities("vendor/model-full")
         assert caps is not None
         assert os.path.exists(capabilities.CACHE_FILE)
         with open(capabilities.CACHE_FILE) as f:
             cached = json.load(f)
-        assert cached["data"] == [SEEDREAM_ITEM]
+        assert cached["data"] == [FULL_ITEM]
         assert cached["fetched_at"] > 0
 
     def test_stale_cache_served_and_refreshed_in_background(self, monkeypatch):
@@ -213,7 +216,7 @@ class TestFileCache:
         import json
         import time
 
-        stale_item = dict(SEEDREAM_ITEM)
+        stale_item = dict(FULL_ITEM)
         _write_cache_file(
             time.time() - capabilities.CACHE_TTL_SECONDS - 60, [stale_item]
         )
@@ -234,7 +237,7 @@ class TestFileCache:
         fresh_item = {"id": "new/model", "supported_parameters": {}}
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
             _stub_get(mock_get, data=[fresh_item])
-            caps = get_capabilities("bytedance-seed/seedream-4.5")
+            caps = get_capabilities("vendor/model-full")
 
         # Session still answers from the stale catalog...
         assert caps is not None and caps.n_max == 10
@@ -249,7 +252,7 @@ class TestFileCache:
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
             _stub_get(mock_get, error=real_requests.ConnectionError("down"))
-            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+            assert get_capabilities("vendor/model-full") is None
         assert not os.path.exists(capabilities.CACHE_FILE)
         assert "built-in defaults" in capsys.readouterr().out
 
@@ -261,7 +264,7 @@ class TestFileCache:
 
         _write_cache_file(time.time() - 60, [])
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            assert get_capabilities("bytedance-seed/seedream-4.5") is None
+            assert get_capabilities("vendor/model-full") is None
         mock_get.assert_not_called()
         assert "unavailable" not in capsys.readouterr().out
 
@@ -272,8 +275,8 @@ class TestFileCache:
         with open(capabilities.CACHE_FILE, "w") as f:
             f.write("{ not valid json")
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_get(mock_get, data=[SEEDREAM_ITEM])
-            caps = get_capabilities("bytedance-seed/seedream-4.5")
+            _stub_get(mock_get, data=[FULL_ITEM])
+            caps = get_capabilities("vendor/model-full")
         assert caps is not None
         mock_get.assert_called_once()
 
@@ -286,6 +289,19 @@ GROK_PRICING = [
     {"billable": "input_image", "unit": "image", "cost_usd": 0.01},
     {"billable": "output_image", "unit": "image", "cost_usd": 0.05, "variant": "1k"},
     {"billable": "output_image", "unit": "image", "cost_usd": 0.07, "variant": "2k"},
+]
+
+# Seedream 5.0 Pro, snapshot 2026-09-11: the only model in the catalog whose
+# tier variant is not spelled as a tier ("high_resolution" = 2K).
+SEEDREAM_5_PRO_PRICING = [
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.045},
+    {
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.09,
+        "variant": "high_resolution",
+    },
+    {"billable": "input_image", "unit": "image", "cost_usd": 0.003},
 ]
 
 RECRAFT_PRICING = [
@@ -315,6 +331,29 @@ class TestLivePricing:
             assert output_image_price("x-ai/grok-imagine-image-quality", "2K") == 0.07
         # Session cache: one endpoints call for both lookups.
         assert mock_get.call_count == 1
+
+    def test_aliased_variant_maps_to_its_tier(self):
+        """Seedream 5.0 Pro prices 2K as the `high_resolution` variant. Without
+        the per-model alias the lookup would fall through to the variant-less
+        $0.045 entry and estimate 2K at half its real cost."""
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, SEEDREAM_5_PRO_PRICING)
+            model = "bytedance-seed/seedream-5-0-pro"
+            assert output_image_price(model, "2K") == 0.09
+            assert output_image_price(model, "1K") == 0.045
+
+    def test_alias_is_scoped_to_its_model(self):
+        """The alias table is per-model on purpose: the same variant name on
+        another model must not be silently read as 2K."""
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, SEEDREAM_5_PRO_PRICING)
+            # Unaliased model: "high_resolution" matches no tier, so the
+            # variant-less entry is the answer for every tier.
+            assert output_image_price("other/model", "2K") == 0.045
 
     def test_flat_price_applies_to_any_tier(self):
         from imgprompt.providers.capabilities import output_image_price

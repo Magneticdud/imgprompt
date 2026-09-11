@@ -51,7 +51,9 @@ class TestRecraftGate:
 
     def test_non_recraft_openrouter_models_stay_out(self):
         assert is_recraft_model("OpenRouter", "openai/gpt-5.4-image-2") is False
-        assert is_recraft_model("OpenRouter", "bytedance-seed/seedream-4.5") is False
+        assert (
+            is_recraft_model("OpenRouter", "bytedance-seed/seedream-5-0-lite") is False
+        )
 
     def test_other_providers_stay_out(self):
         assert is_recraft_model("OpenAI", "gpt-image-2") is False

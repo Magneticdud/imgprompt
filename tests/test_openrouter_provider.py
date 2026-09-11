@@ -169,7 +169,7 @@ class TestBuildPayload:
     def test_extras_are_forwarded_verbatim(self, provider_with_key):
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="2K",
@@ -191,7 +191,7 @@ class TestBuildPayload:
         is honoured without duplicating clamp logic in two places."""
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="2K",
@@ -203,7 +203,7 @@ class TestBuildPayload:
     def test_authorization_header_carries_api_key(self, provider_with_key):
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="1K",
@@ -233,7 +233,7 @@ class TestCallApi:
 
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="2K",
@@ -282,7 +282,7 @@ class TestCallApi:
 
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -303,7 +303,7 @@ class TestCallApi:
             )
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -319,7 +319,7 @@ class TestCallApi:
             # No usage.cost in body → no summary line.
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -335,9 +335,11 @@ class TestCallApi:
             "imgprompt.providers.openrouter_provider.requests.post"
         ) as mock_post:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            # Must be a model with NO entry in _MODEL_MAX_N_PREFIXES, or the
+            # per-model cap would mask the global one under test.
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="black-forest-labs/flux.2-pro",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -354,7 +356,7 @@ class TestCallApi:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -374,7 +376,7 @@ class TestCallApi:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -393,7 +395,7 @@ class TestCallApi:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="2K",
@@ -420,7 +422,7 @@ class TestCallApi:
             )
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -446,7 +448,7 @@ class TestCallApi:
             )
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -477,7 +479,7 @@ class TestCallApi:
             )
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="2K",
@@ -522,7 +524,7 @@ class TestRunVariants:
 
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -600,7 +602,7 @@ class TestRunVariants:
 
             req = GenerationRequest(
                 prompt="a fox",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -641,7 +643,7 @@ class TestRunInputBatch:
 
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -729,12 +731,12 @@ class TestDescriptorDriven:
         _patch_caps(
             monkeypatch,
             ModelCapabilities(
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratios=("1:1", "9:16", "auto", "9:19.5"),
             ),
         )
         choices, _ = provider_with_key.get_resolution_choices(
-            "bytedance-seed/seedream-4.5", None
+            "bytedance-seed/seedream-5-0-lite", None
         )
         # Only ratios the wizard can preview survive; "auto"/phone ratios
         # have no RATIO_TO_RESOLUTION entry and are dropped.
@@ -742,7 +744,7 @@ class TestDescriptorDriven:
 
     def test_ratio_choices_fall_back_without_descriptor(self, provider_with_key):
         choices, _ = provider_with_key.get_resolution_choices(
-            "bytedance-seed/seedream-4.5", None
+            "bytedance-seed/seedream-5-0-lite", None
         )
         # autouse fixture = no descriptor → hardcoded 10-ratio fallback.
         assert "21:9" in choices
@@ -840,13 +842,13 @@ class TestDescriptorDriven:
         _patch_caps(
             monkeypatch,
             ModelCapabilities(
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratios=("1:1", "16:9"),
                 resolutions=("1K", "2K"),
             ),
         )
         warnings = provider_with_key.preflight_warnings(
-            "bytedance-seed/seedream-4.5", "21:9", "4K"
+            "bytedance-seed/seedream-5-0-lite", "21:9", "4K"
         )
         assert len(warnings) == 2
         assert "21:9" in warnings[0]
@@ -860,14 +862,14 @@ class TestDescriptorDriven:
         _patch_caps(
             monkeypatch,
             ModelCapabilities(
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratios=("1:1", "16:9"),
                 resolutions=("1K", "2K"),
             ),
         )
         assert (
             provider_with_key.preflight_warnings(
-                "bytedance-seed/seedream-4.5", "16:9", "2K"
+                "bytedance-seed/seedream-5-0-lite", "16:9", "2K"
             )
             == []
         )
@@ -875,7 +877,7 @@ class TestDescriptorDriven:
     def test_preflight_silent_without_descriptor(self, provider_with_key):
         assert (
             provider_with_key.preflight_warnings(
-                "bytedance-seed/seedream-4.5", "21:9", "4K"
+                "bytedance-seed/seedream-5-0-lite", "21:9", "4K"
             )
             == []
         )
@@ -894,24 +896,24 @@ class TestLivePricingIntegration:
         endpoints API knows better."""
         monkeypatch.setattr(
             "imgprompt.providers.openrouter_provider.output_image_price",
-            lambda model, tier: 0.099 if tier == "1K" else None,
+            lambda model, tier: 0.099 if tier == "2K" else None,
         )
         choices, _ = provider_with_key.get_quality_choices(
-            "bytedance-seed/seedream-4.5", "1024x1024", None, None, None
+            "bytedance-seed/seedream-5-0-lite", "1024x1024", None, None, None
         )
-        one_k = next(c for c in choices if c.startswith("1K"))
-        assert "$0.099" in one_k
+        two_k = next(c for c in choices if c.startswith("2K"))
+        assert "$0.099" in two_k
         key, cost = provider_with_key.resolve_quality(
-            "bytedance-seed/seedream-4.5", "1024x1024", None, None, one_k
+            "bytedance-seed/seedream-5-0-lite", "1024x1024", None, None, two_k
         )
         assert cost == 0.099
 
     def test_quality_labels_fall_back_to_costs(self, provider_with_key):
         # autouse fixture pins output_image_price to None → COSTS row.
         choices, _ = provider_with_key.get_quality_choices(
-            "bytedance-seed/seedream-4.5", "1024x1024", None, None, None
+            "bytedance-seed/seedream-5-0-lite", "1024x1024", None, None, None
         )
-        assert "$0.040" in choices[0]
+        assert "$0.035" in choices[0]
 
     def test_reported_cost_divergence_over_10_percent_is_flagged(
         self, provider_with_key, capsys
@@ -922,7 +924,7 @@ class TestLivePricingIntegration:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.08)
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -942,7 +944,7 @@ class TestLivePricingIntegration:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.041)
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -960,7 +962,7 @@ class TestLivePricingIntegration:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.5)
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -1420,9 +1422,129 @@ class TestRecraftFamily:
 
 
 # --------------------------------------------------------------------------
-# seedream-4.5 upstream pixel floor (issue #10): the Seed provider 400s any
-# output below 3,686,400 px, so the provider resolves an explicit `size`
-# that clears the floor instead of the aspect_ratio+resolution shorthand.
+# Seedream 5.0 family (snapshot 2026-09-11). The two tiers are deliberately
+# asymmetric — Lite is 2K/4K with n up to 4, Pro is 1K/2K pinned to n=1 —
+# so the cases below assert each one separately rather than parametrising
+# over both. They replace the retired seedream-4.5.
+# --------------------------------------------------------------------------
+
+
+class TestSeedream50:
+    LITE = "bytedance-seed/seedream-5-0-lite"
+    PRO = "bytedance-seed/seedream-5-0-pro"
+
+    def test_both_in_supported_models_with_lite_first(self):
+        models = OpenRouterProvider.supported_models()
+        assert self.LITE in models and self.PRO in models
+        # Lite is the family default: it must precede Pro.
+        assert models.index(self.LITE) < models.index(self.PRO)
+        # ...but the overall default stays the first entry, not Seedream.
+        assert models[0] == "openai/gpt-5.4-image-2"
+
+    def test_lite_tiers_are_2k_and_4k(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            self.LITE, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["2K", "4K"]
+        assert default == choices[0]
+
+    def test_pro_tiers_are_1k_and_2k(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            self.PRO, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+        assert default == choices[0]
+
+    def test_lite_is_flat_priced_across_tiers(self):
+        from imgprompt.presets import COSTS
+
+        row = COSTS[self.LITE]
+        assert row["2K"]["fixed"] == row["4K"]["fixed"] == 0.035
+
+    def test_pro_high_resolution_tier_costs_double(self):
+        from imgprompt.presets import COSTS
+
+        row = COSTS[self.PRO]
+        assert row["2K"]["fixed"] == row["1K"]["fixed"] * 2
+
+    def test_pro_charges_flat_rate_per_input_reference(self):
+        """First model in the Seed family to bill input images at all."""
+        from imgprompt.presets import COSTS
+
+        assert COSTS[self.PRO]["input_flat"] == 0.003
+        assert "input_flat" not in COSTS[self.LITE]
+
+    def test_lite_undercuts_retired_4_5_at_every_tier(self):
+        """The whole reason 4.5 was dropped: Lite is cheaper for the same
+        4K ceiling. Pinned so a future price edit can't silently invert it."""
+        from imgprompt.presets import COSTS
+
+        assert all(t["fixed"] < 0.04 for t in COSTS[self.LITE].values())
+
+    @pytest.mark.parametrize("model,cap", [(LITE, 4), (PRO, 1)])
+    def test_n_clamped_per_tier(self, provider_with_key, model, cap):
+        """Offline safety net: the descriptors pin n at 1..4 (Lite) and 1..1
+        (Pro), and without the per-model entries both would inherit the
+        global cap of 10 — letting the wizard price batches Pro can't make."""
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=model,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="2K",
+                n=10,
+            )
+            provider_with_key._call_api(req, n=10)
+        assert mock_post.call_args.kwargs["json"]["n"] == cap
+
+    def test_pro_has_no_pixel_bounds(self):
+        """Pro advertises 1K (1.05MP) and prices it separately, so the old
+        3.69MP floor demonstrably does not apply; it also caps at 2K, far
+        below the ceiling. Neither table may claim otherwise without a
+        verified upstream response."""
+        from imgprompt.providers import openrouter_provider as orp
+
+        assert self.PRO not in orp._MODEL_PIXEL_FLOORS
+        assert self.PRO not in orp._MODEL_PIXEL_CEILINGS
+
+    def test_pro_uses_plain_shorthand_payload(self, provider_with_key):
+        """With no floor/ceiling entry, Pro delegates geometry to
+        OpenRouter's own (aspect_ratio, resolution) translation."""
+        req = GenerationRequest(
+            prompt="x",
+            model=self.PRO,
+            aspect_ratio="9:16",
+            res_key="768x1344",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "9:16"
+        assert body["resolution"] == "2K"
+        assert "size" not in body
+
+
+def test_retired_seedream_4_5_is_gone():
+    """4.5 is dominated by 5.0 Lite on price, tier ceiling and ratios; leaving
+    it listed would let the wizard offer a model we no longer price or verify.
+    Replays that reference it bail out via the retired-model guard."""
+    from imgprompt.presets import COSTS
+
+    retired = "bytedance-seed/seedream-4.5"
+    assert retired not in OpenRouterProvider.supported_models()
+    assert retired not in COSTS
+
+
+# --------------------------------------------------------------------------
+# Seedream 5.0 Lite upstream pixel floor (issue #10, inherited from the
+# retired seedream-4.5): the Seed provider 400s any output below 3,686,400
+# px, so the provider resolves an explicit `size` that clears the floor
+# instead of the aspect_ratio+resolution shorthand. Lite's own tiers (2K/4K)
+# all clear it, so the cases below drive `_build_payload` with an explicit
+# sub-floor tier / custom dimensions to keep the shaping math pinned.
 # --------------------------------------------------------------------------
 
 
@@ -1432,7 +1554,7 @@ class TestSeedreamPixelFloor:
     def _payload(self, provider, ratio, tier, **kw):
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio=ratio,
             res_key="768x1344",
             quality_key=tier,
@@ -1497,19 +1619,39 @@ class TestSeedreamPixelFloor:
         assert body["aspect_ratio"] == "9:16"
         assert "size" not in body
 
-    def test_wizard_labels_flag_floored_tiers(self, provider_with_key):
+    def test_wizard_labels_clean_for_lite_tiers(self, provider_with_key):
+        """Lite ships no sub-floor tier — 2K (4.19MP) and 4K (16.78MP) both
+        clear the 3.69MP floor unaided — so no label carries the warning.
+        This is the behaviour change from the retired 4.5, whose "1K" was
+        silently upsized to 3.69MP and had to be flagged."""
         choices, _ = provider_with_key.get_quality_choices(
-            "bytedance-seed/seedream-4.5", "768x1344", None, None, None
+            "bytedance-seed/seedream-5-0-lite", "768x1344", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["2K", "4K"]
+        assert all("minimum" not in c for c in choices)
+
+    def test_wizard_labels_flag_sub_floor_tiers(self, provider_with_key, monkeypatch):
+        """The labelling rule itself, pinned against a synthetic floor. No
+        shipped model has a tier below its floor now that 4.5 is retired, so
+        without this the warning path would lose all coverage."""
+        from imgprompt.providers import openrouter_provider as orp
+
+        monkeypatch.setitem(
+            orp._MODEL_PIXEL_FLOORS, "black-forest-labs/flux.2-pro", 5_000_000
+        )
+        choices, _ = provider_with_key.get_quality_choices(
+            "black-forest-labs/flux.2-pro", "768x1344", None, None, None
         )
         one_k = next(c for c in choices if c.startswith("1K"))
         two_k = next(c for c in choices if c.startswith("2K"))
-        assert "minimum" in one_k  # 1K (~1MP) sits below the 3.69MP floor
-        assert "minimum" not in two_k  # 2K (~4.19MP) clears it
+        assert "minimum" in one_k  # 1K (~1MP) is below the synthetic 5MP floor
+        assert "minimum" in two_k  # 2K (~4.19MP) too
 
 
 # --------------------------------------------------------------------------
-# seedream-4.5 upstream pixel ceiling (issue #23): the Seed provider 400s
-# any output above 16,777,216 px. The aspect-ratio+resolution → size
+# Seedream 5.0 Lite upstream pixel ceiling (issue #23, inherited from the
+# retired seedream-4.5): the Seed provider 400s any output above 16,777,216
+# px — and Lite still offers the 4K tier that provokes it. The aspect-ratio+resolution → size
 # translation overshoots for most non-square ratios at 4K, so we scale the
 # aspect-shaped box DOWN with floor-16 rounding on every path that writes
 # `size`.
@@ -1522,7 +1664,7 @@ class TestSeedreamPixelCeiling:
     def _payload(self, provider, ratio, tier, **kw):
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio=ratio,
             res_key="768x1344",
             quality_key=tier,
@@ -1652,7 +1794,7 @@ class TestResolveEffectivePixels:
 
     def test_returns_clamped_size_for_seedream_4k_4_5(self, provider_with_key):
         w, h = provider_with_key.resolve_effective_pixels(
-            "bytedance-seed/seedream-4.5", "4:5", "4K"
+            "bytedance-seed/seedream-5-0-lite", "4:5", "4K"
         )
         assert w * h <= 16_777_216
         assert w % 16 == 0 and h % 16 == 0
@@ -1682,7 +1824,7 @@ class TestResolveEffectivePixels:
         # of guessing a shape.
         assert (
             provider_with_key.resolve_effective_pixels(
-                "bytedance-seed/seedream-4.5", "7:5", "4K"
+                "bytedance-seed/seedream-5-0-lite", "7:5", "4K"
             )
             is None
         )
@@ -1690,7 +1832,7 @@ class TestResolveEffectivePixels:
     def test_returns_none_when_quality_missing(self, provider_with_key):
         assert (
             provider_with_key.resolve_effective_pixels(
-                "bytedance-seed/seedream-4.5", "4:5", None
+                "bytedance-seed/seedream-5-0-lite", "4:5", None
             )
             is None
         )
@@ -1701,7 +1843,7 @@ class TestResolveEffectivePixels:
         # so the wizard falls back to the ``res_key`` preset instead.
         assert (
             provider_with_key.resolve_effective_pixels(
-                "bytedance-seed/seedream-4.5", "4:5", "Standard"
+                "bytedance-seed/seedream-5-0-lite", "4:5", "Standard"
             )
             is None
         )
@@ -1712,7 +1854,7 @@ class TestResolveEffectivePixels:
         # print exactly one diagnostic. resolve_effective_pixels must
         # print NOTHING — otherwise the user sees the clamp note twice.
         provider_with_key.resolve_effective_pixels(
-            "bytedance-seed/seedream-4.5", "4:5", "4K"
+            "bytedance-seed/seedream-5-0-lite", "4:5", "4K"
         )
         out = capsys.readouterr().out
         assert out == ""
@@ -1722,7 +1864,7 @@ class TestResolveEffectivePixels:
         # active). Pin the exact dimensions so a future rounding drift
         # is caught.
         w, h = provider_with_key.resolve_effective_pixels(
-            "bytedance-seed/seedream-4.5", "1:1", "4K"
+            "bytedance-seed/seedream-5-0-lite", "1:1", "4K"
         )
         assert (w, h) == (4096, 4096)
 
@@ -1749,11 +1891,11 @@ class TestResolveEffectivePixels:
         so any future drift between the two paths is caught here.
         """
         eff = provider_with_key.resolve_effective_pixels(
-            "bytedance-seed/seedream-4.5", ratio, tier
+            "bytedance-seed/seedream-5-0-lite", ratio, tier
         )
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio=ratio,
             res_key="768x1344",
             quality_key=tier,
@@ -1777,7 +1919,7 @@ class TestDualDispatch:
     def test_is_dual_two_images_is_not_batch(self):
         req = GenerationRequest(
             prompt="combine IMG_1 and IMG_2",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="1K",
@@ -1789,7 +1931,7 @@ class TestDualDispatch:
     def test_two_images_without_dual_flag_stays_batch(self):
         req = GenerationRequest(
             prompt="x",
-            model="bytedance-seed/seedream-4.5",
+            model="bytedance-seed/seedream-5-0-lite",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="1K",
@@ -1823,7 +1965,7 @@ class TestDualDispatch:
 
             req = GenerationRequest(
                 prompt="use the composition of IMG_1 and the style of IMG_2",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -1855,7 +1997,7 @@ class TestDualDispatch:
 
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-4.5",
+                model="bytedance-seed/seedream-5-0-lite",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
