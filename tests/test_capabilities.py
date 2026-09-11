@@ -294,7 +294,7 @@ RECRAFT_PRICING = [
 
 MAI_PRICING = [
     {"billable": "input_text", "unit": "token", "cost_usd": 5e-06},
-    {"billable": "output_image", "unit": "token", "cost_usd": 4.7e-05},
+    {"billable": "output_image", "unit": "token", "cost_usd": 3.8e-05},
 ]
 
 
@@ -328,7 +328,7 @@ class TestLivePricing:
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
             _stub_endpoints(mock_get, MAI_PRICING)
-            assert output_image_price("microsoft/mai-image-2.5", "Standard") is None
+            assert output_image_price("microsoft/mai-image-2.6", "Standard") is None
 
     def test_network_failure_prints_note_once(self, capsys):
         import requests as real_requests

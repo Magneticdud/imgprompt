@@ -810,7 +810,7 @@ class TestDescriptorDriven:
 
         _patch_caps(
             monkeypatch,
-            ModelCapabilities(model="microsoft/mai-image-2.5", input_refs_max=1),
+            ModelCapabilities(model="krea/krea-2-medium", input_refs_max=1),
         )
         img_a = _fake_image(tmp_path, name="a.png")
         img_b = _fake_image(tmp_path, name="b.png")
@@ -820,10 +820,10 @@ class TestDescriptorDriven:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="microsoft/mai-image-2.5",
+                model="krea/krea-2-medium",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
-                quality_key="Standard",
+                quality_key="1K",
                 images=[img_a, img_b],
                 is_dual=True,
             )
@@ -970,15 +970,15 @@ class TestLivePricingIntegration:
 
 
 # --------------------------------------------------------------------------
-# Microsoft MAI Image 2.5 (issue #6) and 2.5 Pro: Azure-served, token-billed,
-# no `resolution` parameter on /api/v1/images — aspect ratio is the only
-# geometry knob. Both tiers ship the same descriptor (snapshot 2026-07-26),
-# so every case below runs against both.
+# Microsoft MAI Image 2.6 and 2.6 Flash (issue #6 originally, for the retired
+# 2.5 tiers): Azure-served, token-billed, no `resolution` parameter on
+# /api/v1/images — aspect ratio is the only geometry knob. Both tiers ship the
+# same descriptor (snapshot 2026-09-11), so every case below runs against both.
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "model", ["microsoft/mai-image-2.5", "microsoft/mai-image-2.5-pro"]
+    "model", ["microsoft/mai-image-2.6", "microsoft/mai-image-2.6-flash"]
 )
 class TestMaiImage:
     def test_in_supported_models(self, model):
@@ -1023,14 +1023,25 @@ class TestMaiImage:
         assert "size" not in body
 
 
-def test_mai_pro_costs_more_than_base():
-    """Pro is billed at $108/Mtok output vs. the base tier's $47/Mtok — the
-    wizard's pre-call estimate must reflect that, not inherit the base price."""
+def test_mai_flash_costs_less_than_precision_tier():
+    """Flash is billed at $19/Mtok output vs. the precision tier's $38/Mtok —
+    the wizard's pre-call estimate must reflect that, not share one price."""
     from imgprompt.presets import COSTS
 
-    base = COSTS["microsoft/mai-image-2.5"]["Standard"]["fixed"]
-    pro = COSTS["microsoft/mai-image-2.5-pro"]["Standard"]["fixed"]
-    assert pro > base
+    precision = COSTS["microsoft/mai-image-2.6"]["Standard"]["fixed"]
+    flash = COSTS["microsoft/mai-image-2.6-flash"]["Standard"]["fixed"]
+    assert flash < precision
+
+
+def test_retired_mai_2_5_tiers_are_gone():
+    """The 2.5 tiers were replaced by the 2.6 family; leaving them listed would
+    let the wizard offer models we no longer price or verify."""
+    from imgprompt.presets import COSTS
+
+    models = OpenRouterProvider.supported_models()
+    for retired in ("microsoft/mai-image-2.5", "microsoft/mai-image-2.5-pro"):
+        assert retired not in models
+        assert retired not in COSTS
 
 
 # --------------------------------------------------------------------------

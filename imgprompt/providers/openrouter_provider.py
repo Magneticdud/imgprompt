@@ -74,10 +74,12 @@ _MODEL_PIXEL_CEILINGS = {
 
 # Microsoft MAI family on /api/v1/images. Both tiers ship the SAME
 # descriptor (seven concrete aspect ratios + "auto", no `resolution`
-# parameter at all, n pinned to 1, at most 1 input reference) — only the
+# parameter at all, n pinned to 1, up to 5 input references) — only the
 # per-token price differs, so the wizard branches below treat them as one.
-# Verified 2026-07-26 against /api/v1/images/models.
-_MAI_MODELS = ("microsoft/mai-image-2.5", "microsoft/mai-image-2.5-pro")
+# Verified 2026-09-11 against /api/v1/images/models. Note the 2.6 family
+# lifted the input-reference cap from 1 (the retired 2.5 tiers) to 5, so
+# dual-image mode works here.
+_MAI_MODELS = ("microsoft/mai-image-2.6", "microsoft/mai-image-2.6-flash")
 
 # Krea 2 family on /api/v1/images. All three tiers ship an IDENTICAL
 # descriptor (verified 2026-07-26 against /api/v1/images/models) — same
@@ -311,8 +313,9 @@ class OpenRouterProvider(ImageProvider):
             "google/gemini-3.1-flash-image",
             "google/gemini-3-pro-image",
             "google/gemini-3.1-flash-lite-image",
-            "microsoft/mai-image-2.5",
-            "microsoft/mai-image-2.5-pro",
+            # MAI 2.6 family, cheaper tier first (flash ≈$0.08 → 2.6 ≈$0.15).
+            "microsoft/mai-image-2.6-flash",
+            "microsoft/mai-image-2.6",
             "x-ai/grok-imagine-image-quality",
             # Qwen Image 3 family, cheaper tier first.
             "qwen/qwen-image-3",
@@ -354,8 +357,8 @@ class OpenRouterProvider(ImageProvider):
         elif model in _MAI_MODELS:
             # MAI's /api/v1/images descriptor advertises exactly these seven
             # concrete ratios (plus "auto", which the wizard doesn't surface
-            # for OpenRouter): no 4:5/5:4/21:9. Verified 2026-07-26 against
-            # /api/v1/images/models (identical for 2.5 and 2.5 Pro) — sending
+            # for OpenRouter): no 4:5/5:4/21:9. Verified 2026-09-11 against
+            # /api/v1/images/models (identical for 2.6 and 2.6 Flash) — sending
             # anything else 400s upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
         elif model in _KREA_MODELS:
@@ -492,7 +495,7 @@ class OpenRouterProvider(ImageProvider):
             sizes = ["1K"]
         elif model in _MAI_MODELS:
             # MAI exposes NO `resolution` parameter on /api/v1/images
-            # (descriptor verified 2026-07-26, both tiers): the model picks the
+            # (descriptor verified 2026-09-11, both tiers): the model picks the
             # output size from the aspect ratio alone. "Standard" is deliberately
             # outside the {512,1K,2K,4K} set so _build_payload never emits
             # a resolution field for it.

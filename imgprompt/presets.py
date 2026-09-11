@@ -274,23 +274,23 @@ COSTS["openai/gpt-5.4-image-2"] = {
     "4K": {"fixed": 0.08},
 }
 
-# Microsoft MAI Image 2.5 (Azure, via OpenRouter). Token-billed, not
-# per-image: output_image $47/Mtok, input_image $8/Mtok, input_text $5/Mtok
-# (snapshot 2026-07-07 from /api/v1/images/models/microsoft/mai-image-2.5/
+# Microsoft MAI Image 2.6 (Azure, via OpenRouter). Token-billed, not
+# per-image: output_image $38/Mtok, input_image $8/Mtok, input_text $5/Mtok
+# (snapshot 2026-09-11 from /api/v1/images/models/microsoft/mai-image-2.6/
 # endpoints). No resolution tiers — the single "Standard" entry estimates a
-# typical ~1MP output at ≈4,000 image tokens; the post-call usage.cost line
-# reports the real charge.
-COSTS["microsoft/mai-image-2.5"] = {
-    "Standard": {"fixed": 0.19},
+# typical ~1MP output at ≈4,000 image tokens, so 4,000 x $38/Mtok ≈ $0.15;
+# the post-call usage.cost line reports the real charge.
+COSTS["microsoft/mai-image-2.6"] = {
+    "Standard": {"fixed": 0.15},
 }
 
-# MAI Image 2.5 Pro (same Azure endpoint family, ~2.3x the output price):
-# output_image $108/Mtok, input_image $8/Mtok, input_text $5/Mtok (snapshot
-# 2026-07-26 from /api/v1/images/models/microsoft/mai-image-2.5-pro/
-# endpoints). Same ~4,000-image-token assumption as the base tier, so
-# 4,000 x $108/Mtok ≈ $0.43; usage.cost reports the real charge.
-COSTS["microsoft/mai-image-2.5-pro"] = {
-    "Standard": {"fixed": 0.43},
+# MAI Image 2.6 Flash (same Azure endpoint family, half the output price):
+# output_image $19/Mtok, input_image $2.50/Mtok, input_text $1.75/Mtok
+# (snapshot 2026-09-11 from /api/v1/images/models/microsoft/mai-image-2.6-flash/
+# endpoints). Same ~4,000-image-token assumption as the precision tier, so
+# 4,000 x $19/Mtok ≈ $0.08; usage.cost reports the real charge.
+COSTS["microsoft/mai-image-2.6-flash"] = {
+    "Standard": {"fixed": 0.08},
 }
 
 # Krea 2 family (via OpenRouter). Flat per-image pricing; 1K is the only

@@ -9,7 +9,7 @@ A single-entry-point terminal wizard (`imgedit.py`) that edits or generates imag
 ## Commands
 
 ```bash
-pip install -r requirements-dev.txt   # runtime deps + pytest (use requirements.txt for runtime only)
+pip install -r requirements-dev.txt   # runtime deps + pytest + black (use requirements.txt for runtime only)
 pytest                                 # full suite
 pytest -v                              # one line per test
 pytest tests/test_presets.py           # single file

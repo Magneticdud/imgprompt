@@ -181,8 +181,10 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
   - `black-forest-labs/flux.2-flex`: Output $0.06 (1K), $0.24 (2K); Input $0.06/MP.
   - `black-forest-labs/flux.2-pro`: Output $0.03 (1K), $0.075 (2K); Input $0.015/MP.
   - `black-forest-labs/flux.2-max`: Output $0.07 (1K), $0.16 (2K); Input $0.03/MP.
-  - `microsoft/mai-image-2.5`: token-billed (output $47/Mtok, input image $8/Mtok, input text $5/Mtok — ≈$0.19 for a typical image; the real charge is reported after each call). No resolution tiers: the model picks the output size from the aspect ratio (1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9). Single image per call (`n` capped at 1 upstream).
-  - `microsoft/mai-image-2.5-pro`: same knobs as the base tier (same ratios, no resolution tiers, `n` capped at 1, one input reference), higher quality and price — token-billed at output $108/Mtok, input image $8/Mtok, input text $5/Mtok (≈$0.43 for a typical image).
+  - **MAI Image 2.6 family** (both tiers share one descriptor: no resolution tiers — the model picks the output size from the aspect ratio (1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9) — up to 5 input references, single image per call (`n` capped at 1 upstream). Token-billed, so the pre-call figure is an estimate for a typical ~1MP image and `usage.cost` reports the real charge):
+    - `microsoft/mai-image-2.6-flash`: output $19/Mtok, input image $2.50/Mtok, input text $1.75/Mtok (≈$0.08 per image) — the low-latency, high-throughput tier.
+    - `microsoft/mai-image-2.6`: output $38/Mtok, input image $8/Mtok, input text $5/Mtok (≈$0.15 per image) — the precision tier, for design-ready visuals.
+  - ~~`microsoft/mai-image-2.5`~~, ~~`microsoft/mai-image-2.5-pro`~~: removed in this release, superseded by the 2.6 family above. Existing `.last_generation.json` entries that still point to them will refuse to replay with an explicit error.
   - `sourceful/riverflow-v2.5-fast`: $0.02 (1K), $0.04 (2K).
   - `sourceful/riverflow-v2.5-pro`: $0.15 (1K/2K), $0.33 (4K).
   - `x-ai/grok-imagine-image-quality`: $0.05 (1K), $0.07 (2K), capped at 2K; input reference images cost a flat $0.01 each. Single image per call (`n` capped at 1 upstream).
@@ -223,7 +225,7 @@ Network calls to the providers are out of scope and are not tested.
 Install the test dependency (once) and run the suite from the project root:
 
 ```bash
-pip install -r requirements-dev.txt   # installs runtime deps + pytest
+pip install -r requirements-dev.txt   # installs runtime deps + pytest + black
 pytest
 ```
 
