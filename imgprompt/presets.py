@@ -223,14 +223,20 @@ COSTS = {
     "gemini-3.1-flash-lite-image": {
         "1K": {"fixed": 0.034},
     },
+    # Riverflow 2.5, re-verified 2026-09-11 against /endpoints. Both tiers
+    # had drifted well below the figures recorded here (fast 2K was $0.04,
+    # pro 4K was $0.33 — roughly double the real charge). The drift went
+    # unnoticed because the live-pricing override that should have corrected
+    # it at runtime was reading the wrong response envelope; with that fixed
+    # these numbers are the offline fallback, so keep them honest.
     "sourceful/riverflow-v2.5-fast": {
-        "1K": {"fixed": 0.02},
-        "2K": {"fixed": 0.04},
+        "1K": {"fixed": 0.019},
+        "2K": {"fixed": 0.021},
     },
     "sourceful/riverflow-v2.5-pro": {
-        "1K": {"fixed": 0.15},
+        "1K": {"fixed": 0.13},
         "2K": {"fixed": 0.15},
-        "4K": {"fixed": 0.33},
+        "4K": {"fixed": 0.17},
     },
     # Seedream 5.0 Lite: one flat price at every tier, like the 4.5 it
     # replaces, but cheaper ($0.035 vs $0.04) and with no 1K tier — its

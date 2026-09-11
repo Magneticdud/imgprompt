@@ -188,8 +188,8 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `microsoft/mai-image-2.6-flash`: output $19/Mtok, input image $2.50/Mtok, input text $1.75/Mtok (≈$0.08 per image) — the low-latency, high-throughput tier.
     - `microsoft/mai-image-2.6`: output $38/Mtok, input image $8/Mtok, input text $5/Mtok (≈$0.15 per image) — the precision tier, for design-ready visuals.
   - ~~`microsoft/mai-image-2.5`~~, ~~`microsoft/mai-image-2.5-pro`~~: removed in this release, superseded by the 2.6 family above. Existing `.last_generation.json` entries that still point to them will refuse to replay with an explicit error.
-  - `sourceful/riverflow-v2.5-fast`: $0.02 (1K), $0.04 (2K).
-  - `sourceful/riverflow-v2.5-pro`: $0.15 (1K/2K), $0.33 (4K).
+  - `sourceful/riverflow-v2.5-fast`: $0.019 (1K), $0.021 (2K).
+  - `sourceful/riverflow-v2.5-pro`: $0.13 (1K), $0.15 (2K), $0.17 (4K).
   - `x-ai/grok-imagine-image-quality`: $0.05 (1K), $0.07 (2K), capped at 2K; input reference images cost a flat $0.01 each. Single image per call (`n` capped at 1 upstream).
   - **Qwen Image 3 family** (both tiers share one descriptor: `1K`/`2K` resolution, thirteen aspect ratios — `1:1`, `1:2`, `1:4`, `2:1`, `2:3`, `3:2`, `3:4`, `4:1`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9` (the wizard offers eleven of these; `1:2`/`2:1` have no pixel-preview preset), up to 4 input references, up to 6 variants per call):
     - `qwen/qwen-image-3`: $0.03 flat (1K and 2K bill the same); input reference images cost a flat $0.003 each.

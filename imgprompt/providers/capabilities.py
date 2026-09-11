@@ -242,7 +242,24 @@ def get_live_pricing(model: str) -> tuple[PriceEntry, ...] | None:
         )
         resp.raise_for_status()
         body = resp.json()
-        endpoints = (body.get("data") or {}).get("endpoints") or []
+        # The endpoints response is NOT envelope-wrapped: /endpoints answers
+        # {"id": ..., "endpoints": [...]} at the top level, unlike
+        # /api/v1/images/models which wraps its list under "data". Reading
+        # only the wrapped shape made this function return None for EVERY
+        # model — live pricing silently degraded to the hardcoded COSTS
+        # estimates for the whole catalog, and the unit test never caught it
+        # because its stub encoded the same wrong shape. Verified 2026-09-11
+        # across all 52 catalog models, anonymous and authenticated.
+        #
+        # The "data" fallback is kept as a cheap hedge in case OpenRouter
+        # ever unifies the two envelopes — one dict lookup on a path that
+        # already degrades to None.
+        endpoints = body.get("endpoints")
+        if not isinstance(endpoints, list):
+            wrapped = body.get("data")
+            endpoints = wrapped.get("endpoints") if isinstance(wrapped, dict) else []
+            if not isinstance(endpoints, list):
+                endpoints = []
         pricing = endpoints[0].get("pricing") if endpoints else None
         if isinstance(pricing, list):
             parsed = []

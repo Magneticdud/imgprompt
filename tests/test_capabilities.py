@@ -314,9 +314,19 @@ MAI_PRICING = [
 ]
 
 
-def _stub_endpoints(mock_get, pricing):
+def _stub_endpoints(mock_get, pricing, wrapped=False):
+    """Stub /endpoints. The REAL response is flat — {"id", "endpoints"} at the
+    top level, no "data" envelope (verified 2026-09-11 against all 52 catalog
+    models). This stub used to encode the wrapped shape, which is precisely
+    why the parser read the wrong key for every model without a single test
+    failing. `wrapped=True` exercises the legacy-shape fallback."""
+    body = {"endpoints": [{"pricing": pricing}]}
+    if wrapped:
+        body = {"data": body}
+    else:
+        body["id"] = "vendor/model"
     resp = MagicMock()
-    resp.json.return_value = {"data": {"endpoints": [{"pricing": pricing}]}}
+    resp.json.return_value = body
     resp.raise_for_status.return_value = None
     mock_get.return_value = resp
 
@@ -360,6 +370,26 @@ class TestLivePricing:
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
             _stub_endpoints(mock_get, RECRAFT_PRICING)
+            assert output_image_price("recraft/recraft-v4.1", "Standard") == 0.035
+
+    def test_flat_envelope_is_the_real_shape(self):
+        """Regression pin: /endpoints returns "endpoints" at the top level.
+        Parsing only the "data"-wrapped shape made live pricing return None
+        for the entire catalog while looking healthy in tests."""
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, RECRAFT_PRICING)
+            assert mock_get.return_value.json.return_value.get("data") is None
+            assert output_image_price("recraft/recraft-v4.1", "Standard") == 0.035
+
+    def test_wrapped_envelope_still_parses(self):
+        """The "data" fallback is a hedge against OpenRouter unifying its two
+        envelopes; it must keep working without masking the flat shape."""
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, RECRAFT_PRICING, wrapped=True)
             assert output_image_price("recraft/recraft-v4.1", "Standard") == 0.035
 
     def test_token_billed_model_returns_none(self):
