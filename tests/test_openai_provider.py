@@ -223,3 +223,107 @@ class TestReportUsage:
         tokens, cost = provider._report_usage(resp)
         assert tokens == 123_456
         assert cost == pytest.approx(123_456 * 30.0 / 1_000_000)
+
+
+# --------------------------------------------------------------------------
+# GPT Image 2.5 on the direct provider. Same endpoint, same rate card and
+# the same geometry contract as gpt-image-2 — the one thing that differs is
+# the quality ladder, which 2.5 both lengthened and shifted.
+# --------------------------------------------------------------------------
+
+GPT_IMAGE_25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]
+
+
+class TestGptImage25Direct:
+    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    def test_in_supported_models(self, model):
+        assert model in OpenAIProvider.supported_models()
+
+    def test_flare_is_the_default(self):
+        """Same price as gpt-image-2 at equal work, finer ladder, lower
+        latency — there is no reason for the older model to lead."""
+        assert OpenAIProvider.supported_models()[0] == "gpt-image-2.5-flare"
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    def test_geometry_contract_is_inherited_verbatim(self, model, provider):
+        """2.5 tops out at 4K like gpt-image-2 and takes the same boxes, so
+        the preset menu must be the identical list, custom entry included."""
+        assert provider.get_resolution_choices(
+            model, None
+        ) == provider.get_resolution_choices("gpt-image-2", None)
+        assert provider.resolve_resolution(model, "16:9 — 4K (2560×1440)") == (
+            "2560x1440",
+            2560,
+            1440,
+        )
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    def test_quality_menu_is_the_five_rung_ladder(self, model, provider):
+        choices, default = provider.get_quality_choices(
+            model, "1024x1024", 1024, 1024, None
+        )
+        assert [c.split(" ")[0] for c in choices] == [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ]
+        assert default == choices[0]
+
+    def test_gpt_image_2_keeps_its_three_rungs(self, provider):
+        choices, _ = provider.get_quality_choices(
+            "gpt-image-2", "1024x1024", 1024, 1024, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["Low", "Medium", "High"]
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    def test_prices_match_the_published_table(self, model, provider):
+        choices, _ = provider.get_quality_choices(model, "1024x1024", 1024, 1024, None)
+        assert choices == [
+            "low (~196 tokens, $0.0059)",
+            "medium (~439 tokens, $0.0132)",
+            "high (~1,756 tokens, $0.0527)",
+            "xhigh (~3,122 tokens, $0.0937)",
+            "max (~7,024 tokens, $0.2107)",
+        ]
+
+    @pytest.mark.parametrize(
+        "quality_2_5,quality_2", [("low", "Low"), ("high", "Medium"), ("max", "High")]
+    )
+    def test_shifted_ladder_against_gpt_image_2(self, quality_2_5, quality_2, provider):
+        """Within ONE provider now: 2.5 `high` does the work gpt-image-2
+        called `medium`. Same trap as on the OpenRouter side, same guard."""
+        _, new = provider.resolve_quality(
+            "gpt-image-2.5-flare", "1024x1024", 1024, 1024, f"{quality_2_5} (label)"
+        )
+        _, old = provider.resolve_quality(
+            "gpt-image-2", "1024x1024", 1024, 1024, f"{quality_2} (label)"
+        )
+        assert new == pytest.approx(old)
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    def test_direct_and_openrouter_quote_the_same_price(self, model, provider):
+        """The same model reached two ways must cost the same. Both go
+        through gpt_image_2_quality_ladder, which matches the bare id and
+        OpenRouter's "openai/"-prefixed one onto one ladder."""
+        from imgprompt.providers.openrouter_provider import OpenRouterProvider
+
+        via_openrouter = OpenRouterProvider()
+        for quality in ("low", "medium", "high", "xhigh", "max"):
+            _, direct = provider.resolve_quality(
+                model, "1824x1024", 1824, 1024, f"{quality} (label)"
+            )
+            _, routed = via_openrouter.resolve_quality(
+                f"openai/{model}", "1824x1024", 1824, 1024, f"{quality} (label)"
+            )
+            assert direct == pytest.approx(routed)
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    def test_auto_size_degrades_to_an_unpriced_label(self, model, provider):
+        """ "Auto (model decides)" leaves nothing to bill against until the
+        response lands; quoting a number there would be invented."""
+        choices, _ = provider.get_quality_choices(model, "auto", None, None, None)
+        assert all(c.endswith("(cost depends on output size)") for c in choices)
+        _, cost = provider.resolve_quality(model, "auto", None, None, choices[0])
+        assert cost == 0.0

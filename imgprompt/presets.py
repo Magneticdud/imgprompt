@@ -78,6 +78,42 @@ GPT_IMAGE_2_PRESET_CHOICES = [
 GPT_IMAGE_2_Q_MAP = {"low": 16, "medium": 48, "high": 96}
 GPT_IMAGE_2_5_Q_MAP = {"low": 16, "medium": 24, "high": 48, "xhigh": 64, "max": 96}
 
+# The rungs each family offers, cheapest first, as the wizard shows them.
+# gpt-image-2 has shown title case since before 2.5 existed and is
+# lowercased on the wire; the 2.5 names are used verbatim because the API
+# enum is lowercase and "Xhigh" reads like a typo.
+GPT_IMAGE_2_QUALITIES = ["Low", "Medium", "High"]
+GPT_IMAGE_2_5_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
+
+# Every model billed by this token model, on the DIRECT OpenAI provider.
+# OpenRouter's copies carry an "openai/" prefix and are listed in the
+# OpenRouter provider instead; `gpt_image_2_quality_ladder` below handles
+# both spellings.
+GPT_IMAGE_2_FAMILY = (
+    "gpt-image-2",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+)
+
+
+def gpt_image_2_quality_ladder(model: str) -> tuple[list[str], dict]:
+    """(rungs to offer, q_map to price them with) for a model id.
+
+    One lookup for both providers and the wizard summary, so a model can
+    never be offered one ladder and billed against another — the mistake
+    that costs 4x, since 2.5 reused the names `medium` and `high` for
+    different amounts of work.
+
+    Matches on the id substring so it works for the direct spelling
+    ("gpt-image-2.5-flare") and OpenRouter's prefixed one
+    ("openai/gpt-image-2.5-flare") alike. Note "gpt-image-2" is NOT a
+    substring match for the 2.5 ids' family test — "gpt-image-2.5" is
+    checked, and plain "gpt-image-2" does not contain it.
+    """
+    if "gpt-image-2.5" in model:
+        return list(GPT_IMAGE_2_5_QUALITIES), GPT_IMAGE_2_5_Q_MAP
+    return list(GPT_IMAGE_2_QUALITIES), GPT_IMAGE_2_Q_MAP
+
 
 def calc_gpt_image2_tokens(
     width: int, height: int, quality: str, q_map: dict | None = None

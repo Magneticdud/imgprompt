@@ -34,6 +34,8 @@ from imgprompt.presets import (
     PRESET_PROMPTS_EDIT,
     PRESET_PROMPTS_GENERATE,
     PRESET_PROMPTS_DUAL,
+    GPT_IMAGE_2_FAMILY,
+    gpt_image_2_quality_ladder,
     gpt_image_2_token_cost,
     validate_gpt_image2_dims,
     auto_adjust_gpt_image2_dims,
@@ -1321,7 +1323,7 @@ def main():
                 print(f"Image:      None (Text-to-Image)")
             print(f"Provider:   {provider}")
             print(f"Model:      {model_choice}")
-            if provider == "OpenAI" and model_choice == "gpt-image-2":
+            if provider == "OpenAI" and model_choice in GPT_IMAGE_2_FAMILY:
                 print(f"Ratio:      {aspect_ratio}")
                 if dim_width and dim_height:
                     print(f"Dimensions: {dim_width}x{dim_height}")
@@ -1329,8 +1331,12 @@ def main():
                     print(f"Dimensions: auto")
                 print(f"Quality:    {quality_key}")
                 if dim_width and dim_height:
+                    # q_map per family: 2.5 reused the names `medium` and
+                    # `high` for a quarter of the work, so pricing one
+                    # family against the other's ladder is a 4x error.
+                    _qualities, q_map = gpt_image_2_quality_ladder(model_choice)
                     tokens, cost_display = gpt_image_2_token_cost(
-                        dim_width, dim_height, quality_key
+                        dim_width, dim_height, quality_key, q_map
                     )
                     print(f"Tokens:     ~{tokens:,} (${cost_display:.4f})")
                 else:
@@ -1407,7 +1413,7 @@ def main():
             total_cost = final_cost + input_cost
 
             if is_batch_mode:
-                if provider == "OpenAI" and model_choice == "gpt-image-2":
+                if provider == "OpenAI" and model_choice in GPT_IMAGE_2_FAMILY:
                     print(f"Per Image:  varies by input size")
                     print(
                         f"Total Cost: varies by input size ({len(input_images)} images)"

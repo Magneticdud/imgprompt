@@ -305,18 +305,6 @@ def _gpt_image_25_dims(
     return 1024, 1024
 
 
-# The five concrete quality steps, cheapest first — matching both the
-# OpenRouter descriptor and OpenAI's own model reference. "auto" is in the
-# enum too but stays off the picker for the same reason "auto" is kept off
-# the ratio picker: the wizard quotes a price before spending, and a
-# model-chosen tier has no price to quote.
-#
-# Mind the shifted ladder when comparing against gpt-image-2 direct: this
-# family's `high` costs what gpt-image-2's `medium` cost, and its `max`
-# costs what gpt-image-2's `high` cost. GPT_IMAGE_2_5_Q_MAP carries that,
-# and every price here goes through it.
-_GPT_IMAGE_25_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
-
 # Nominal pixel targets per resolution tier (the square each tier names).
 # Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
 _TIER_PIXELS = {
@@ -786,7 +774,16 @@ class OpenRouterProvider(ImageProvider):
             # enum directly (cheapest first). None of these values is in
             # {512,1K,2K,4K}, so _build_payload never emits a `resolution`
             # field for them — it emits `quality` instead.
-            sizes = list(_GPT_IMAGE_25_QUALITIES)
+            #
+            # The ladder comes from presets, shared with the direct OpenAI
+            # provider, so the same model can never be offered one set of
+            # rungs here and another there. "auto" is in the upstream enum
+            # but stays off the picker for the same reason "auto" is kept
+            # off the ratio picker: a model-chosen rung has no price to
+            # quote before spending.
+            from imgprompt.presets import gpt_image_2_quality_ladder
+
+            sizes, _q_map = gpt_image_2_quality_ladder(model)
         elif model == "sourceful/riverflow-v2.5-pro":
             sizes = ["1K", "2K", "4K"]
         elif model.startswith("black-forest-labs/"):
@@ -895,14 +892,13 @@ class OpenRouterProvider(ImageProvider):
             # gpt-image-2 labels, and quote 4 decimals because a `low`
             # render lands under half a cent.
             from imgprompt.presets import (
-                GPT_IMAGE_2_5_Q_MAP,
                 gpt_image_2_quality_choices,
+                gpt_image_2_quality_ladder,
             )
 
+            _qualities, q_map = gpt_image_2_quality_ladder(model)
             width_px, height_px = _gpt_image_25_dims(res_key, width, height)
-            choices = gpt_image_2_quality_choices(
-                width_px, height_px, sizes, GPT_IMAGE_2_5_Q_MAP
-            )
+            choices = gpt_image_2_quality_choices(width_px, height_px, sizes, q_map)
             return choices, choices[0]
 
         floor = _MODEL_PIXEL_FLOORS.get(model)
@@ -947,13 +943,14 @@ class OpenRouterProvider(ImageProvider):
         quality_key = selection.split(" (")[0]
         if model in _GPT_IMAGE_25_MODELS:
             from imgprompt.presets import (
-                GPT_IMAGE_2_5_Q_MAP,
                 gpt_image_2_quality_cost,
+                gpt_image_2_quality_ladder,
             )
 
+            _qualities, q_map = gpt_image_2_quality_ladder(model)
             width_px, height_px = _gpt_image_25_dims(res_key, width, height)
             return quality_key, gpt_image_2_quality_cost(
-                width_px, height_px, quality_key, GPT_IMAGE_2_5_Q_MAP
+                width_px, height_px, quality_key, q_map
             )
         return quality_key, self._tier_price(model, quality_key)
 

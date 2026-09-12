@@ -12,20 +12,32 @@ class OpenAIProvider(ImageProvider):
     def provider_name(cls) -> str:
         return "OpenAI"
 
+    # GPT Image 2.5 first: same rate card as gpt-image-2 and the same
+    # constraints, but a finer quality ladder (five rungs instead of
+    # three), so it is both the better default and the cheaper one at any
+    # given quality NAME — see gpt_image_2_quality_ladder.
     @classmethod
     def supported_models(cls) -> list[str]:
-        return ["gpt-image-2"]
+        return [
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst",
+            "gpt-image-2",
+        ]
 
     def get_resolution_choices(
         self, model: str, image_path: str | None
     ) -> tuple[list[str], str]:
         from imgprompt.presets import (
             GPT_IMAGE_2_PRESET_CHOICES,
+            GPT_IMAGE_2_FAMILY,
             CUSTOM_DIMS,
             GPT_IMAGE_2_AUTO,
         )
 
-        if model == "gpt-image-2":
+        # The 2.5 tiers inherit gpt-image-2's geometry contract unchanged:
+        # same preset boxes, same limits (multiples of 16, 0.66-8.3MP,
+        # longest edge 3840, aspect <= 3), both topping out at 4K.
+        if model in GPT_IMAGE_2_FAMILY:
             labels = [label for label, _, _, _, _ in GPT_IMAGE_2_PRESET_CHOICES]
             if image_path:
                 default = GPT_IMAGE_2_AUTO
@@ -49,9 +61,13 @@ class OpenAIProvider(ImageProvider):
     def resolve_resolution(
         self, model: str, selection: str
     ) -> tuple[str, int | None, int | None]:
-        from imgprompt.presets import GPT_IMAGE_2_PRESET_CHOICES, GPT_IMAGE_2_AUTO
+        from imgprompt.presets import (
+            GPT_IMAGE_2_AUTO,
+            GPT_IMAGE_2_FAMILY,
+            GPT_IMAGE_2_PRESET_CHOICES,
+        )
 
-        if model == "gpt-image-2":
+        if model in GPT_IMAGE_2_FAMILY:
             if selection == GPT_IMAGE_2_AUTO:
                 return "auto", None, None
             for label, _, _, w, h in GPT_IMAGE_2_PRESET_CHOICES:
@@ -69,15 +85,18 @@ class OpenAIProvider(ImageProvider):
         height: int | None,
         image_path: str | None,
     ) -> tuple[list[str], str]:
-        from imgprompt.presets import COSTS, gpt_image_2_quality_choices
+        from imgprompt.presets import (
+            COSTS,
+            GPT_IMAGE_2_FAMILY,
+            gpt_image_2_quality_choices,
+            gpt_image_2_quality_ladder,
+        )
 
-        if model == "gpt-image-2":
+        if model in GPT_IMAGE_2_FAMILY:
             # Ladder and q_map are the only per-family inputs; the step
             # itself is shared with the OpenRouter GPT Image 2.5 path.
-            # gpt-image-2 uses the default GPT_IMAGE_2_Q_MAP.
-            choices = gpt_image_2_quality_choices(
-                width, height, ["Low", "Medium", "High"]
-            )
+            qualities, q_map = gpt_image_2_quality_ladder(model)
+            choices = gpt_image_2_quality_choices(width, height, qualities, q_map)
             return choices, choices[0]
         else:
             choices = [
@@ -94,11 +113,19 @@ class OpenAIProvider(ImageProvider):
         height: int | None,
         selection: str,
     ) -> tuple[str, float]:
-        from imgprompt.presets import COSTS, gpt_image_2_quality_cost
+        from imgprompt.presets import (
+            COSTS,
+            GPT_IMAGE_2_FAMILY,
+            gpt_image_2_quality_cost,
+            gpt_image_2_quality_ladder,
+        )
 
         quality_key = selection.split(" ")[0]
-        if model == "gpt-image-2":
-            return quality_key, gpt_image_2_quality_cost(width, height, quality_key)
+        if model in GPT_IMAGE_2_FAMILY:
+            _qualities, q_map = gpt_image_2_quality_ladder(model)
+            return quality_key, gpt_image_2_quality_cost(
+                width, height, quality_key, q_map
+            )
         else:
             return quality_key, COSTS[model][quality_key][res_key]
 
