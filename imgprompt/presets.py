@@ -57,7 +57,31 @@ GPT_IMAGE_2_PRESET_CHOICES = [
 ]
 
 
-def calc_gpt_image2_tokens(width: int, height: int, quality: str) -> int:
+# Quality -> grid-cells-on-the-long-side, per model family. The families
+# share the grid formula below but NOT this mapping: GPT Image 2.5 shifted
+# the whole ladder down a rung and inserted two new steps, so the same
+# word means different work in each.
+#
+#   gpt-image-2       low 16          medium 48   high 96
+#   gpt-image-2.5     low 16  med 24  high   48   xhigh 64  max 96
+#
+# i.e. 2.5's `high` costs what 2's `medium` cost, and 2.5's `max` costs
+# what 2's `high` cost — the two new names (`medium`, `xhigh`) fill gaps
+# that did not exist before. Priced identically per token in both.
+#
+# These are not guesses. OpenAI documents the 2.5 quality enum, and the
+# published 1024x1024 output-token counts (196 / 439 / 1,756 / 3,122 /
+# 7,024) invert through the formula below onto exactly these integers —
+# all five, to the token. The independent check is a real OpenRouter call:
+# 1824x1024 at `low` reported image_tokens=140, and this function returns
+# 140.
+GPT_IMAGE_2_Q_MAP = {"low": 16, "medium": 48, "high": 96}
+GPT_IMAGE_2_5_Q_MAP = {"low": 16, "medium": 24, "high": 48, "xhigh": 64, "max": 96}
+
+
+def calc_gpt_image2_tokens(
+    width: int, height: int, quality: str, q_map: dict | None = None
+) -> int:
     """Calculate output tokens for gpt-image-2.
 
     Uses a proportional grid model where quality determines the number of cells
@@ -67,13 +91,16 @@ def calc_gpt_image2_tokens(width: int, height: int, quality: str) -> int:
     Args:
         width:   Output image width in pixels.
         height:  Output image height in pixels.
-        quality: One of 'low', 'medium', or 'high' (case-insensitive).
+        quality: A key of `q_map` (case-insensitive).
+        q_map:   Quality -> grid-cells mapping; defaults to
+                 :data:`GPT_IMAGE_2_Q_MAP`. Pass
+                 :data:`GPT_IMAGE_2_5_Q_MAP` for the GPT Image 2.5
+                 family, whose ladder is shifted and two rungs longer.
 
     Returns:
         Estimated number of output tokens (ceiling).
     """
-    q_map = {"low": 16, "medium": 48, "high": 96}
-    q = q_map[quality.lower()]
+    q = (q_map or GPT_IMAGE_2_Q_MAP)[quality.lower()]
 
     long_side = max(width, height)
     short_side = min(width, height)
@@ -88,6 +115,75 @@ def calc_gpt_image2_tokens(width: int, height: int, quality: str) -> int:
     pixel_factor = (2_000_000 + width * height) / 4_000_000
 
     return math.ceil(grid_area * pixel_factor)
+
+
+def gpt_image_2_token_cost(
+    width: int, height: int, quality: str, q_map: dict | None = None
+) -> tuple[int, float]:
+    """(output tokens, USD) for one image of the gpt-image-2 token family.
+
+    The single home for "tokens x output rate": OpenAI's ``gpt-image-2``
+    (direct) and OpenRouter's GPT Image 2.5 family bill identically — per
+    output image token at :data:`GPT_IMAGE_2_PRICE_PER_MTOK` — so both
+    providers price through here instead of repeating the arithmetic.
+
+    Exact, not approximate: a real 1824x1024 ``low`` call on OpenRouter
+    (2026-09-12) reported ``image_tokens: 140`` and a completions cost of
+    $0.0042; this returns (140, 0.0042).
+
+    Pass ``q_map=GPT_IMAGE_2_5_Q_MAP`` for the GPT Image 2.5 family —
+    the rates are identical but the quality ladder is not.
+    """
+    tokens = calc_gpt_image2_tokens(width, height, quality, q_map)
+    return tokens, tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+
+
+def gpt_image_2_quality_label(
+    width: int, height: int, quality: str, q_map: dict | None = None
+) -> str:
+    """The wizard's quality-step label for a token-billed image model.
+
+    Shared so the OpenAI and OpenRouter steps stay worded identically;
+    ``quality`` is echoed verbatim, so each provider keeps its own casing
+    ("High" direct, "high" on OpenRouter). Four decimals because a `low`
+    render lands under half a cent.
+    """
+    tokens, cost = gpt_image_2_token_cost(width, height, quality, q_map)
+    return f"{quality} (~{tokens:,} tokens, ${cost:.4f})"
+
+
+def gpt_image_2_quality_cost(
+    width: int | None, height: int | None, quality: str, q_map: dict | None = None
+) -> float:
+    """USD for one image, or 0.0 when the output size isn't known yet.
+
+    The ``None`` dimensions case is real on the OpenAI provider: picking
+    "Auto (model decides)" leaves the wizard with nothing to bill against
+    until the response comes back.
+    """
+    if width is None or height is None:
+        return 0.0
+    return gpt_image_2_token_cost(width, height, quality, q_map)[1]
+
+
+def gpt_image_2_quality_choices(
+    width: int | None,
+    height: int | None,
+    qualities: list[str],
+    q_map: dict | None = None,
+) -> list[str]:
+    """The wizard's quality-step labels for a token-billed image model.
+
+    The whole step, shared: both the OpenAI provider (``gpt-image-2``
+    direct) and the OpenRouter provider (GPT Image 2.5 family) build their
+    quality menu from here, so the two paths differ only in the data that
+    genuinely is per-family — the ladder in ``qualities`` and its
+    ``q_map``. Unknown dimensions degrade to an unpriced label rather than
+    quoting a number we cannot stand behind.
+    """
+    if width is None or height is None:
+        return [f"{q} (cost depends on output size)" for q in qualities]
+    return [gpt_image_2_quality_label(width, height, q, q_map) for q in qualities]
 
 
 def round_to_multiple_of_16(value: int) -> int:
@@ -284,55 +380,28 @@ COSTS["google/gemini-3-pro-image"] = COSTS["gemini-3-pro-image"]
 COSTS["google/gemini-3.1-flash-lite-image"] = COSTS["gemini-3.1-flash-lite-image"]
 
 
-# OpenRouter OpenAI models (using token-based pricing like gpt-image-2)
-COSTS["openai/gpt-5.4-image-2"] = {
-    "1K": {"fixed": 0.02},
-    "2K": {"fixed": 0.04},
-    "4K": {"fixed": 0.08},
-}
+# OpenRouter OpenAI models (using token-based pricing like gpt-image-2).
+#
+# `openai/gpt-5.4-image-2` used to live here with 1K/2K/4K rows. It was
+# retired from the OpenRouter provider once a survey of all eight OpenAI
+# entries in /api/v1/images/models (2026-09-12) showed that not one of them
+# advertises a `resolution` parameter: those three tiers were never real,
+# the field went out un-advertised, `quality` was left at the upstream
+# default, and the prices below corresponded to nothing billable.
 
-# GPT Image 2.5 family (OpenAI, via OpenRouter). Token-billed exactly like
-# gpt-image-2: output_image $30/Mtok, input_image $8/Mtok, input_text
-# $5/Mtok (snapshot 2026-09-12 from
-# /api/v1/images/models/openai/gpt-image-2.5-{flare,sunburst}/endpoints —
-# the two tiers are billed at IDENTICAL rates, which is why they share one
-# table below; they differ in latency/quality positioning, not price).
+# The GPT Image 2.5 family (openai/gpt-image-2.5-flare, -sunburst) has NO
+# COSTS row on purpose. It is billed purely per output token at $30/Mtok —
+# the same rate as gpt-image-2, snapshot 2026-09-12 — and the OpenRouter
+# provider always sends an explicit `size`, so its price is a function of
+# (width, height, quality) that `calc_gpt_image2_tokens` computes exactly
+# rather than a per-tier constant to look up. See
+# `OpenRouterProvider._gpt_image_25_price`.
 #
-# These models expose no `resolution` parameter, so their price axis is the
-# `quality` enum. The figures below are the repo's own gpt-image-2 token
-# model, `calc_gpt_image2_tokens(1024, 1024, q)`, evaluated at a nominal
-# ~1MP square output and priced at GPT_IMAGE_2_PRICE_PER_MTOK ($30/Mtok —
-# which matches the live output_image rate exactly):
-#
-#     low    q=16  ->    196 tok -> $0.006
-#     medium q=48  ->  1,756 tok -> $0.053
-#     high   q=96  ->  7,024 tok -> $0.211
-#
-# xhigh and max are EXTRAPOLATED, not measured: OpenRouter publishes no
-# per-quality pricing (billing is per token, so the only way a higher
-# quality costs more is by emitting more tokens) and the repo's q_map stops
-# at "high". Continuing its grid progression (16 -> 48 -> 96, i.e. grid
-# areas 256 -> 2304 -> 9216 with a shrinking multiplier of 9x then 4x) by
-# 2.25x and 1.78x gives q=144 and q=192:
-#
-#     xhigh  q=144 -> 15,804 tok -> $0.474
-#     max    q=192 -> 28,096 tok -> $0.843
-#
-# Treat those last two as order-of-magnitude guidance only. The post-call
-# `usage.cost` line is authoritative, and the >10% reconciliation warning
-# will fire loudly on the first real xhigh/max run if the extrapolation is
-# wrong — replace these two numbers with the reported figure when it does.
-# The real charge also scales with the chosen aspect ratio (a 21:9 render
-# is not a 1MP square), which this flat-per-quality table cannot express.
-_GPT_IMAGE_2_5_COSTS = {
-    "low": {"fixed": 0.006},
-    "medium": {"fixed": 0.053},
-    "high": {"fixed": 0.211},
-    "xhigh": {"fixed": 0.474},
-    "max": {"fixed": 0.843},
-}
-COSTS["openai/gpt-image-2.5-flare"] = _GPT_IMAGE_2_5_COSTS
-COSTS["openai/gpt-image-2.5-sunburst"] = _GPT_IMAGE_2_5_COSTS
+# This was measured, not assumed: a 1824x1024 `low` call reported
+# image_tokens=140 / completions cost $0.0042, and calc_gpt_image2_tokens
+# predicts exactly 140 tokens -> $0.0042. A flat per-quality table would
+# have quoted $0.006 for the same render (41% high) and tripped the >10%
+# reconciliation warning on essentially every run.
 
 # Microsoft MAI Image 2.6 (Azure, via OpenRouter). Token-billed, not
 # per-image: output_image $38/Mtok, input_image $8/Mtok, input_text $5/Mtok

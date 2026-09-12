@@ -34,8 +34,7 @@ from imgprompt.presets import (
     PRESET_PROMPTS_EDIT,
     PRESET_PROMPTS_GENERATE,
     PRESET_PROMPTS_DUAL,
-    GPT_IMAGE_2_PRICE_PER_MTOK,
-    calc_gpt_image2_tokens,
+    gpt_image_2_token_cost,
     validate_gpt_image2_dims,
     auto_adjust_gpt_image2_dims,
     physical_to_pixels,
@@ -1330,8 +1329,9 @@ def main():
                     print(f"Dimensions: auto")
                 print(f"Quality:    {quality_key}")
                 if dim_width and dim_height:
-                    tokens = calc_gpt_image2_tokens(dim_width, dim_height, quality_key)
-                    cost_display = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+                    tokens, cost_display = gpt_image_2_token_cost(
+                        dim_width, dim_height, quality_key
+                    )
                     print(f"Tokens:     ~{tokens:,} (${cost_display:.4f})")
                 else:
                     print(f"Tokens:     depends on output size")

@@ -69,21 +69,15 @@ class OpenAIProvider(ImageProvider):
         height: int | None,
         image_path: str | None,
     ) -> tuple[list[str], str]:
-        from imgprompt.presets import (
-            COSTS,
-            calc_gpt_image2_tokens,
-            GPT_IMAGE_2_PRICE_PER_MTOK,
-        )
+        from imgprompt.presets import COSTS, gpt_image_2_quality_choices
 
         if model == "gpt-image-2":
-            choices = []
-            for q in ["Low", "Medium", "High"]:
-                if width is None or height is None:
-                    choices.append(f"{q} (cost depends on output size)")
-                else:
-                    tokens = calc_gpt_image2_tokens(width, height, q)
-                    cost = tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
-                    choices.append(f"{q} (~{tokens:,} tokens, ${cost:.4f})")
+            # Ladder and q_map are the only per-family inputs; the step
+            # itself is shared with the OpenRouter GPT Image 2.5 path.
+            # gpt-image-2 uses the default GPT_IMAGE_2_Q_MAP.
+            choices = gpt_image_2_quality_choices(
+                width, height, ["Low", "Medium", "High"]
+            )
             return choices, choices[0]
         else:
             choices = [
@@ -100,18 +94,11 @@ class OpenAIProvider(ImageProvider):
         height: int | None,
         selection: str,
     ) -> tuple[str, float]:
-        from imgprompt.presets import (
-            COSTS,
-            calc_gpt_image2_tokens,
-            GPT_IMAGE_2_PRICE_PER_MTOK,
-        )
+        from imgprompt.presets import COSTS, gpt_image_2_quality_cost
 
         quality_key = selection.split(" ")[0]
         if model == "gpt-image-2":
-            if width is None or height is None:
-                return quality_key, 0.0
-            tokens = calc_gpt_image2_tokens(width, height, quality_key)
-            return quality_key, tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000
+            return quality_key, gpt_image_2_quality_cost(width, height, quality_key)
         else:
             return quality_key, COSTS[model][quality_key][res_key]
 

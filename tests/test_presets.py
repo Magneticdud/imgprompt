@@ -166,6 +166,104 @@ class TestCalcGptImage2Tokens:
         assert val == math.ceil(val)
 
 
+class TestGptImage2TokenCost:
+    """The single home for "tokens x output rate", shared by the OpenAI and
+    OpenRouter providers so the same box never gets two different quotes."""
+
+    def test_matches_the_measured_upstream_charge(self):
+        from imgprompt.presets import gpt_image_2_token_cost
+
+        # Real OpenRouter call, 2026-09-12: openai/gpt-image-2.5-flare at
+        # size 1824x1024, quality low -> image_tokens 140, completions cost
+        # $0.0042. This is the only hard calibration point we have.
+        tokens, cost = gpt_image_2_token_cost(1824, 1024, "low")
+        assert tokens == 140
+        assert cost == pytest.approx(0.0042, abs=5e-5)
+
+    def test_cost_is_tokens_times_the_output_rate(self):
+        from imgprompt.presets import (
+            GPT_IMAGE_2_PRICE_PER_MTOK,
+            calc_gpt_image2_tokens,
+            gpt_image_2_token_cost,
+        )
+
+        tokens, cost = gpt_image_2_token_cost(1024, 1024, "high")
+        assert tokens == calc_gpt_image2_tokens(1024, 1024, "high")
+        assert cost == pytest.approx(tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000)
+
+    def test_label_echoes_quality_casing_verbatim(self):
+        """The OpenAI provider shows "High", OpenRouter "high"; the shared
+        builder must not normalise either into the other's house style."""
+        from imgprompt.presets import gpt_image_2_quality_label
+
+        assert gpt_image_2_quality_label(1024, 1024, "High").startswith("High (~")
+        assert gpt_image_2_quality_label(1024, 1024, "high").startswith("high (~")
+
+    def test_label_carries_tokens_and_four_decimal_cost(self):
+        from imgprompt.presets import gpt_image_2_quality_label
+
+        # A low render is under half a cent; two decimals would print $0.01.
+        assert gpt_image_2_quality_label(1824, 1024, "low") == (
+            "low (~140 tokens, $0.0042)"
+        )
+
+    @pytest.mark.parametrize("quality", ["low", "medium", "high", "xhigh", "max"])
+    def test_every_rung_of_the_ladder_prices(self, quality):
+        """xhigh/max exist only on the 2.5 family; a missing q_map entry
+        would raise KeyError mid-wizard."""
+        from imgprompt.presets import GPT_IMAGE_2_5_Q_MAP, gpt_image_2_token_cost
+
+        tokens, cost = gpt_image_2_token_cost(1024, 1024, quality, GPT_IMAGE_2_5_Q_MAP)
+        assert tokens > 0 and cost > 0
+
+    @pytest.mark.parametrize(
+        "quality,tokens",
+        [
+            ("low", 196),
+            ("medium", 439),
+            ("high", 1756),
+            ("xhigh", 3122),
+            ("max", 7024),
+        ],
+    )
+    def test_reproduces_openai_published_2_5_token_table(self, quality, tokens):
+        """OpenAI publishes these 1024x1024 output-token counts for the GPT
+        Image 2.5 family. All five invert cleanly through the grid formula
+        onto integer q values (16/24/48/64/96), which is why the mapping is
+        documented fact rather than a fitted curve — and why this table is
+        the right thing to pin."""
+        from imgprompt.presets import GPT_IMAGE_2_5_Q_MAP, calc_gpt_image2_tokens
+
+        assert (
+            calc_gpt_image2_tokens(1024, 1024, quality, GPT_IMAGE_2_5_Q_MAP) == tokens
+        )
+
+    @pytest.mark.parametrize(
+        "quality_2_5,quality_2",
+        [("low", "low"), ("high", "medium"), ("max", "high")],
+    )
+    def test_the_2_5_ladder_is_shifted_down_a_rung(self, quality_2_5, quality_2):
+        """The trap this guards: 2.5 renamed the tiers. Its `high` does the
+        work gpt-image-2 called `medium`, and its `max` what 2 called
+        `high`. Pricing 2.5 `high` off the old map overcharges 4x."""
+        from imgprompt.presets import (
+            GPT_IMAGE_2_5_Q_MAP,
+            GPT_IMAGE_2_Q_MAP,
+            calc_gpt_image2_tokens,
+        )
+
+        assert calc_gpt_image2_tokens(
+            1024, 1024, quality_2_5, GPT_IMAGE_2_5_Q_MAP
+        ) == calc_gpt_image2_tokens(1024, 1024, quality_2, GPT_IMAGE_2_Q_MAP)
+
+    def test_the_two_new_rungs_have_no_gpt_image_2_equivalent(self):
+        from imgprompt.presets import GPT_IMAGE_2_5_Q_MAP, GPT_IMAGE_2_Q_MAP
+
+        assert set(GPT_IMAGE_2_5_Q_MAP) - set(GPT_IMAGE_2_Q_MAP) == {"xhigh", "max"}
+        assert GPT_IMAGE_2_5_Q_MAP["medium"] not in GPT_IMAGE_2_Q_MAP.values()
+        assert GPT_IMAGE_2_5_Q_MAP["xhigh"] not in GPT_IMAGE_2_Q_MAP.values()
+
+
 class TestPresetTableConsistency:
     """The shipped presets should themselves satisfy the model constraints."""
 

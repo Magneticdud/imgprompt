@@ -166,7 +166,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 - PCX, PNG, JPG/JPEG, BMP, TIFF, WEBP
 
 ## Supported Models & Costs
-- **OpenAI**: `gpt-image-2`. (Discontinued: `gpt-image-1.5`, `gpt-image-1-mini`).
+- **OpenAI**: `gpt-image-2`. Token-billed at $30/Mtok of image output; at 1024x1024 that is ~$0.0059 (Low), $0.0527 (Medium), $0.2107 (High). (Discontinued: `gpt-image-1.5`, `gpt-image-1-mini`.) The newer GPT Image 2.5 models are reachable through OpenRouter — see below, and mind the shifted quality ladder.
   - ⚠️ **Note**: `gpt-image-2` is also available on OpenRouter, but requests are sent server-side with quality set to `high`, making it significantly more expensive than using OpenAI directly.
 - **Google (Nano Banana)** (direct or via OpenRouter):
   - `gemini-3.1-flash-lite-image`: $0.034 per image. **1K only**, supports all 14 aspect ratios of the Gemini 3.x family (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 + 1:4, 4:1, 1:8, 8:1). Cheapest 1K option — recommended when 2K/4K isn't needed.
@@ -176,13 +176,18 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
   > ⚠️ **Google direct API is currently untested.** Only the OpenRouter path is verified end-to-end in this project — the `Google` provider in `imgprompt/providers/google_provider.py` prints a banner on first use and may drift from Google's API without warning. Prefer the OpenRouter route for Gemini unless you have a specific reason to hit Google's API directly.
 - **OpenRouter**:
-  - **OpenAI image models** (all three share one aspect-ratio set: `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9` — note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. All of them are token-billed, so every figure below is an estimate and `usage.cost` reports the real charge):
-    - `openai/gpt-5.4-image-2`: ≈$0.02 (1K), $0.04 (2K), $0.08 (4K). GPT-5.4's reasoning leg wired to GPT Image 2 — the default OpenRouter model.
-    - **GPT Image 2.5 family**: pure image models with **no resolution tiers at all**. Their only price axis is `quality`, so the wizard's resolution step offers the quality ladder instead: `low` / `medium` / `high` / `xhigh` / `max`, cheapest first. Both tiers bill at the same rate (output $30/Mtok, input image $8/Mtok, input text $5/Mtok) and differ only in what they are tuned for:
-      - `openai/gpt-image-2.5-flare`: the speed tier, for high-volume everyday work.
-      - `openai/gpt-image-2.5-sunburst`: the precision tier, for detailed creative work.
+  - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.5-flare` is the default OpenRouter model**):
 
-      Estimates for a nominal ~1MP square, derived from this repo's gpt-image-2 token model at $30/Mtok: **≈$0.006 (low), $0.053 (medium), $0.211 (high), $0.474 (xhigh), $0.843 (max)**. ⚠️ The `xhigh` and `max` figures are **extrapolated, not measured** — OpenRouter publishes no per-quality pricing for this family, and the repo's token table stops at `high`. The real charge also scales with the aspect ratio you pick. Check the reported `usage.cost` on your first `xhigh`/`max` run and update `imgprompt/presets.py` if the >10% reconciliation warning fires.
+    These have **no resolution tiers at all** — no `resolution` parameter exists upstream. Their only price axis is `quality`, so the wizard's resolution step offers the quality ladder instead: `low` / `medium` / `high` / `xhigh` / `max`, cheapest first. Both tiers bill at the same rate (output $30/Mtok, input image $8/Mtok, input text $5/Mtok) and differ only in what they are tuned for:
+    - `openai/gpt-image-2.5-flare`: the speed tier, for high-volume everyday work.
+    - `openai/gpt-image-2.5-sunburst`: the precision tier, for detailed creative work.
+
+    **Output size is still yours to choose**, via the `size` field rather than a resolution tier: pick one of the eight ratios and the wizard pins the matching ~1MP box, or pick **Custom dimensions** for an exact width x height (rounded to multiples of 16 and validated against OpenAI's limits — 0.66-8.3 MP, longest edge 3840, aspect ratio at most 3:1, the same rules as `gpt-image-2`). Verified 2026-09-12: a request for a non-standard `1824x1024` came back at exactly 1824x1024.
+
+    **Prices are computed, not tabulated.** Billing is purely per output token, and output tokens are a function of the box and the quality, so the wizard quotes the exact figure for the dimensions you picked, token count included. At 1024x1024: **$0.0059 (low), $0.0132 (medium), $0.0527 (high), $0.0937 (xhigh), $0.2107 (max)**; the same ladder on 16:9 (1344x768) runs $0.0033 to $0.1201. These come from OpenAI's published 1024x1024 output-token counts (196 / 439 / 1,756 / 3,122 / 7,024), and a measured call confirms the arithmetic end to end: 1824x1024 at `low` billed $0.00425 against a $0.00420 quote.
+
+    ⚠️ **`high` here is not `high` on `gpt-image-2`.** GPT Image 2.5 kept the token rates but *shifted the ladder*: its `high` spends what `gpt-image-2`'s `medium` spent (1,756 tokens), and its `max` what `gpt-image-2`'s `high` spent (7,024), with `medium` and `xhigh` inserted as genuinely new rungs. So the same word costs 4x less here than on the direct provider — switching a prompt between the two without adjusting the quality name is the easy mistake.
+  - ~~`openai/gpt-5.4-image-2`~~: removed in this release. Its `1K`/`2K`/`4K` menu priced tiers that do not exist: **no** OpenAI model on OpenRouter's image API advertises a `resolution` parameter (surveyed across all eight entries, 2026-09-12), so the field went out un-advertised, `quality` was left at the upstream default, and the $0.02/$0.04/$0.08 estimates corresponded to nothing billable. Use the GPT Image 2.5 family above, where the quality axis is the real one. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
   - **Seedream 5.0 family**: the two tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
     - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 4 images per call. The default Seed model.
     - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each; single image per call (`n` capped at 1 upstream). The editing-precision tier.
