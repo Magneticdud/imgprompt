@@ -291,6 +291,49 @@ COSTS["openai/gpt-5.4-image-2"] = {
     "4K": {"fixed": 0.08},
 }
 
+# GPT Image 2.5 family (OpenAI, via OpenRouter). Token-billed exactly like
+# gpt-image-2: output_image $30/Mtok, input_image $8/Mtok, input_text
+# $5/Mtok (snapshot 2026-09-12 from
+# /api/v1/images/models/openai/gpt-image-2.5-{flare,sunburst}/endpoints —
+# the two tiers are billed at IDENTICAL rates, which is why they share one
+# table below; they differ in latency/quality positioning, not price).
+#
+# These models expose no `resolution` parameter, so their price axis is the
+# `quality` enum. The figures below are the repo's own gpt-image-2 token
+# model, `calc_gpt_image2_tokens(1024, 1024, q)`, evaluated at a nominal
+# ~1MP square output and priced at GPT_IMAGE_2_PRICE_PER_MTOK ($30/Mtok —
+# which matches the live output_image rate exactly):
+#
+#     low    q=16  ->    196 tok -> $0.006
+#     medium q=48  ->  1,756 tok -> $0.053
+#     high   q=96  ->  7,024 tok -> $0.211
+#
+# xhigh and max are EXTRAPOLATED, not measured: OpenRouter publishes no
+# per-quality pricing (billing is per token, so the only way a higher
+# quality costs more is by emitting more tokens) and the repo's q_map stops
+# at "high". Continuing its grid progression (16 -> 48 -> 96, i.e. grid
+# areas 256 -> 2304 -> 9216 with a shrinking multiplier of 9x then 4x) by
+# 2.25x and 1.78x gives q=144 and q=192:
+#
+#     xhigh  q=144 -> 15,804 tok -> $0.474
+#     max    q=192 -> 28,096 tok -> $0.843
+#
+# Treat those last two as order-of-magnitude guidance only. The post-call
+# `usage.cost` line is authoritative, and the >10% reconciliation warning
+# will fire loudly on the first real xhigh/max run if the extrapolation is
+# wrong — replace these two numbers with the reported figure when it does.
+# The real charge also scales with the chosen aspect ratio (a 21:9 render
+# is not a 1MP square), which this flat-per-quality table cannot express.
+_GPT_IMAGE_2_5_COSTS = {
+    "low": {"fixed": 0.006},
+    "medium": {"fixed": 0.053},
+    "high": {"fixed": 0.211},
+    "xhigh": {"fixed": 0.474},
+    "max": {"fixed": 0.843},
+}
+COSTS["openai/gpt-image-2.5-flare"] = _GPT_IMAGE_2_5_COSTS
+COSTS["openai/gpt-image-2.5-sunburst"] = _GPT_IMAGE_2_5_COSTS
+
 # Microsoft MAI Image 2.6 (Azure, via OpenRouter). Token-billed, not
 # per-image: output_image $38/Mtok, input_image $8/Mtok, input_text $5/Mtok
 # (snapshot 2026-09-11 from /api/v1/images/models/microsoft/mai-image-2.6/

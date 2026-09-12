@@ -176,6 +176,13 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
   > ⚠️ **Google direct API is currently untested.** Only the OpenRouter path is verified end-to-end in this project — the `Google` provider in `imgprompt/providers/google_provider.py` prints a banner on first use and may drift from Google's API without warning. Prefer the OpenRouter route for Gemini unless you have a specific reason to hit Google's API directly.
 - **OpenRouter**:
+  - **OpenAI image models** (all three share one aspect-ratio set: `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9` — note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. All of them are token-billed, so every figure below is an estimate and `usage.cost` reports the real charge):
+    - `openai/gpt-5.4-image-2`: ≈$0.02 (1K), $0.04 (2K), $0.08 (4K). GPT-5.4's reasoning leg wired to GPT Image 2 — the default OpenRouter model.
+    - **GPT Image 2.5 family**: pure image models with **no resolution tiers at all**. Their only price axis is `quality`, so the wizard's resolution step offers the quality ladder instead: `low` / `medium` / `high` / `xhigh` / `max`, cheapest first. Both tiers bill at the same rate (output $30/Mtok, input image $8/Mtok, input text $5/Mtok) and differ only in what they are tuned for:
+      - `openai/gpt-image-2.5-flare`: the speed tier, for high-volume everyday work.
+      - `openai/gpt-image-2.5-sunburst`: the precision tier, for detailed creative work.
+
+      Estimates for a nominal ~1MP square, derived from this repo's gpt-image-2 token model at $30/Mtok: **≈$0.006 (low), $0.053 (medium), $0.211 (high), $0.474 (xhigh), $0.843 (max)**. ⚠️ The `xhigh` and `max` figures are **extrapolated, not measured** — OpenRouter publishes no per-quality pricing for this family, and the repo's token table stops at `high`. The real charge also scales with the aspect ratio you pick. Check the reported `usage.cost` on your first `xhigh`/`max` run and update `imgprompt/presets.py` if the >10% reconciliation warning fires.
   - **Seedream 5.0 family**: the two tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
     - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 4 images per call. The default Seed model.
     - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each; single image per call (`n` capped at 1 upstream). The editing-precision tier.
@@ -199,7 +206,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `krea/krea-2-medium-turbo`: $0.015 — distilled speed tier, for rapid iteration.
     - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.
     - `krea/krea-2-large`: $0.06 — 2x+ the size of Medium, lighter post-training: rawer, more textured.
-  - `meta/muse-image`: **$0.01 per image — the cheapest model in the catalog.** Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
+  - `meta/muse-image`: **$0.01 per image — the cheapest flat-priced model in the catalog.** (A `low`-quality GPT Image 2.5 render estimates lower still, but that family is token-billed: its price moves with quality and output size rather than being a flat per-image charge.) Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
 
     Unlike every other model here, OpenRouter publishes **no** capability descriptor and **no** endpoints entry for it, so everything below was measured against real calls (2026-09-12) rather than read from the API:
 

@@ -1368,6 +1368,191 @@ def test_qwen_pro_costs_more_than_base_at_2k():
 
 
 # --------------------------------------------------------------------------
+# GPT Image 2.5 family (openai/gpt-image-2.5-flare, -sunburst): the first
+# models in the catalog whose ONLY price axis is `quality`. Descriptor +
+# /endpoints snapshot 2026-09-12: eight aspect ratios (no 4:5/5:4), NO
+# `resolution` parameter, quality enum {auto,low,medium,high,xhigh,max},
+# n 1..10, up to 16 input references, output_image billed at $30/Mtok on
+# both tiers.
+# --------------------------------------------------------------------------
+
+GPT_IMAGE_25_MODELS = (
+    "openai/gpt-image-2.5-flare",
+    "openai/gpt-image-2.5-sunburst",
+)
+
+# Every OpenAI model on OpenRouter shares the same eight ratios.
+GPT_IMAGE_MODELS = ("openai/gpt-5.4-image-2",) + GPT_IMAGE_25_MODELS
+
+
+class TestGptImage25:
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_in_supported_models(self, model):
+        assert model in OpenRouterProvider.supported_models()
+
+    def test_default_model_is_unchanged(self):
+        # The family is added next to gpt-5.4-image-2, not in front of it:
+        # the wizard's default must not move.
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    def test_flare_precedes_sunburst(self):
+        models = OpenRouterProvider.supported_models()
+        assert models.index("openai/gpt-image-2.5-flare") < models.index(
+            "openai/gpt-image-2.5-sunburst"
+        )
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_MODELS)
+    def test_offline_ratios_exclude_the_unsupported_ones(
+        self, model, provider_with_key
+    ):
+        """The generic fallback offered 4:5 and 5:4, which this family does
+        not advertise — every such pick 400s upstream on a cold cache."""
+        choices, default = provider_with_key.get_resolution_choices(model, None)
+        assert choices == ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
+        assert "4:5" not in choices and "5:4" not in choices
+        assert default == "1:1"
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_quality_choices_are_the_five_concrete_tiers(
+        self, model, provider_with_key
+    ):
+        choices, default = provider_with_key.get_quality_choices(
+            model, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ]
+        # "auto" is in the descriptor but has no quotable price.
+        assert not any(c.startswith("auto") for c in choices)
+        assert default == choices[0]
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_quality_prices_are_ordered_cheapest_first(self, model, provider_with_key):
+        from imgprompt.presets import COSTS
+
+        prices = [
+            COSTS[model][q]["fixed"] for q in ("low", "medium", "high", "xhigh", "max")
+        ]
+        assert prices == sorted(prices)
+        assert len(set(prices)) == len(prices)
+
+    def test_both_tiers_share_one_price_table(self):
+        """/endpoints reports identical rates for Flare and Sunburst, so the
+        estimates must not drift apart by accident."""
+        from imgprompt.presets import COSTS
+
+        assert COSTS["openai/gpt-image-2.5-flare"] == (
+            COSTS["openai/gpt-image-2.5-sunburst"]
+        )
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_resolve_quality_returns_bare_quality_key(self, model, provider_with_key):
+        from imgprompt.presets import COSTS
+
+        key, cost = provider_with_key.resolve_quality(
+            model, "1024x1024", None, None, choices_first(provider_with_key, model)
+        )
+        assert key == "low"
+        assert cost == COSTS[model]["low"]["fixed"]
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_payload_sends_quality_and_never_resolution(self, model, provider_with_key):
+        """The whole point of the quality-only axis: `high` must land in the
+        `quality` field, not be mistaken for a resolution tier (which the
+        payload gate would then drop, sending no quality at all)."""
+        req = GenerationRequest(
+            prompt="x",
+            model=model,
+            aspect_ratio="16:9",
+            res_key="1344x768",
+            quality_key="high",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["quality"] == "high"
+        assert body["aspect_ratio"] == "16:9"
+        assert "resolution" not in body
+        assert "size" not in body
+
+    @pytest.mark.parametrize("quality", ["low", "medium", "high", "xhigh", "max"])
+    def test_every_quality_reaches_the_wire_verbatim(self, quality, provider_with_key):
+        req = GenerationRequest(
+            prompt="x",
+            model="openai/gpt-image-2.5-flare",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key=quality,
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["quality"] == quality
+        assert "resolution" not in body
+
+    def test_gpt_5_4_still_uses_the_resolution_axis(self, provider_with_key):
+        """Regression guard: the model-aware key split must not turn the
+        older OpenAI model's tier into a quality."""
+        req = GenerationRequest(
+            prompt="x",
+            model="openai/gpt-5.4-image-2",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["resolution"] == "2K"
+        assert "quality" not in body
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_effective_pixels_delegates_to_openrouter(self, model, provider_with_key):
+        """No pixel floor/ceiling is configured for this family, so the
+        wizard falls back to the res_key preset rather than inventing a
+        size the gateway would not use."""
+        assert provider_with_key.resolve_effective_pixels(model, "16:9", "high") is None
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_quality_key_never_trips_the_resolution_preflight(
+        self, model, monkeypatch, provider_with_key
+    ):
+        """A bare quality must not be read as a canonical tier and warned
+        about as an unadvertised resolution."""
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        caps = ModelCapabilities(
+            model=model,
+            aspect_ratios=("1:1", "16:9"),
+            resolutions=(),
+            n_max=10,
+            input_refs_max=16,
+        )
+        monkeypatch.setattr(
+            "imgprompt.providers.openrouter_provider.get_capabilities",
+            lambda m: caps,
+        )
+        assert provider_with_key.preflight_warnings(model, "16:9", "max") == []
+
+    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    def test_n_is_not_clamped_below_the_global_cap(self, model, provider_with_key):
+        """The descriptor pins n at 1..10, matching the global cap — the
+        prefix table must not accidentally catch "openai/"."""
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}] * 4)
+            req = GenerationRequest(
+                prompt="x",
+                model=model,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="low",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+            assert mock_post.call_args.kwargs["json"]["n"] == 4
+
+
+# --------------------------------------------------------------------------
 # Meta Muse Image: the catalog's only model with NO capability descriptor
 # (`supported_parameters: {}`) and NO endpoints entry, so every expectation
 # below comes from real calls made on 2026-09-12 rather than from upstream
@@ -1471,15 +1656,27 @@ class TestMuseImage:
         assert mock_post.call_args.kwargs["json"]["n"] == 1
 
 
-def test_muse_is_the_cheapest_openrouter_model():
+def test_muse_is_the_cheapest_flat_priced_openrouter_model():
     """$0.01/image is the whole reason Muse sits with the cheap entries in
-    the picker. If a cheaper model lands, revisit that ordering."""
+    the picker. If a cheaper FLAT-priced model lands, revisit that ordering.
+
+    The GPT Image 2.5 family is excluded on purpose. It is token-billed, so
+    its COSTS rows are nominal ~1MP-square estimates that move with the
+    quality tier AND the chosen aspect ratio, not flat per-image charges:
+    its `low` estimate ($0.006) is under Muse's flat $0.01, but its `max`
+    estimate is ~80x Muse. Folding an estimate spanning two orders of
+    magnitude into a "cheapest" comparison against a verified flat price
+    would make the assertion meaningless in both directions.
+    """
     from imgprompt.presets import COSTS
 
     assert COSTS[MUSE]["Standard"]["fixed"] == 0.01
+    flat_priced = [
+        m for m in OpenRouterProvider.supported_models() if m not in GPT_IMAGE_25_MODELS
+    ]
     cheapest = min(
         tier["fixed"]
-        for model in OpenRouterProvider.supported_models()
+        for model in flat_priced
         for key, tier in COSTS[model].items()
         if isinstance(tier, dict)
     )

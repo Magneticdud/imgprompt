@@ -210,6 +210,53 @@ _META_OUTPUT_SIZES = {
     "3:2": (1920, 1280),
 }
 
+# The OpenAI image models on /api/v1/images. All three ship the SAME
+# aspect_ratio enum — eight concrete ratios plus "auto" (which the wizard
+# doesn't surface for OpenRouter) — and NONE of them advertises a
+# `resolution` parameter at all. Verified 2026-09-12 against
+# /api/v1/images/models.
+#
+# The eight matter because the generic fallback branch
+# (OPENROUTER_STANDARD_RATIOS + "21:9") offers 4:5 and 5:4, which this
+# family does NOT support: every one of those picks 400s upstream whenever
+# live discovery is unavailable (cold cache + no network). The descriptor
+# override further down already trimmed them on the online path; this
+# branch makes the offline path agree.
+_GPT_IMAGE_MODELS = (
+    "openai/gpt-5.4-image-2",
+    "openai/gpt-image-2.5-flare",
+    "openai/gpt-image-2.5-sunburst",
+)
+
+# Those eight ratios in the wizard's canonical OPENROUTER_RESOLUTIONS order.
+_GPT_IMAGE_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
+
+# GPT Image 2.5 family on /api/v1/images. Both tiers ship an IDENTICAL
+# descriptor AND identical /endpoints pricing (verified 2026-09-12) — same
+# eight ratios, no `resolution`, `quality` enum
+# {auto,low,medium,high,xhigh,max}, n 1..10, up to 16 input references,
+# output_image $30/Mtok — and differ only in positioning: Flare is the
+# speed tier, Sunburst the precision tier. So the wizard branches below
+# treat them as one.
+#
+# These are the first models in the catalog whose ONLY price axis is
+# `quality`: there is no resolution tier to pick, so the wizard's single
+# tier step offers the quality enum directly and `quality_key` holds a bare
+# quality value ("high"), not a tier ("2K") or a compound "<tier>
+# <quality>" (Grok). `_split_quality_key` keys off this tuple to return
+# (None, quality) for them, which is what keeps `resolution` off the wire
+# and puts `quality` on it.
+_GPT_IMAGE_25_MODELS = (
+    "openai/gpt-image-2.5-flare",
+    "openai/gpt-image-2.5-sunburst",
+)
+
+# The five concrete quality steps, cheapest first. "auto" is in the
+# descriptor too but stays off the picker for the same reason "auto" is
+# kept off the ratio picker: the wizard quotes a price before spending, and
+# a model-chosen tier has no price to quote.
+_GPT_IMAGE_25_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
+
 # Nominal pixel targets per resolution tier (the square each tier names).
 # Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
 _TIER_PIXELS = {
@@ -261,15 +308,31 @@ if set(_VALID_TIER_QUALITY_KEYS) != set(_TIER_PIXELS):
 _TIER_QUALITY_MODELS = ("x-ai/grok-imagine-image-2.0",)
 
 
-def _split_quality_key(quality_key: str | None) -> tuple[str | None, str | None]:
+def _split_quality_key(
+    quality_key: str | None, model: str | None = None
+) -> tuple[str | None, str | None]:
     """Split a wizard quality_key into (tier, quality).
 
     ``"2K low"`` -> ``("2K", "low")`` for the two-axis models above;
+    ``"high"`` -> ``(None, "high")`` for the quality-only GPT Image 2.5
+    family, which has no resolution axis at all;
     ``"2K"`` / ``"Standard"`` / ``None`` -> ``(value, None)`` for everyone
     else, so single-axis callsites keep their exact previous behaviour.
+
+    ``model`` is optional so the pure "does this string contain a compound
+    key" reading still works standalone, but every in-tree callsite passes
+    it: without the model there is no way to tell the bare quality ``"high"``
+    apart from a tier name, and the GPT Image 2.5 family would silently
+    send ``quality`` as a ``resolution`` (dropped by the payload gate) and
+    no quality at all.
     """
     if not quality_key:
         return quality_key, None
+    if model in _GPT_IMAGE_25_MODELS:
+        # Quality-only axis: the whole key IS the quality value. Returning
+        # tier=None keeps it out of `_VALID_TIER_QUALITY_KEYS` at every
+        # gate, so no `resolution` field is ever emitted for this family.
+        return None, quality_key
     tier, _, quality = quality_key.partition(" ")
     return tier, (quality or None)
 
@@ -414,6 +477,13 @@ class OpenRouterProvider(ImageProvider):
     def supported_models(cls) -> list[str]:
         return [
             "openai/gpt-5.4-image-2",
+            # GPT Image 2.5 family, speed tier first. Both are pure image
+            # models (no reasoning/text leg like gpt-5.4-image-2) priced on
+            # a quality axis instead of a resolution one, so a `low` render
+            # is the cheapest OpenAI option here by a wide margin and `max`
+            # the most expensive thing in the catalog.
+            "openai/gpt-image-2.5-flare",
+            "openai/gpt-image-2.5-sunburst",
             # Seedream 5.0, cheaper/higher-resolution tier first: Lite is the
             # family default. It supersedes seedream-4.5 outright — $0.035 vs
             # $0.04 flat, same 4K ceiling, same ratios — so 4.5 is retired.
@@ -472,7 +542,11 @@ class OpenRouterProvider(ImageProvider):
         # the ratios, so we keep it on the conservative 10+21:9 list until
         # either Google lists them per-model or we verify against real
         # upstream responses.
-        if model in (
+        if model in _GPT_IMAGE_MODELS:
+            # Eight concrete ratios, no 4:5/5:4 — see _GPT_IMAGE_MODELS for
+            # why the generic fallback below is wrong for this family.
+            ratio_options = list(_GPT_IMAGE_RATIOS)
+        elif model in (
             "google/gemini-3.1-flash-image",
             "google/gemini-3.1-flash-lite-image",
         ):
@@ -593,7 +667,7 @@ class OpenRouterProvider(ImageProvider):
         # without this gate they would silently fall back to the
         # floor constant as a target and produce a misleading WxH
         # in the wizard summary.
-        tier, _quality = _split_quality_key(quality_key)
+        tier, _quality = _split_quality_key(quality_key, model)
         if tier not in _VALID_TIER_QUALITY_KEYS:
             return None
         result = _compute_pixel_size(model, aspect_ratio, tier)
@@ -615,7 +689,14 @@ class OpenRouterProvider(ImageProvider):
         # Method kept named "quality" for backwards compatibility with the
         # wizard in imgedit.py, but the user-facing label is now "Resolution"
         # (tier like "1K"/"2K"/"4K" — matching the new docs).
-        if model.startswith("openai/gpt-"):
+        if model in _GPT_IMAGE_25_MODELS:
+            # No `resolution` parameter upstream at all: this family's only
+            # price axis is `quality`, so the tier step offers the quality
+            # enum directly (cheapest first). None of these values is in
+            # {512,1K,2K,4K}, so _build_payload never emits a `resolution`
+            # field for them — it emits `quality` instead.
+            sizes = list(_GPT_IMAGE_25_QUALITIES)
+        elif model.startswith("openai/gpt-"):
             sizes = ["1K", "2K", "4K"]
         elif model == "sourceful/riverflow-v2.5-pro":
             sizes = ["1K", "2K", "4K"]
@@ -689,9 +770,17 @@ class OpenRouterProvider(ImageProvider):
         # Two-axis models are exempt: the filter below enumerates canonical
         # tier keys, which can never match a compound "<tier> <quality>" key
         # (nor its COSTS row), so it would silently fall through to an empty
-        # list and drop the quality axis from the menu.
+        # list and drop the quality axis from the menu. The quality-only GPT
+        # Image 2.5 family is exempt for the mirror-image reason: its keys
+        # are bare quality values, so a `resolution` enum appearing upstream
+        # would replace a priced quality menu with unpriced tiers.
         caps = get_capabilities(model)
-        if caps and caps.resolutions and model not in _TIER_QUALITY_MODELS:
+        if (
+            caps
+            and caps.resolutions
+            and model not in _TIER_QUALITY_MODELS
+            and model not in _GPT_IMAGE_25_MODELS
+        ):
             from imgprompt.presets import COSTS as _costs
 
             # Descriptor-driven tier filter: enumerate canonical tier
@@ -790,7 +879,7 @@ class OpenRouterProvider(ImageProvider):
         # non-canonical tier internally; we only warn when the user
         # picked a CANONICAL tier that the live descriptor doesn't
         # advertise — a hard mismatch, not a stylistic pick.
-        tier, _quality = _split_quality_key(quality_key)
+        tier, _quality = _split_quality_key(quality_key, model)
         if (
             caps.resolutions
             and tier in _VALID_TIER_QUALITY_KEYS
@@ -1000,7 +1089,7 @@ class OpenRouterProvider(ImageProvider):
         # is its own wire field and is orthogonal to how the geometry is
         # expressed, so it is set here — before the size/resolution branch —
         # and rides along on the explicit-`size` path too.
-        tier, quality = _split_quality_key(request.quality_key)
+        tier, quality = _split_quality_key(request.quality_key, request.model)
         if quality:
             payload["quality"] = quality
 
