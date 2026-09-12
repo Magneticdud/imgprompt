@@ -127,9 +127,10 @@ def gpt_image_2_token_cost(
     output image token at :data:`GPT_IMAGE_2_PRICE_PER_MTOK` — so both
     providers price through here instead of repeating the arithmetic.
 
-    Exact, not approximate: a real 1824x1024 ``low`` call on OpenRouter
+    Exact, not approximate: real 1824x1024 ``low`` calls on OpenRouter
     (2026-09-12) reported ``image_tokens: 140`` and a completions cost of
-    $0.0042; this returns (140, 0.0042).
+    $0.0042 — on BOTH 2.5 tiers, with ``reasoning_tokens: 0``; this
+    returns (140, 0.0042).
 
     Pass ``q_map=GPT_IMAGE_2_5_Q_MAP`` for the GPT Image 2.5 family —
     the rates are identical but the quality ladder is not.

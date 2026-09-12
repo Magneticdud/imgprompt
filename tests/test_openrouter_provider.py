@@ -1465,8 +1465,11 @@ class TestGptImage25:
         assert len(set(prices)) == len(prices)
 
     def test_both_tiers_are_priced_identically(self, provider_with_key):
-        """/endpoints reports identical rates for Flare and Sunburst, so the
-        estimates must not drift apart by accident."""
+        """Measured, not just advertised: the SAME probe (1824x1024,
+        quality low) on both tiers returned image_tokens=140,
+        reasoning_tokens=0 and cost $0.00425 — identical to the token and
+        the cent (2026-09-12). Sunburst's premium is latency, not money, so
+        the two estimates must not drift apart by accident."""
         flare, sunburst = (
             provider_with_key.get_quality_choices(m, "1344x768", None, None, None)[0]
             for m in GPT_IMAGE_25_MODELS

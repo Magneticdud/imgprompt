@@ -212,8 +212,10 @@ _META_OUTPUT_SIZES = {
 
 # GPT Image 2.5 family on /api/v1/images — the whole OpenAI presence in
 # this catalog since gpt-5.4-image-2 was retired (see the README note).
-# Both tiers ship an IDENTICAL descriptor AND identical /endpoints pricing
-# (verified 2026-09-12): eight aspect ratios plus "auto" (which the wizard
+# Both tiers ship an IDENTICAL descriptor AND identical /endpoints pricing,
+# and bill identically in practice — the same probe on each returned
+# image_tokens=140, reasoning_tokens=0, cost $0.00425 (verified
+# 2026-09-12). Sunburst's premium is generation time, not money: eight aspect ratios plus "auto" (which the wizard
 # doesn't surface for OpenRouter), NO `resolution` parameter, `quality`
 # enum {auto,low,medium,high,xhigh,max}, n 1..10, up to 16 input
 # references, output_image $30/Mtok. They differ only in positioning —
