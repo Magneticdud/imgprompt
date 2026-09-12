@@ -35,6 +35,14 @@ _MAX_N = 10
 # discovery already clamps it correctly — the entry here is only an
 # offline/cache-miss safety net, same role as Recraft's.
 #
+# Meta Muse Image ships an EMPTY descriptor — `supported_parameters` is
+# `{}`, not merely missing `n` (verified 2026-09-12) — so `caps.n_max` is
+# None and the clamp falls through to this table, same as Krea. The cap of
+# 1 is CONSERVATIVE, not measured: the probes that verified the model were
+# all single-image, and a reason-then-render agentic model is an unlikely
+# fit for server-side variant fan-out. If a future probe shows it honours
+# n > 1, raise this number — nothing else has to change.
+#
 # The two Seedream 5.0 entries are full model ids rather than family
 # prefixes: the tiers disagree (Lite 1..4, Pro 1..1, verified 2026-09-11)
 # so `bytedance-seed/` cannot carry one number for both. `startswith`
@@ -45,6 +53,7 @@ _MAX_N = 10
 _MODEL_MAX_N_PREFIXES = {
     "recraft/": 6,
     "krea/": 1,
+    "meta/": 1,
     "qwen/": 6,
     "bytedance-seed/seedream-5-0-lite": 4,
     "bytedance-seed/seedream-5-0-pro": 1,
@@ -152,6 +161,54 @@ _QWEN_RATIOS = [
     "1:4",
     "4:1",
 ]
+
+# Meta Muse Image on /api/v1/images. The odd one out of the whole catalog:
+# its capability descriptor is EMPTY (`supported_parameters: {}`) and
+# /api/v1/images/models/meta/muse-image/endpoints returns `{"endpoints":
+# []}` — no descriptor, no live pricing, nothing. Krea at least ships a
+# descriptor with an empty `pricing` array; this model ships neither, so
+# every wizard branch below has to come from measurement instead.
+#
+# Measured against three real calls on 2026-09-12 (the ONLY source of truth
+# for this model — re-measure before changing any of it):
+#
+#   aspect_ratio 1:1  -> 1600x1600 (1:1)
+#   aspect_ratio 16:9 -> 1920x1280 (3:2)   <- clamped, NOT 16:9
+#   aspect_ratio 9:16 -> 1280x1920 (2:3)   <- clamped, NOT 9:16
+#
+# So `aspect_ratio` IS honoured, but only as an orientation intent that
+# Meta snaps to its own three shapes (~2.5MP each). The gateway's Zod
+# schema accepts all 22 catalog ratios, so sending 16:9 never errors — it
+# just silently returns 3:2. Offering only the three shapes the model can
+# actually produce keeps the picker honest; anything wider would let the
+# user pick a ratio and pay for a different one.
+#
+# `resolution` is accepted by the schema and then IGNORED: the 16:9 probe
+# sent resolution "1K" and got 1920x1280 back. Hence the synthetic
+# "Standard" tier in get_quality_choices (same treatment as MAI/Recraft) —
+# deliberately outside {512,1K,2K,4K} so _build_payload never puts a
+# `resolution` field on the wire.
+#
+# Output arrives as image/webp, not PNG; save_image_bytes already picks the
+# extension from the decoded format, so nothing special is needed there.
+_META_MODELS = ("meta/muse-image",)
+
+# The three shapes Muse actually produces, in the wizard's canonical
+# OPENROUTER_RESOLUTIONS order. Note these are the OUTPUT ratios measured
+# above, not a descriptor enum — there is no descriptor to read.
+_META_RATIOS = ["1:1", "2:3", "3:2"]
+
+# The exact WxH each of those ratios came back as, so the wizard's summary
+# can print the real shape instead of the RATIO_TO_RESOLUTION preset (which
+# would claim 1024x1024 for a 1:1 that actually arrives at 1600x1600).
+# These are measured constants, not a computation: Muse picks the geometry
+# itself and takes no size/resolution input, so there is nothing to derive
+# them from. Re-measure if the upstream model version changes.
+_META_OUTPUT_SIZES = {
+    "1:1": (1600, 1600),
+    "2:3": (1280, 1920),
+    "3:2": (1920, 1280),
+}
 
 # Nominal pixel targets per resolution tier (the square each tier names).
 # Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
@@ -386,6 +443,10 @@ class OpenRouterProvider(ImageProvider):
             "krea/krea-2-medium-turbo",
             "krea/krea-2-medium",
             "krea/krea-2-large",
+            # Meta Muse Image: single model, $0.01/image — the cheapest in
+            # the catalog — so it sits with the other cheap entries rather
+            # than with its (nonexistent) family.
+            "meta/muse-image",
             # Recraft v4.1 family, grouped at the end: two axes — output
             # (raster vs. SVG vector) × tier (base/utility vs. pro).
             "recraft/recraft-v4.1",
@@ -439,6 +500,11 @@ class OpenRouterProvider(ImageProvider):
         elif model in _QWEN_MODELS:
             # See _QWEN_RATIOS for why 1:2/2:1 are excluded from the picker.
             ratio_options = list(_QWEN_RATIOS)
+        elif model in _META_MODELS:
+            # Measured, not advertised: Muse's descriptor is empty, and the
+            # only three shapes it returns are 1:1, 2:3 and 3:2. See the
+            # _META_MODELS block for the probe results behind this list.
+            ratio_options = list(_META_RATIOS)
         elif model.startswith("recraft/"):
             # Recraft's descriptor exposes NO aspect_ratio or resolution
             # parameter (verified 2026-07-07): geometry is entirely
@@ -508,6 +574,14 @@ class OpenRouterProvider(ImageProvider):
         twice — once during the summary preview, once on the actual
         call.
         """
+        # Muse is the one model whose real output size is known without
+        # being computed: it ignores every geometry input and returns one
+        # of three fixed boxes (see _META_OUTPUT_SIZES). It sends no
+        # explicit `size`, so it is outside this method's usual
+        # floor/ceiling remit — but the *purpose* of the method is to print
+        # the shape the user will get, and here we know it exactly.
+        if model in _META_MODELS:
+            return _META_OUTPUT_SIZES.get(aspect_ratio or "")
         if not (_MODEL_PIXEL_FLOORS.get(model) or _MODEL_PIXEL_CEILINGS.get(model)):
             return None
         if aspect_ratio is None or aspect_ratio == "Auto":
@@ -592,6 +666,13 @@ class OpenRouterProvider(ImageProvider):
             # against /api/v1/images/models; the per-pair prices live in
             # COSTS under the same compound keys.
             sizes = [f"{t} {q}" for t in ("1K", "2K") for q in ("low", "medium")]
+        elif model in _META_MODELS:
+            # Muse accepts `resolution` at the gateway and then ignores it
+            # (a 1K request came back at 1920x1280, verified 2026-09-12),
+            # so there is no tier to offer. "Standard" is deliberately
+            # outside the {512,1K,2K,4K} set, which keeps _build_payload
+            # from emitting a resolution field that would do nothing.
+            sizes = ["Standard"]
         elif model.startswith("recraft/"):
             # Like MAI: no resolution parameter on /api/v1/images (verified
             # 2026-07-07). One flat-priced "Standard" tier per variant; the

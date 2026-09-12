@@ -199,6 +199,16 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `krea/krea-2-medium-turbo`: $0.015 — distilled speed tier, for rapid iteration.
     - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.
     - `krea/krea-2-large`: $0.06 — 2x+ the size of Medium, lighter post-training: rawer, more textured.
+  - `meta/muse-image`: **$0.01 per image — the cheapest model in the catalog.** Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
+
+    Unlike every other model here, OpenRouter publishes **no** capability descriptor and **no** endpoints entry for it, so everything below was measured against real calls (2026-09-12) rather than read from the API:
+
+    - **Three aspect ratios**: `1:1` → 1600x1600, `2:3` → 1280x1920, `3:2` → 1920x1280 (≈2.5MP each). The wizard offers exactly these because they are the only shapes the model returns — a request for `16:9` is accepted and silently answered with 3:2, so offering it would charge you for a shape you did not pick.
+    - **No resolution tiers**: the `resolution` field is accepted and then ignored (a `1K` request came back at 1920x1280), so the wizard shows a single `Standard` tier and never puts the field on the wire.
+    - **Output is WebP**, not PNG — saved as `.webp`.
+    - Single image per call (`n` capped at 1; conservative, since the empty descriptor gives nothing to clamp against).
+
+    The $0.01 figure is the model page's headline and matched `usage.cost` exactly on every verification call, but as with Krea it can never be confirmed by live pricing — `usage.cost` remains the authoritative charge.
   - **Recraft v4.1 family** (raster vs. SVG vector × base vs. pro; geometry is model-chosen — no ratio/resolution knobs; up to 6 variants per call; **`recraft/recraft-v4.1` is the recommended starting point**):
     - `recraft/recraft-v4.1`: $0.035 — general raster.
     - `recraft/recraft-v4.1-pro`: $0.21 — general raster, premium.

@@ -353,6 +353,18 @@ COSTS["qwen/qwen-image-3-pro"] = {
     "input_flat": 0.003,
 }
 
+# Meta Muse Image (via OpenRouter). Flat $0.01/image — the cheapest model
+# in the catalog. Like Krea, live discovery CANNOT price it: its
+# /api/v1/images/models/meta/muse-image/endpoints response carries an empty
+# `endpoints` array outright (checked 2026-09-12), so `_tier_price` always
+# falls back to this table. The figure is the model page's headline and was
+# confirmed against three real calls (usage.cost == 0.01 exactly, every
+# time), so the >10% reconciliation warning should never fire.
+#
+# Single "Standard" key: the model exposes no resolution tiers — see the
+# _META_MODELS notes in the OpenRouter provider for why.
+COSTS["meta/muse-image"] = {"Standard": {"fixed": 0.01}}
+
 # Recraft v4.1 family (via OpenRouter). Two axes: output (raster vs. SVG
 # vector) × tier (base/utility vs. pro). Flat per-image pricing from each
 # model's /endpoints entry, snapshot 2026-07-07; no resolution tiers (the

@@ -1368,6 +1368,125 @@ def test_qwen_pro_costs_more_than_base_at_2k():
 
 
 # --------------------------------------------------------------------------
+# Meta Muse Image: the catalog's only model with NO capability descriptor
+# (`supported_parameters: {}`) and NO endpoints entry, so every expectation
+# below comes from real calls made on 2026-09-12 rather than from upstream
+# metadata. Those calls established: aspect_ratio is honoured but snapped to
+# {1:1, 2:3, 3:2}; `resolution` is accepted and then ignored; output is
+# image/webp; usage.cost is exactly $0.01 per image.
+# --------------------------------------------------------------------------
+
+MUSE = "meta/muse-image"
+
+
+class TestMuseImage:
+    def test_in_supported_models(self):
+        assert MUSE in OpenRouterProvider.supported_models()
+        # Default must stay the first entry, not Muse.
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-5.4-image-2"
+
+    def test_resolution_choices_are_the_three_measured_shapes(self, provider_with_key):
+        choices, default = provider_with_key.get_resolution_choices(MUSE, None)
+        assert choices == ["1:1", "2:3", "3:2"]
+        # 16:9 came back as 1920x1280 (3:2) upstream, so offering it would
+        # charge the user for a shape they did not pick.
+        assert "16:9" not in choices and "9:16" not in choices
+        assert default == "1:1"
+
+    def test_quality_choices_are_standard_only(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            MUSE, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["Standard"]
+        assert default == choices[0]
+
+    def test_resolve_quality_returns_flat_cent_price(self, provider_with_key):
+        key, cost = provider_with_key.resolve_quality(
+            MUSE, "1024x1024", None, None, choices_first(provider_with_key, MUSE)
+        )
+        assert key == "Standard"
+        # Verified against three live calls: usage.cost was 0.01 every time,
+        # so the estimate must match exactly or reconciliation is meaningless.
+        assert cost == 0.01
+
+    def test_payload_omits_resolution_and_size(self, provider_with_key):
+        """ "Standard" is outside {512,1K,2K,4K} on purpose: Muse ignores
+        `resolution`, so emitting it would be noise on the wire."""
+        req = GenerationRequest(
+            prompt="x",
+            model=MUSE,
+            aspect_ratio="3:2",
+            res_key="1248x832",
+            quality_key="Standard",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "3:2"
+        assert "resolution" not in body
+        assert "size" not in body
+
+    def test_effective_pixels_report_the_measured_output(self, provider_with_key):
+        """The RATIO_TO_RESOLUTION preset would claim 1024x1024 for 1:1; the
+        model actually returns 1600x1600, and the wizard summary must say so."""
+        assert provider_with_key.resolve_effective_pixels(MUSE, "1:1", "Standard") == (
+            1600,
+            1600,
+        )
+        assert provider_with_key.resolve_effective_pixels(MUSE, "2:3", "Standard") == (
+            1280,
+            1920,
+        )
+        assert provider_with_key.resolve_effective_pixels(MUSE, "3:2", "Standard") == (
+            1920,
+            1280,
+        )
+
+    def test_effective_pixels_none_for_unoffered_ratio(self, provider_with_key):
+        """A stale replay carrying a ratio the picker no longer offers falls
+        back to the res_key preset instead of inventing a size."""
+        assert (
+            provider_with_key.resolve_effective_pixels(MUSE, "16:9", "Standard") is None
+        )
+        assert (
+            provider_with_key.resolve_effective_pixels(MUSE, None, "Standard") is None
+        )
+
+    def test_n_clamped_to_one_without_descriptor(self, provider_with_key):
+        """Muse's descriptor is empty, so `caps.n_max` is None and the clamp
+        falls through to the prefix table. The autouse fixture pins
+        get_capabilities to None, which is exactly that case."""
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=MUSE,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="Standard",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+
+        assert mock_post.call_args.kwargs["json"]["n"] == 1
+
+
+def test_muse_is_the_cheapest_openrouter_model():
+    """$0.01/image is the whole reason Muse sits with the cheap entries in
+    the picker. If a cheaper model lands, revisit that ordering."""
+    from imgprompt.presets import COSTS
+
+    assert COSTS[MUSE]["Standard"]["fixed"] == 0.01
+    cheapest = min(
+        tier["fixed"]
+        for model in OpenRouterProvider.supported_models()
+        for key, tier in COSTS[model].items()
+        if isinstance(tier, dict)
+    )
+    assert COSTS[MUSE]["Standard"]["fixed"] == cheapest
+
+
+# --------------------------------------------------------------------------
 # Recraft v4.1 family (issue #8): six variants, no aspect_ratio/resolution
 # parameters upstream (geometry is model-chosen), n capped at 6, vector
 # variants return SVG natively. Descriptor snapshot 2026-07-07.
