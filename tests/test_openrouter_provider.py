@@ -1142,14 +1142,17 @@ def test_krea_tier_prices_are_ordered():
 
 
 # --------------------------------------------------------------------------
-# xAI Grok Imagine image-quality (issue #7): 1K/2K only, seven standard
-# ratios surfaced (phone-screen ratios exist upstream but have no wizard
-# preview entry), flat $0.01 per input image. Descriptor snapshot 2026-07-07.
+# xAI Grok Imagine 2.0 (issue #7, supersedes the image-quality tier): 1K/2K
+# only, seven standard ratios surfaced (phone-screen ratios exist upstream
+# but have no wizard preview entry), flat $0.01 per input image — and, alone
+# in the catalog, a second price axis: quality low/medium. The wizard's
+# single tier step therefore carries compound "<tier> <quality>" keys.
+# Descriptor snapshot 2026-09-12.
 # --------------------------------------------------------------------------
 
 
 class TestGrokImagine:
-    MODEL = "x-ai/grok-imagine-image-quality"
+    MODEL = "x-ai/grok-imagine-image-2.0"
 
     def test_in_supported_models(self):
         assert self.MODEL in OpenRouterProvider.supported_models()
@@ -1160,27 +1163,83 @@ class TestGrokImagine:
         assert choices == ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
         assert default == "1:1"
 
-    def test_quality_choices_cap_at_2k(self, provider_with_key):
+    def test_quality_choices_are_the_tier_quality_matrix(self, provider_with_key):
         choices, default = provider_with_key.get_quality_choices(
             self.MODEL, "1024x1024", None, None, None
         )
-        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
-        assert "$0.050" in choices[0]
-        assert "$0.070" in choices[1]
+        assert [c.split(" (")[0] for c in choices] == [
+            "1K low",
+            "1K medium",
+            "2K low",
+            "2K medium",
+        ]
+        assert "$0.040" in choices[0]
+        assert "$0.060" in choices[1]
+        assert "$0.060" in choices[2]
+        assert "$0.080" in choices[3]
         assert default == choices[0]
 
-    def test_payload_passes_ratio_and_resolution(self, provider_with_key):
+    def test_resolve_quality_keeps_both_axes(self, provider_with_key):
+        """The generic `split(" ")[0]` parse would have dropped the quality
+        half — and with it the wire field and the right price."""
+        choices, _ = provider_with_key.get_quality_choices(
+            self.MODEL, "1024x1024", None, None, None
+        )
+        key, cost = provider_with_key.resolve_quality(
+            self.MODEL, "1024x1024", None, None, choices[3]
+        )
+        assert key == "2K medium"
+        assert cost == 0.08
+
+    def test_payload_splits_tier_and_quality(self, provider_with_key):
         req = GenerationRequest(
             prompt="x",
             model=self.MODEL,
             aspect_ratio="16:9",
             res_key="1344x768",
-            quality_key="2K",
+            quality_key="2K low",
         )
         body = provider_with_key._build_payload(req)
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "2K"
+        assert body["quality"] == "low"
         assert "size" not in body
+
+    def test_quality_rides_along_on_the_explicit_size_path(self, provider_with_key):
+        """Custom dimensions swap `aspect_ratio`+`resolution` for `size`, but
+        `quality` is orthogonal to geometry and must still be sent."""
+        req = GenerationRequest(
+            prompt="x",
+            model=self.MODEL,
+            aspect_ratio="1:1",
+            res_key="custom",
+            quality_key="1K medium",
+            width=1024,
+            height=1024,
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["size"] == "1024x1024"
+        assert body["quality"] == "medium"
+        assert "resolution" not in body
+
+    def test_single_axis_models_send_no_quality_field(self, provider_with_key):
+        """The `quality` field is Grok-2.0-only: any other model would 400."""
+        req = GenerationRequest(
+            prompt="x",
+            model="qwen/qwen-image-3",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="2K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert "quality" not in body
+        assert body["resolution"] == "2K"
+
+    def test_preflight_checks_the_tier_half(self, provider_with_key):
+        """A compound key must not be read as an unadvertised resolution:
+        "2K medium" is a valid 2K request, not a bogus tier."""
+        warnings = provider_with_key.preflight_warnings(self.MODEL, "16:9", "2K medium")
+        assert not any("does not advertise resolution" in w for w in warnings)
 
     def test_input_flat_rate_is_priced(self):
         from imgprompt.presets import COSTS
@@ -1188,6 +1247,28 @@ class TestGrokImagine:
         # Flat per-input-image billing (not per-megapixel): the wizard's
         # summary adds $0.01 per reference image for this model.
         assert COSTS[self.MODEL]["input_flat"] == 0.01
+
+    def test_quality_axis_moves_the_price_both_ways(self):
+        """Why 2.0 supersedes the image-quality tier: low undercuts the old
+        $0.05/$0.07, medium buys more than it did."""
+        from imgprompt.presets import COSTS
+
+        row = COSTS[self.MODEL]
+        assert row["1K low"]["fixed"] < 0.05
+        assert row["2K medium"]["fixed"] > 0.07
+        assert row["1K low"]["fixed"] < row["1K medium"]["fixed"]
+        assert row["2K low"]["fixed"] < row["2K medium"]["fixed"]
+
+
+def test_retired_grok_image_quality_is_gone():
+    """The image-quality tier was replaced by Grok Imagine 2.0; leaving it
+    listed would let the wizard offer a model we no longer price or verify.
+    Replays that reference it bail out via the retired-model guard."""
+    from imgprompt.presets import COSTS
+
+    retired = "x-ai/grok-imagine-image-quality"
+    assert retired not in OpenRouterProvider.supported_models()
+    assert retired not in COSTS
 
 
 # --------------------------------------------------------------------------

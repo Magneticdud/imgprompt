@@ -285,10 +285,43 @@ class TestFileCache:
 # Live pricing from /endpoints (issue #3).
 # --------------------------------------------------------------------------
 
-GROK_PRICING = [
+# The common shape: variants that spell their tier directly (Flux 2 Pro,
+# snapshot 2026-09-12).
+FLUX_PRICING = [
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.03, "variant": "1k"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.075, "variant": "2k"},
+]
+
+# Grok Imagine 2.0, snapshot 2026-09-12: the only model priced on two axes —
+# every variant is a quality+tier pair and there is NO variant-less entry to
+# fall back on, so the per-model alias table is the only thing keeping live
+# pricing alive for it.
+GROK_2_PRICING = [
     {"billable": "input_image", "unit": "image", "cost_usd": 0.01},
-    {"billable": "output_image", "unit": "image", "cost_usd": 0.05, "variant": "1k"},
-    {"billable": "output_image", "unit": "image", "cost_usd": 0.07, "variant": "2k"},
+    {
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.04,
+        "variant": "low_1k",
+    },
+    {
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.06,
+        "variant": "medium_1k",
+    },
+    {
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.06,
+        "variant": "low_2k",
+    },
+    {
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.08,
+        "variant": "medium_2k",
+    },
 ]
 
 # Seedream 5.0 Pro, snapshot 2026-09-11: the only model in the catalog whose
@@ -336,9 +369,9 @@ class TestLivePricing:
         from imgprompt.providers.capabilities import output_image_price
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_endpoints(mock_get, GROK_PRICING)
-            assert output_image_price("x-ai/grok-imagine-image-quality", "1K") == 0.05
-            assert output_image_price("x-ai/grok-imagine-image-quality", "2K") == 0.07
+            _stub_endpoints(mock_get, FLUX_PRICING)
+            assert output_image_price("black-forest-labs/flux.2-pro", "1K") == 0.03
+            assert output_image_price("black-forest-labs/flux.2-pro", "2K") == 0.075
         # Session cache: one endpoints call for both lookups.
         assert mock_get.call_count == 1
 
@@ -353,6 +386,25 @@ class TestLivePricing:
             model = "bytedance-seed/seedream-5-0-pro"
             assert output_image_price(model, "2K") == 0.09
             assert output_image_price(model, "1K") == 0.045
+
+    def test_quality_tier_variants_map_to_compound_keys(self):
+        """Grok Imagine 2.0 prices the quality x tier matrix as "low_1k" /
+        "medium_2k" while the wizard's key for the same cell is "1K low" /
+        "2K medium". Without the alias table every lookup would miss and,
+        with no variant-less entry in the array, live pricing would vanish
+        for this model."""
+        from imgprompt.providers.capabilities import output_image_price
+
+        with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
+            _stub_endpoints(mock_get, GROK_2_PRICING)
+            model = "x-ai/grok-imagine-image-2.0"
+            assert output_image_price(model, "1K low") == 0.04
+            assert output_image_price(model, "1K medium") == 0.06
+            assert output_image_price(model, "2K low") == 0.06
+            assert output_image_price(model, "2K medium") == 0.08
+            # A bare tier is not a key this model prices: no variant matches
+            # and there is no flat entry, so the caller keeps its estimate.
+            assert output_image_price(model, "2K") is None
 
     def test_alias_is_scoped_to_its_model(self):
         """The alias table is per-model on purpose: the same variant name on

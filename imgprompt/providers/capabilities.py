@@ -284,27 +284,42 @@ def get_live_pricing(model: str) -> tuple[PriceEntry, ...] | None:
     return entries
 
 
-# Pricing variants that do NOT spell their tier. Almost every variant-priced
-# model on /api/v1/images names the tier directly ("1k", "2k", "4k", or Grok
-# 2.0's "low_1k"/"medium_2k" quality+tier pairs), so the plain
-# `variant == tier` match below covers them. Seedream 5.0 Pro is the sole
-# exception in the whole catalog (surveyed across all 52 image models,
-# 2026-09-11): it prices its top tier as "high_resolution". Without this
-# mapping the lookup falls through to the variant-less entry and estimates
-# 2K at the 1K price — half the real charge, which then trips the >10%
-# cost-reconciliation warning on every 2K run.
+# Pricing variants whose name does NOT equal the wizard's tier key. Most
+# variant-priced models on /api/v1/images name the tier directly ("1k",
+# "2k", "4k"), so the plain `variant == tier` match below covers them. Two
+# exceptions in the whole catalog (surveyed across all 52 image models,
+# 2026-09-12):
+#
+#   - Seedream 5.0 Pro prices its top tier as "high_resolution". Without the
+#     mapping the lookup falls through to the variant-less entry and
+#     estimates 2K at the 1K price — half the real charge, which then trips
+#     the >10% cost-reconciliation warning on every 2K run.
+#   - Grok Imagine 2.0 prices the quality+tier matrix as "low_1k" /
+#     "medium_2k"; the wizard's key for the same cell is the compound
+#     "1K low" / "2K medium" (see _TIER_QUALITY_MODELS in the OpenRouter
+#     provider). Without the mapping nothing matches and there is no
+#     variant-less entry to fall back on, so live pricing would silently
+#     disappear for this model and the hardcoded COSTS row would carry every
+#     estimate.
 #
 # Keyed per model on purpose: "high_resolution" carries no inherent tier, so
-# a future model could use the same word for 4K.
+# a future model could use the same word for 4K. Values are compared
+# lowercased, hence the lowercase tier keys on the right-hand side.
 _MODEL_VARIANT_TIERS = {
     "bytedance-seed/seedream-5-0-pro": {"high_resolution": "2k"},
+    "x-ai/grok-imagine-image-2.0": {
+        "low_1k": "1k low",
+        "medium_1k": "1k medium",
+        "low_2k": "2k low",
+        "medium_2k": "2k medium",
+    },
 }
 
 
 def output_image_price(model: str, tier: str | None) -> float | None:
     """Flat per-image output price for a tier, from live pricing.
 
-    Variant-priced entries (e.g. Grok: 1k/2k) are matched case-insensitively
+    Variant-priced entries (e.g. Flux: 1k/2k) are matched case-insensitively
     against the tier, after resolving any non-obvious variant name through
     :data:`_MODEL_VARIANT_TIERS`; a variant-less output_image entry is the
     flat price for every tier (Recraft, Seedream 5.0 Lite). Token-billed

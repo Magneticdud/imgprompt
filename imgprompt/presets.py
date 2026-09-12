@@ -321,13 +321,20 @@ COSTS["krea/krea-2-medium-turbo"] = {"1K": {"fixed": 0.015}}
 COSTS["krea/krea-2-medium"] = {"1K": {"fixed": 0.03}}
 COSTS["krea/krea-2-large"] = {"1K": {"fixed": 0.06}}
 
-# xAI Grok Imagine (image-quality tier, via OpenRouter). Per-image pricing
-# from /api/v1/images/models/x-ai/grok-imagine-image-quality/endpoints,
-# snapshot 2026-07-07: output $0.05 (1K) / $0.07 (2K); input images are a
-# flat $0.01 each regardless of size (input_flat, not per-megapixel).
-COSTS["x-ai/grok-imagine-image-quality"] = {
-    "1K": {"fixed": 0.05},
-    "2K": {"fixed": 0.07},
+# xAI Grok Imagine 2.0 (via OpenRouter). Unique in the catalog: the price
+# depends on TWO axes — the resolution tier (1K/2K) AND a `quality` enum
+# (low/medium) the retired image-quality tier didn't have — so the keys
+# here are the compound "<tier> <quality>" wizard keys, not bare tiers.
+# Per-image pricing from
+# /api/v1/images/models/x-ai/grok-imagine-image-2.0/endpoints, snapshot
+# 2026-09-12 (variants low_1k / medium_1k / low_2k / medium_2k); input
+# images are a flat $0.01 each regardless of size (input_flat, not
+# per-megapixel), unchanged from the retired tier.
+COSTS["x-ai/grok-imagine-image-2.0"] = {
+    "1K low": {"fixed": 0.04},
+    "1K medium": {"fixed": 0.06},
+    "2K low": {"fixed": 0.06},
+    "2K medium": {"fixed": 0.08},
     "input_flat": 0.01,
 }
 

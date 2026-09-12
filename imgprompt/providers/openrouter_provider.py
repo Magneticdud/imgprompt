@@ -48,6 +48,7 @@ _MODEL_MAX_N_PREFIXES = {
     "qwen/": 6,
     "bytedance-seed/seedream-5-0-lite": 4,
     "bytedance-seed/seedream-5-0-pro": 1,
+    "x-ai/grok-imagine-image-2.0": 1,
 }
 
 
@@ -190,6 +191,30 @@ if set(_VALID_TIER_QUALITY_KEYS) != set(_TIER_PIXELS):
         f"(constant={_VALID_TIER_QUALITY_KEYS!r}, "
         f"_TIER_PIXELS keys={tuple(_TIER_PIXELS)!r})."
     )
+
+
+# Models whose price depends on TWO axes: the resolution tier AND a
+# separate `quality` enum. Grok Imagine 2.0 is the only one in the catalog
+# (surveyed 2026-09-12): its descriptor carries resolution ["1K","2K"] *and*
+# quality ["low","medium"], and /endpoints prices all four pairs
+# (low_1k $0.04, medium_1k / low_2k $0.06, medium_2k $0.08). The wizard has
+# a single tier step, so for these models `quality_key` is the compound
+# "<tier> <quality>" string and every consumer splits it with
+# `_split_quality_key` below.
+_TIER_QUALITY_MODELS = ("x-ai/grok-imagine-image-2.0",)
+
+
+def _split_quality_key(quality_key: str | None) -> tuple[str | None, str | None]:
+    """Split a wizard quality_key into (tier, quality).
+
+    ``"2K low"`` -> ``("2K", "low")`` for the two-axis models above;
+    ``"2K"`` / ``"Standard"`` / ``None`` -> ``(value, None)`` for everyone
+    else, so single-axis callsites keep their exact previous behaviour.
+    """
+    if not quality_key:
+        return quality_key, None
+    tier, _, quality = quality_key.partition(" ")
+    return tier, (quality or None)
 
 
 def _ceil16(value: float) -> int:
@@ -349,7 +374,11 @@ class OpenRouterProvider(ImageProvider):
             # MAI 2.6 family, cheaper tier first (flash ≈$0.08 → 2.6 ≈$0.15).
             "microsoft/mai-image-2.6-flash",
             "microsoft/mai-image-2.6",
-            "x-ai/grok-imagine-image-quality",
+            # Grok Imagine 2.0 supersedes the retired image-quality tier:
+            # same ratios and 2K ceiling, but it adds the low/medium quality
+            # axis, so it is both cheaper ($0.04 low 1K vs $0.05) and
+            # sharper ($0.08 medium 2K vs $0.07) than the single-axis model.
+            "x-ai/grok-imagine-image-2.0",
             # Qwen Image 3 family, cheaper tier first.
             "qwen/qwen-image-3",
             "qwen/qwen-image-3-pro",
@@ -399,12 +428,13 @@ class OpenRouterProvider(ImageProvider):
             # for the 4:5-without-5:4 asymmetry). Every one has a
             # RATIO_TO_RESOLUTION entry, so the picker can preview them all.
             ratio_options = list(_KREA_RATIOS)
-        elif model == "x-ai/grok-imagine-image-quality":
-            # Grok's descriptor (verified 2026-07-07) lists these seven plus
-            # phone-screen ratios (9:19.5, 19.5:9, 9:20, 20:9, 1:2, 2:1) and
-            # "auto". The phone ratios have no RATIO_TO_RESOLUTION entry for
-            # the wizard's pixel preview, so we keep them off the picker; no
-            # 4:5/5:4/21:9 upstream.
+        elif model in _TIER_QUALITY_MODELS:
+            # Grok's descriptor (verified 2026-09-12, unchanged from the
+            # retired image-quality tier) lists these seven plus phone-screen
+            # ratios (9:19.5, 19.5:9, 9:20, 20:9, 1:2, 2:1) and "auto". The
+            # phone ratios have no RATIO_TO_RESOLUTION entry for the wizard's
+            # pixel preview, so we keep them off the picker; no 4:5/5:4/21:9
+            # upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
         elif model in _QWEN_MODELS:
             # See _QWEN_RATIOS for why 1:2/2:1 are excluded from the picker.
@@ -465,7 +495,7 @@ class OpenRouterProvider(ImageProvider):
           - the model has no floor / ceiling configured (we delegate
             to OpenRouter's own (aspect_ratio, resolution) translation);
           - ``aspect_ratio`` is missing or "Auto" (model-chosen geometry);
-          - ``quality_key`` isn't one of the canonical resolution tiers
+          - ``quality_key``'s tier half isn't one of the canonical tiers
             (``512`` / ``1K`` / ``2K`` / ``4K``) — if it were (e.g.
             "Standard" for a clamped model) the helper would silently
             fall back to the floor as the target, which would be
@@ -489,9 +519,10 @@ class OpenRouterProvider(ImageProvider):
         # without this gate they would silently fall back to the
         # floor constant as a target and produce a misleading WxH
         # in the wizard summary.
-        if quality_key not in _VALID_TIER_QUALITY_KEYS:
+        tier, _quality = _split_quality_key(quality_key)
+        if tier not in _VALID_TIER_QUALITY_KEYS:
             return None
-        result = _compute_pixel_size(model, aspect_ratio, quality_key)
+        result = _compute_pixel_size(model, aspect_ratio, tier)
         if result is None:
             return None
         width, height, _floor_active, _ceiling_active = result
@@ -551,12 +582,16 @@ class OpenRouterProvider(ImageProvider):
             # variant at double the 1K rate — see _MODEL_VARIANT_TIERS in
             # capabilities.py for the variant→tier mapping.
             sizes = ["1K", "2K"]
-        elif model == "x-ai/grok-imagine-image-quality":
-            # Grok Imagine caps at 2K — descriptor lists exactly ["1K","2K"]
-            # (verified 2026-07-07 against /api/v1/images/models). Explicit
-            # branch (same values as the generic fallback) so the cap is
-            # documented rather than accidental.
-            sizes = ["1K", "2K"]
+        elif model in _TIER_QUALITY_MODELS:
+            # Grok Imagine 2.0 caps at 2K (descriptor `resolution` is exactly
+            # ["1K","2K"]) but adds `quality` ["low","medium"], and both axes
+            # move the price — so the single tier step offers the full 2x2
+            # matrix as compound keys, ordered tier-major (which is also
+            # non-decreasing in price, so the default stays the cheapest
+            # row at $0.04). Verified 2026-09-12
+            # against /api/v1/images/models; the per-pair prices live in
+            # COSTS under the same compound keys.
+            sizes = [f"{t} {q}" for t in ("1K", "2K") for q in ("low", "medium")]
         elif model.startswith("recraft/"):
             # Like MAI: no resolution parameter on /api/v1/images (verified
             # 2026-07-07). One flat-priced "Standard" tier per variant; the
@@ -570,8 +605,12 @@ class OpenRouterProvider(ImageProvider):
         # catalog advertises AND presets can price. Models whose descriptor
         # has no resolution enum (gpt: quality-based; MAI/Recraft: none) and
         # offline runs keep the hardcoded branch result.
+        # Two-axis models are exempt: the filter below enumerates canonical
+        # tier keys, which can never match a compound "<tier> <quality>" key
+        # (nor its COSTS row), so it would silently fall through to an empty
+        # list and drop the quality axis from the menu.
         caps = get_capabilities(model)
-        if caps and caps.resolutions:
+        if caps and caps.resolutions and model not in _TIER_QUALITY_MODELS:
             from imgprompt.presets import COSTS as _costs
 
             # Descriptor-driven tier filter: enumerate canonical tier
@@ -625,7 +664,12 @@ class OpenRouterProvider(ImageProvider):
         height: int | None,
         selection: str,
     ) -> tuple[str, float]:
-        quality_key = selection.split(" ")[0]
+        # Split on the price suffix, not on the first space: compound
+        # "<tier> <quality>" keys (Grok Imagine 2.0) contain one. Every label
+        # get_quality_choices builds is f"{key} (${price})", so the key is
+        # everything before " (" — including for the floor annotation that
+        # can follow the price.
+        quality_key = selection.split(" (")[0]
         return quality_key, self._tier_price(model, quality_key)
 
     @property
@@ -665,13 +709,14 @@ class OpenRouterProvider(ImageProvider):
         # non-canonical tier internally; we only warn when the user
         # picked a CANONICAL tier that the live descriptor doesn't
         # advertise — a hard mismatch, not a stylistic pick.
+        tier, _quality = _split_quality_key(quality_key)
         if (
             caps.resolutions
-            and quality_key in _VALID_TIER_QUALITY_KEYS
-            and quality_key not in caps.resolutions
+            and tier in _VALID_TIER_QUALITY_KEYS
+            and tier not in caps.resolutions
         ):
             warnings.append(
-                f"{model} does not advertise resolution {quality_key} "
+                f"{model} does not advertise resolution {tier} "
                 f"(supported: {', '.join(caps.resolutions)})"
             )
         return warnings
@@ -870,6 +915,14 @@ class OpenRouterProvider(ImageProvider):
         # per-call override that input-batch fan-out uses. Leaving it out
         # here avoids two copies of the same logic drifting apart.
 
+        # Two-axis models carry "<tier> <quality>" in quality_key. `quality`
+        # is its own wire field and is orthogonal to how the geometry is
+        # expressed, so it is set here — before the size/resolution branch —
+        # and rides along on the explicit-`size` path too.
+        tier, quality = _split_quality_key(request.quality_key)
+        if quality:
+            payload["quality"] = quality
+
         floor = _MODEL_PIXEL_FLOORS.get(request.model)
         ceil = _MODEL_PIXEL_CEILINGS.get(request.model)
         if request.width and request.height:
@@ -894,7 +947,7 @@ class OpenRouterProvider(ImageProvider):
             payload["size"] = f"{width}x{height}"
         else:
             explicit = (floor or ceil) and self._floor_size(
-                request.model, request.aspect_ratio, request.quality_key
+                request.model, request.aspect_ratio, tier
             )
             if explicit:
                 payload["size"] = explicit
@@ -914,8 +967,8 @@ class OpenRouterProvider(ImageProvider):
                 # 400 upstream if sent as `resolution` — by skipping
                 # them here we fall through to either a `size`
                 # shorthand or the no-resolution path.
-                if request.quality_key in _VALID_TIER_QUALITY_KEYS:
-                    payload["resolution"] = request.quality_key
+                if tier in _VALID_TIER_QUALITY_KEYS:
+                    payload["resolution"] = tier
 
         if img_paths:
             payload["input_references"] = [
