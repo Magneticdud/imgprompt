@@ -329,6 +329,91 @@ class TestCallApi:
         captured = capsys.readouterr()
         assert "reported cost" not in captured.out
 
+    def _byok_request(self):
+        return GenerationRequest(
+            prompt="x",
+            model="openai/gpt-image-2.5-sunburst",
+            aspect_ratio="3:2",
+            res_key="1728x1152",
+            quality_key="medium",
+            estimated_cost=0.009,
+        )
+
+    def test_byok_upstream_cost_is_reported_and_reconciled(
+        self, provider_with_key, capsys
+    ):
+        """usage.cost is the credit charge; BYOK spend lives in cost_details.
+
+        The usage envelope here is the one /api/v1/images actually returned
+        for a BYOK gpt-image-2.5 call (verified live), trimmed to the fields
+        this method reads.
+        """
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            resp = _make_response(data=[{"b64_json": _TINY_PNG_B64}], cost=0)
+            resp.json.return_value["usage"].update(
+                {
+                    "is_byok": True,
+                    "cost_details": {
+                        "upstream_inference_cost": 0.0094,
+                        "upstream_inference_prompt_cost": 5e-05,
+                        "upstream_inference_completions_cost": 0.00935,
+                    },
+                }
+            )
+            mock_post.return_value = resp
+            provider_with_key._call_api(self._byok_request(), n=1)
+
+        out = capsys.readouterr().out
+        assert "reported cost: $0.0094" in out
+        assert "BYOK" in out
+        # 0.0094 vs a 0.009 estimate is within 10%: no divergence warning.
+        assert "differ by" not in out
+
+    def test_byok_without_upstream_figure_reports_unknown_not_free(
+        self, provider_with_key, capsys
+    ):
+        """A 0 credit charge on a BYOK call is unreported, not free."""
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            resp = _make_response(data=[{"b64_json": _TINY_PNG_B64}], cost=0)
+            resp.json.return_value["usage"]["is_byok"] = True
+            mock_post.return_value = resp
+            provider_with_key._call_api(self._byok_request(), n=1)
+
+        out = capsys.readouterr().out
+        assert "BYOK" in out
+        # The bogus "differ by 100%" warning must not fire against a zero.
+        assert "differ by" not in out
+        assert "Estimated cost for this call: $0.009" in out
+
+    def test_zero_cost_without_byok_flag_says_no_charge(
+        self, provider_with_key, capsys
+    ):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0)
+            provider_with_key._call_api(self._byok_request(), n=1)
+
+        out = capsys.readouterr().out
+        assert "no charge reported" in out
+        assert "BYOK" not in out
+        assert "differ by" not in out
+
+    def test_real_divergence_still_warns(self, provider_with_key, capsys):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}], cost=0.05)
+            provider_with_key._call_api(self._byok_request(), n=1)
+
+        out = capsys.readouterr().out
+        assert "reported cost: $0.0500" in out
+        assert "differ by" in out
+
     def test_n_requested_clamped_to_ten_in_payload(self, provider_with_key):
         """Provider clamps request.n > 10 before posting."""
         with patch(

@@ -1401,35 +1401,87 @@ class OpenRouterProvider(ImageProvider):
             )
         return decoded
 
+    @staticmethod
+    def _coerce_cost(value: object) -> float | None:
+        """float() that returns None instead of raising on junk."""
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def _maybe_report_cost(
         self, body: dict, request: GenerationRequest | None = None
     ) -> None:
         usage = body.get("usage") or {}
-        cost_usd = usage.get("cost")
-        if cost_usd is None:
+        credit_cost = self._coerce_cost(usage.get("cost"))
+        # BYOK: when the request is routed through the user's own provider
+        # key, `usage.cost` is the OpenRouter *credit* charge — 0 while the
+        # plan's BYOK allowance covers the 5% fee — and the real spend lands
+        # on the upstream account under `cost_details.upstream_inference_cost`
+        # (documented as BYOK-only). Reporting `cost` alone told the user a
+        # paid generation was free and then flagged a bogus 100% divergence
+        # against a correct estimate.
+        details = usage.get("cost_details") or {}
+        upstream_cost = self._coerce_cost(
+            details.get("upstream_inference_cost")
+            if isinstance(details, dict)
+            else None
+        )
+        # `is_byok` is reported by /api/v1/images (verified live), so the
+        # BYOK case is read off the response rather than inferred from a
+        # zero. Falling back to "upstream cost present" keeps the wording
+        # right if the flag ever disappears.
+        is_byok = bool(usage.get("is_byok")) or bool(upstream_cost)
+        if credit_cost is None and upstream_cost is None:
             return
-        try:
-            cost_float = float(cost_usd)
-        except (TypeError, ValueError):
+
+        total = (credit_cost or 0.0) + (upstream_cost or 0.0)
+        if self._reported_cost == total:
             return
-        if self._reported_cost == cost_float:
-            return
-        self._reported_cost = cost_float
-        print(f"\n[OpenRouter] reported cost: ${cost_float:.4f}")
+        self._reported_cost = total
+
+        if upstream_cost:
+            print(
+                f"\n[OpenRouter] reported cost: ${total:.4f} "
+                f"(BYOK: ${upstream_cost:.4f} billed to your provider "
+                f"account, ${credit_cost or 0.0:.4f} in OpenRouter credits)."
+            )
+        elif total:
+            print(f"\n[OpenRouter] reported cost: ${total:.4f}")
+        elif is_byok:
+            # BYOK with no upstream figure. The images endpoint carries no
+            # generation `id`, and the /api/v1/key counters lag well behind
+            # the call, so there is nothing to look up after the fact — say
+            # the cost is unknown rather than "free".
+            print(
+                "\n[OpenRouter] reported cost: $0.0000 in OpenRouter credits, "
+                "and this was a BYOK call: the actual spend went to your own "
+                "provider account and was not reported back. The estimate "
+                "below is the better number."
+            )
+        else:
+            print("\n[OpenRouter] reported cost: $0.0000 (no charge reported).")
+
         # Reconcile with the wizard's pre-call estimate (issue #3). The
         # estimate may come from live /endpoints pricing or the hardcoded
         # COSTS row, so a >10% divergence isn't automatically "COSTS
         # drifted" — it can also be un-modelled billing (input-image
         # charges, per-tier surcharges). Either way it's worth surfacing.
+        # A zero total is not a divergence: it means "unreported", and
+        # comparing against it always yields a meaningless 100%.
         estimate = getattr(request, "estimated_cost", None) if request else None
-        if estimate:
-            diff = abs(cost_float - estimate) / estimate
+        if estimate and total:
+            diff = abs(total - estimate) / estimate
             if diff > 0.10:
                 print(
                     f"[OpenRouter] Estimate vs reported cost differ by "
                     f"{diff * 100:.0f}% (estimated ${estimate:.3f}, "
-                    f"reported ${cost_float:.4f})."
+                    f"reported ${total:.4f})."
                 )
+        elif estimate:
+            print(f"[OpenRouter] Estimated cost for this call: ${estimate:.3f}.")
 
     # ------------------------------------------------------------------ utils
 
