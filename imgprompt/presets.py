@@ -654,6 +654,7 @@ PRESET_PROMPTS_GENERATE = [
     "Generic Logotype",
     "Comic Book Style Text",
     "Pokémon Style Lettering",
+    "Minecraft Style Lettering",
     "Custom Prompt",
 ]
 

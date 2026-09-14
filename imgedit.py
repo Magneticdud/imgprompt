@@ -904,6 +904,7 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
         "Generic Logotype",
         "Comic Book Style Text",
         "Pokémon Style Lettering",
+        "Minecraft Style Lettering",
     ]
 
     if prompt_selection in prompts_needing_input:
@@ -1015,6 +1016,14 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
         final_prompt = (
             f'Write "{text_input}" using a Pokémon-style font, '
             f"white background, yellow text with a blue outline."
+        )
+    elif prompt_selection == "Minecraft Style Lettering":
+        text_input = _ask_required("What name to write?")
+        if not text_input:
+            return BACK_OPTION, prompt_selection
+        final_prompt = (
+            f'Write "{text_input}" in Minecraft style, '
+            f"with a Minecraft-style background."
         )
 
     return final_prompt, prompt_selection
