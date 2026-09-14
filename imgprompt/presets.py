@@ -653,6 +653,7 @@ PRESET_PROMPTS_GENERATE = [
     "APPROVED Stamp",
     "Generic Logotype",
     "Comic Book Style Text",
+    "Pokémon Style Lettering",
     "Custom Prompt",
 ]
 

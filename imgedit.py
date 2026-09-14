@@ -855,6 +855,22 @@ def step_variants() -> int | str | None:
         return 1
 
 
+def _ask_required(
+    label: str,
+    error: str = "Text input is required for this preset.",
+    multiline: bool = False,
+) -> str | None:
+    """Ask for input a preset cannot work without.
+
+    Returns None (after printing the error) when the user supplies nothing, so
+    the caller can step back per the wizard's three-way convention."""
+    value = questionary.text(label, multiline=multiline).ask()
+    if not value:
+        print(f"Error: {error}")
+        return None
+    return value
+
+
 def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
     """Step 5: Select prompt. Returns (final_prompt or BACK_OPTION, original_selection)."""
     if is_dual:
@@ -887,6 +903,7 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
         "APPROVED Stamp",
         "Generic Logotype",
         "Comic Book Style Text",
+        "Pokémon Style Lettering",
     ]
 
     if prompt_selection in prompts_needing_input:
@@ -911,9 +928,8 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
         else:
             final_prompt = f"{base_prompt} Remove {remove_input}."
     elif prompt_selection == "A retro-style BW lettering with thick outline":
-        text_input = questionary.text("What text to write?").ask()
+        text_input = _ask_required("What text to write?")
         if not text_input:
-            print("Error: Text input is required for this preset.")
             return BACK_OPTION, prompt_selection
         final_prompt = (
             f"Create a clean vector-style black and white typographic logo. "
@@ -925,9 +941,8 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
             f"Export as a logo/wordmark."
         )
     elif prompt_selection == "1990s Memphis Style Logo":
-        text_input = questionary.text("What text to write?").ask()
+        text_input = _ask_required("What text to write?")
         if not text_input:
-            print("Error: Text input is required for this preset.")
             return BACK_OPTION, prompt_selection
         final_prompt = (
             f'Create a 1990s Memphis-inspired typographic logo that reads: "{text_input}". '
@@ -939,17 +954,15 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
         )
     elif prompt_selection == "Business Card":
         print("Enter ONLY the main title (e.g. 'DJ Set'):")
-        main_title = questionary.text("Main Title:").ask()
+        main_title = _ask_required("Main Title:", "Main title is required.")
         if not main_title:
-            print("Error: Main title is required.")
             return BACK_OPTION, prompt_selection
 
         print(
             "Enter the rest of the details (multiline). Press Alt+Enter or Esc+Enter to submit:"
         )
-        details = questionary.text("Details:", multiline=True).ask()
+        details = _ask_required("Details:", "Details are required.", multiline=True)
         if not details:
-            print("Error: Details are required.")
             return BACK_OPTION, prompt_selection
 
         final_prompt = (
@@ -962,11 +975,11 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
             f"Negative constraints: No other text. No QR code. No social media icons. No watermark. No invented logo. Output: flat 2D graphic only."
         )
     elif prompt_selection == "APPROVED Stamp":
-        custom_string = questionary.text(
-            "Enter the custom text (will be followed by 'APPROVED'):"
-        ).ask()
+        custom_string = _ask_required(
+            "Enter the custom text (will be followed by 'APPROVED'):",
+            "Custom text is required for this preset.",
+        )
         if not custom_string:
-            print("Error: Custom text is required for this preset.")
             return BACK_OPTION, prompt_selection
 
         final_prompt = (
@@ -978,22 +991,30 @@ def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
         print(
             "Enter the text for the logotype (multiline). Press Alt+Enter or Esc+Enter to submit:"
         )
-        logo_text = questionary.text("Logotype Text:", multiline=True).ask()
+        logo_text = _ask_required(
+            "Logotype Text:", "Text is required for this preset.", multiline=True
+        )
         if not logo_text:
-            print("Error: Text is required for this preset.")
             return BACK_OPTION, prompt_selection
 
         final_prompt = f"A typographic logo, with centered text, with the following text: {logo_text}"
     elif prompt_selection == "Comic Book Style Text":
-        text_input = questionary.text("What text to write?").ask()
+        text_input = _ask_required("What text to write?")
         if not text_input:
-            print("Error: Text input is required for this preset.")
             return BACK_OPTION, prompt_selection
         final_prompt = (
             f'Comic book style bold text that reads "{text_input}", '
             f"retro superhero font, thick black outline, yellow to red gradient fill, "
             f"halftone dot pattern texture, 3D extruded shadow effect, pop art style, "
             f"white background, high contrast, vintage Marvel/DC comics typography."
+        )
+    elif prompt_selection == "Pokémon Style Lettering":
+        text_input = _ask_required("What name to write?")
+        if not text_input:
+            return BACK_OPTION, prompt_selection
+        final_prompt = (
+            f'Write "{text_input}" using a Pokémon-style font, '
+            f"white background, yellow text with a blue outline."
         )
 
     return final_prompt, prompt_selection
