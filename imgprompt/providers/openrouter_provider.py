@@ -235,8 +235,8 @@ _META_OUTPUT_SIZES = {
 # That is what retired gpt-5.4-image-2 from this provider — its 1K/2K/4K
 # menu priced tiers the API does not have.
 _GPT_IMAGE_25_MODELS = (
-    "openai/gpt-image-2.5-flare",
     "openai/gpt-image-2.5-sunburst",
+    "openai/gpt-image-2.5-flare",
 )
 
 # The family's eight ratios in the wizard's canonical
@@ -520,16 +520,17 @@ class OpenRouterProvider(ImageProvider):
     # Google trio we keep non-Lite Flash first and Lite last — mirroring the
     # Google provider — so the model *order* in pickers is consistent across
     # the two providers even though OpenRouter's overall default is
-    # `openai/gpt-image-2.5-flare` (first entry).
+    # `openai/gpt-image-2.5-sunburst` (first entry).
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
-            # GPT Image 2.5 family, speed tier first — and the catalog
-            # default. Priced on a quality axis rather than a resolution
-            # one, so a `low` render is the cheapest OpenAI option here by
-            # a wide margin and `max` the most expensive thing on offer.
-            "openai/gpt-image-2.5-flare",
+            # GPT Image 2.5 family, precision tier first — and the catalog
+            # default, matching the direct OpenAI provider. Priced on a
+            # quality axis rather than a resolution one, so a `low` render
+            # is the cheapest OpenAI option here by a wide margin and `max`
+            # the most expensive thing on offer.
             "openai/gpt-image-2.5-sunburst",
+            "openai/gpt-image-2.5-flare",
             # Seedream 5.0, cheaper/higher-resolution tier first: Lite is the
             # family default. It supersedes seedream-4.5 outright — $0.035 vs
             # $0.04 flat, same 4K ceiling, same ratios — so 4.5 is retired.

@@ -178,11 +178,11 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
   > ⚠️ **Google direct API is currently untested.** Only the OpenRouter path is verified end-to-end in this project — the `Google` provider in `imgprompt/providers/google_provider.py` prints a banner on first use and may drift from Google's API without warning. Prefer the OpenRouter route for Gemini unless you have a specific reason to hit Google's API directly.
 - **OpenRouter**:
-  - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.5-flare` is the default OpenRouter model**):
+  - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.5-sunburst` is the default OpenRouter model**, matching the direct OpenAI provider):
 
     These have **no resolution tiers at all** — no `resolution` parameter exists upstream. Their only price axis is `quality`, so the wizard's resolution step offers the quality ladder instead: `low` / `medium` / `high` / `xhigh` / `max`, cheapest first. Both tiers bill at the same rate (output $30/Mtok, input image $8/Mtok, input text $5/Mtok) and differ only in what they are tuned for:
+    - `openai/gpt-image-2.5-sunburst`: the precision tier, for detailed creative work — the default.
     - `openai/gpt-image-2.5-flare`: the speed tier, for high-volume everyday work.
-    - `openai/gpt-image-2.5-sunburst`: the precision tier, for detailed creative work.
 
     **Output size is still yours to choose**, via the `size` field rather than a resolution tier: pick one of the eight ratios and the wizard pins the matching ~1MP box, or pick **Custom dimensions** for an exact width x height (rounded to multiples of 16 and validated against OpenAI's limits — 0.66-8.3 MP, longest edge 3840, aspect ratio at most 3:1, the same rules as `gpt-image-2`). Verified 2026-09-12: a request for a non-standard `1824x1024` came back at exactly 1824x1024.
 

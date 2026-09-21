@@ -1071,7 +1071,7 @@ class TestMaiImage:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not MAI.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
         choices, default = provider_with_key.get_resolution_choices(model, None)
@@ -1146,7 +1146,7 @@ class TestKrea2:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Krea.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
         choices, default = provider_with_key.get_resolution_choices(model, None)
@@ -1241,7 +1241,7 @@ class TestGrokImagine:
 
     def test_in_supported_models(self):
         assert self.MODEL in OpenRouterProvider.supported_models()
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
     def test_resolution_choices_match_descriptor(self, provider_with_key):
         choices, default = provider_with_key.get_resolution_choices(self.MODEL, None)
@@ -1368,7 +1368,7 @@ class TestQwenImage3:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Qwen.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
         choices, default = provider_with_key.get_resolution_choices(model, None)
@@ -1453,7 +1453,7 @@ def test_qwen_pro_costs_more_than_base_at_2k():
 
 
 # --------------------------------------------------------------------------
-# GPT Image 2.5 family (openai/gpt-image-2.5-flare, -sunburst): the first
+# GPT Image 2.5 family (openai/gpt-image-2.5-sunburst, -flare): the first
 # models in the catalog whose ONLY price axis is `quality`. Descriptor +
 # /endpoints snapshot 2026-09-12: eight aspect ratios (no 4:5/5:4), NO
 # `resolution` parameter, quality enum {auto,low,medium,high,xhigh,max},
@@ -1462,8 +1462,8 @@ def test_qwen_pro_costs_more_than_base_at_2k():
 # --------------------------------------------------------------------------
 
 GPT_IMAGE_25_MODELS = (
-    "openai/gpt-image-2.5-flare",
     "openai/gpt-image-2.5-sunburst",
+    "openai/gpt-image-2.5-flare",
 )
 
 
@@ -1472,16 +1472,15 @@ class TestGptImage25:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
 
-    def test_flare_is_the_catalog_default(self):
-        # Flare inherited the first slot when gpt-5.4-image-2 was retired:
-        # it is the cheap, fast OpenAI entry, which is what a default
-        # should be.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+    def test_sunburst_is_the_catalog_default(self):
+        # Sunburst inherited the first slot to match the direct OpenAI
+        # provider's default: the precision tier, at the same rate card.
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
-    def test_flare_precedes_sunburst(self):
+    def test_sunburst_precedes_flare(self):
         models = OpenRouterProvider.supported_models()
-        assert models.index("openai/gpt-image-2.5-flare") < models.index(
-            "openai/gpt-image-2.5-sunburst"
+        assert models.index("openai/gpt-image-2.5-sunburst") < models.index(
+            "openai/gpt-image-2.5-flare"
         )
 
     @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
@@ -1555,7 +1554,7 @@ class TestGptImage25:
         reasoning_tokens=0 and cost $0.00425 — identical to the token and
         the cent (2026-09-12). Sunburst's premium is latency, not money, so
         the two estimates must not drift apart by accident."""
-        flare, sunburst = (
+        sunburst, flare = (
             provider_with_key.get_quality_choices(m, "1344x768", None, None, None)[0]
             for m in GPT_IMAGE_25_MODELS
         )
@@ -1881,7 +1880,7 @@ class TestMuseImage:
     def test_in_supported_models(self):
         assert MUSE in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Muse.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
     def test_resolution_choices_are_the_three_measured_shapes(self, provider_with_key):
         choices, default = provider_with_key.get_resolution_choices(MUSE, None)
@@ -2018,7 +2017,7 @@ class TestRecraftFamily:
         assert model in OpenRouterProvider.supported_models()
 
     def test_default_model_unchanged(self):
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-flare"
+        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
 
     @pytest.mark.parametrize("model", RECRAFT_MODELS)
     def test_resolution_choices_are_auto_only(self, model, provider_with_key):
@@ -2149,7 +2148,7 @@ class TestSeedream50:
         # Lite is the family default: it must precede Pro.
         assert models.index(self.LITE) < models.index(self.PRO)
         # ...but the overall default stays the first entry, not Seedream.
-        assert models[0] == "openai/gpt-image-2.5-flare"
+        assert models[0] == "openai/gpt-image-2.5-sunburst"
 
     def test_lite_tiers_are_2k_and_4k(self, provider_with_key):
         choices, default = provider_with_key.get_quality_choices(
