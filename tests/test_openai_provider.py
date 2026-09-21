@@ -239,10 +239,10 @@ class TestGptImage25Direct:
     def test_in_supported_models(self, model):
         assert model in OpenAIProvider.supported_models()
 
-    def test_flare_is_the_default(self):
-        """Same price as gpt-image-2 at equal work, finer ladder, lower
-        latency — there is no reason for the older model to lead."""
-        assert OpenAIProvider.supported_models()[0] == "gpt-image-2.5-flare"
+    def test_sunburst_is_the_default(self):
+        """Same price as gpt-image-2 at equal work, finer ladder — sunburst
+        is the precision tier and the preferred OpenAI default."""
+        assert OpenAIProvider.supported_models()[0] == "gpt-image-2.5-sunburst"
 
     @pytest.mark.parametrize("model", GPT_IMAGE_25)
     def test_geometry_contract_is_inherited_verbatim(self, model, provider):

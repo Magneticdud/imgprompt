@@ -19,8 +19,8 @@ class OpenAIProvider(ImageProvider):
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
-            "gpt-image-2.5-flare",
             "gpt-image-2.5-sunburst",
+            "gpt-image-2.5-flare",
             "gpt-image-2",
         ]
 
