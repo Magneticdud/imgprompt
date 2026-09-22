@@ -1430,23 +1430,24 @@ class OpenRouterProvider(ImageProvider):
             if isinstance(details, dict)
             else None
         )
-        # `is_byok` is reported by /api/v1/images (verified live), so the
-        # BYOK case is read off the response rather than inferred from a
-        # zero. Falling back to "upstream cost present" keeps the wording
-        # right if the flag ever disappears.
-        is_byok = bool(usage.get("is_byok")) or bool(upstream_cost)
-        if credit_cost is None and upstream_cost is None:
+        # `is_byok` is reported by /api/v1/images (verified live). Do not
+        # infer BYOK from `upstream_inference_cost`: OpenRouter can include
+        # that detail on regular requests too, where it mirrors the credit
+        # charge rather than representing a second bill.
+        is_byok = bool(usage.get("is_byok"))
+        billable_upstream_cost = upstream_cost if is_byok else None
+        if credit_cost is None and billable_upstream_cost is None:
             return
 
-        total = (credit_cost or 0.0) + (upstream_cost or 0.0)
+        total = (credit_cost or 0.0) + (billable_upstream_cost or 0.0)
         if self._reported_cost == total:
             return
         self._reported_cost = total
 
-        if upstream_cost:
+        if billable_upstream_cost:
             print(
                 f"\n[OpenRouter] reported cost: ${total:.4f} "
-                f"(BYOK: ${upstream_cost:.4f} billed to your provider "
+                f"(BYOK: ${billable_upstream_cost:.4f} billed to your provider "
                 f"account, ${credit_cost or 0.0:.4f} in OpenRouter credits)."
             )
         elif total:

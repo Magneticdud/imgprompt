@@ -371,6 +371,29 @@ class TestCallApi:
         # 0.0094 vs a 0.009 estimate is within 10%: no divergence warning.
         assert "differ by" not in out
 
+    def test_upstream_cost_on_regular_call_is_not_added_twice(
+        self, provider_with_key, capsys
+    ):
+        """Non-BYOK usage can expose upstream cost details too.
+
+        Those details describe the same charge as usage.cost unless the
+        response explicitly marks the request as BYOK.
+        """
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            resp = _make_response(data=[{"b64_json": _TINY_PNG_B64}], cost=0.033)
+            resp.json.return_value["usage"]["cost_details"] = {
+                "upstream_inference_cost": 0.033,
+            }
+            mock_post.return_value = resp
+            provider_with_key._call_api(self._byok_request(), n=1)
+
+        out = capsys.readouterr().out
+        assert "reported cost: $0.0330" in out
+        assert "reported cost: $0.0660" not in out
+        assert "BYOK" not in out
+
     def test_byok_without_upstream_figure_reports_unknown_not_free(
         self, provider_with_key, capsys
     ):
@@ -1071,7 +1094,9 @@ class TestMaiImage:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not MAI.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
         choices, default = provider_with_key.get_resolution_choices(model, None)
@@ -1146,7 +1171,9 @@ class TestKrea2:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Krea.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
         choices, default = provider_with_key.get_resolution_choices(model, None)
@@ -1241,7 +1268,9 @@ class TestGrokImagine:
 
     def test_in_supported_models(self):
         assert self.MODEL in OpenRouterProvider.supported_models()
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key):
         choices, default = provider_with_key.get_resolution_choices(self.MODEL, None)
@@ -1368,7 +1397,9 @@ class TestQwenImage3:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Qwen.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
         choices, default = provider_with_key.get_resolution_choices(model, None)
@@ -1475,7 +1506,9 @@ class TestGptImage25:
     def test_sunburst_is_the_catalog_default(self):
         # Sunburst inherited the first slot to match the direct OpenAI
         # provider's default: the precision tier, at the same rate card.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     def test_sunburst_precedes_flare(self):
         models = OpenRouterProvider.supported_models()
@@ -1880,7 +1913,9 @@ class TestMuseImage:
     def test_in_supported_models(self):
         assert MUSE in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Muse.
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     def test_resolution_choices_are_the_three_measured_shapes(self, provider_with_key):
         choices, default = provider_with_key.get_resolution_choices(MUSE, None)
@@ -2017,7 +2052,9 @@ class TestRecraftFamily:
         assert model in OpenRouterProvider.supported_models()
 
     def test_default_model_unchanged(self):
-        assert OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        assert (
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+        )
 
     @pytest.mark.parametrize("model", RECRAFT_MODELS)
     def test_resolution_choices_are_auto_only(self, model, provider_with_key):
