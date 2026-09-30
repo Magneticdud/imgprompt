@@ -11,7 +11,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from imgprompt.providers.openai_provider import OpenAIProvider
+from imgprompt.providers.openai_provider import (
+    OpenAIProvider,
+    resolve_openai_api_key,
+)
 from imgprompt.presets import (
     GPT_IMAGE_2_INPUT_PRICE_PER_MTOK,
     GPT_IMAGE_2_PRICE_PER_MTOK,
@@ -327,3 +330,98 @@ class TestGptImage25Direct:
         assert all(c.endswith("(cost depends on output size)") for c in choices)
         _, cost = provider.resolve_quality(model, "auto", None, None, choices[0])
         assert cost == 0.0
+
+
+# --------------------------------------------------------------------------
+# Dedicated image key (OPENAI_IMAGE_API_KEY) with OPENAI_API_KEY fallback.
+# The helper reads plain process env, so monkeypatch.setenv covers both the
+# .env-file and the exported-shell-variable (e.g. ~/.zshrc) cases.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_openai_key_env(monkeypatch):
+    """Isolate key-resolution tests from the developer's real environment."""
+    monkeypatch.delenv("OPENAI_IMAGE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+
+class TestApiKeyResolution:
+    def test_dedicated_key_wins_when_both_set(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_IMAGE_API_KEY", "sk-image")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
+        assert resolve_openai_api_key() == ("sk-image", "OPENAI_IMAGE_API_KEY")
+
+    def test_falls_back_to_default_key(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
+        assert resolve_openai_api_key() == ("sk-default", "OPENAI_API_KEY")
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t\n "])
+    def test_blank_dedicated_key_falls_back(self, monkeypatch, blank):
+        """An empty/whitespace dedicated key counts as unset — the default
+        still applies rather than failing with a blank-key auth error."""
+        monkeypatch.setenv("OPENAI_IMAGE_API_KEY", blank)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
+        assert resolve_openai_api_key() == ("sk-default", "OPENAI_API_KEY")
+
+    def test_neither_set_returns_none_pair(self):
+        assert resolve_openai_api_key() == (None, None)
+
+    def test_values_are_stripped(self, monkeypatch):
+        """Copy-paste from a dashboard often leaves trailing whitespace or a
+        newline; resolve it instead of sending a broken key upstream."""
+        monkeypatch.setenv("OPENAI_IMAGE_API_KEY", "  sk-image\n")
+        assert resolve_openai_api_key() == ("sk-image", "OPENAI_IMAGE_API_KEY")
+
+    def test_run_without_any_key_exits_naming_both_vars(
+        self, provider, capsys, monkeypatch
+    ):
+        """The run() path must fail before any SDK/network call, with a
+        message that tells the user which vars to set."""
+        import imgprompt.providers.openai_provider as openai_mod
+
+        monkeypatch.setattr(openai_mod, "OpenAI", MagicMock())
+        from imgprompt.providers.base import GenerationRequest
+
+        request = GenerationRequest(
+            prompt="p",
+            model="gpt-image-2",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="Low",
+        )
+        with pytest.raises(SystemExit):
+            provider.run(request)
+        captured = capsys.readouterr()
+        assert "OPENAI_IMAGE_API_KEY" in captured.out
+        assert "OPENAI_API_KEY" in captured.out
+        openai_mod.OpenAI.assert_not_called()
+
+    def test_run_passes_dedicated_key_to_client(self, provider, capsys, monkeypatch):
+        """The resolved key (dedicated here) reaches the SDK constructor,
+        and the printed source line names the var — never the value."""
+        import imgprompt.providers.openai_provider as openai_mod
+
+        monkeypatch.setenv("OPENAI_IMAGE_API_KEY", "sk-image")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
+        mock_client_ctor = MagicMock()
+        monkeypatch.setattr(openai_mod, "OpenAI", mock_client_ctor)
+        # Stop after client construction: batch vs. single dispatch would
+        # otherwise hit the network.
+        monkeypatch.setattr(provider, "_run_single", MagicMock())
+
+        from imgprompt.providers.base import GenerationRequest
+
+        request = GenerationRequest(
+            prompt="p",
+            model="gpt-image-2",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="Low",
+        )
+        provider.run(request)
+
+        mock_client_ctor.assert_called_once_with(api_key="sk-image")
+        captured = capsys.readouterr()
+        assert "OPENAI_IMAGE_API_KEY" in captured.out
+        assert "sk-image" not in captured.out

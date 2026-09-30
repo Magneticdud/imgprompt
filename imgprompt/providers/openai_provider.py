@@ -6,6 +6,24 @@ from openai import OpenAI
 from imgprompt.providers.base import ImageProvider, GenerationRequest
 from imgprompt.images import process_image_for_api, save_api_image
 
+# Optional dedicated key for image generation, so image spend can bill to
+# a separate key/project. Falls back to OPENAI_API_KEY when unset/blank.
+OPENAI_IMAGE_API_KEY_VAR = "OPENAI_IMAGE_API_KEY"
+OPENAI_DEFAULT_API_KEY_VAR = "OPENAI_API_KEY"
+
+
+def resolve_openai_api_key() -> tuple[str | None, str | None]:
+    """Pick the OpenAI key for image calls: dedicated first, default fallback.
+
+    Blank values (unset, empty, whitespace-only) count as absent. Returns
+    (key, source_var_name); (None, None) when neither var is usable.
+    """
+    for var in (OPENAI_IMAGE_API_KEY_VAR, OPENAI_DEFAULT_API_KEY_VAR):
+        value = (os.getenv(var) or "").strip()
+        if value:
+            return value, var
+    return None, None
+
 
 class OpenAIProvider(ImageProvider):
     @classmethod
@@ -138,10 +156,15 @@ class OpenAIProvider(ImageProvider):
         return False
 
     def run(self, request: GenerationRequest) -> None:
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key, source = resolve_openai_api_key()
         if not api_key:
-            print("Error: OPENAI_API_KEY not found. Please set it in your .env file.")
+            print(
+                "Error: neither OPENAI_IMAGE_API_KEY nor OPENAI_API_KEY found. "
+                "Please set one of them in your .env file."
+            )
             sys.exit(1)
+        # Var name only, never the value — confirms the billing route.
+        print(f"[OpenAI] using {source}")
 
         client = OpenAI(api_key=api_key)
 
