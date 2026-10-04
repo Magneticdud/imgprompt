@@ -658,6 +658,19 @@ PRESET_PROMPTS_GENERATE = [
     "Custom Prompt",
 ]
 
+# Combined 3+ image prompts. The dual list below is the two-image case;
+# this one generalizes the wording to IMG_1..IMG_N and is used whenever
+# more than two images ride in a single prompt.
+PRESET_PROMPTS_MULTI = [
+    "Combine the contents of every input image (IMG_1..IMG_N) into a coherent scene.",
+    "Use the composition of IMG_1 and the style of the remaining input images.",
+    "Blend all input images into a single balanced composition, preserving each subject's identity.",
+    "Compose a group scene from every input image, keeping each subject's identity and pose faithful.",
+    "Use IMG_1 as the background and place the subjects from IMG_2 onward into it naturally.",
+    "Create a seamless collage that combines all input images while preserving their content.",
+    "Custom Prompt",
+]
+
 PRESET_PROMPTS_DUAL = [
     "Combine the contents of IMG_1 and IMG_2 into a coherent scene.",
     "Use the composition of IMG_1 and the style of IMG_2.",

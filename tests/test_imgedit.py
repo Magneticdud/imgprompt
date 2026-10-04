@@ -155,6 +155,50 @@ class TestRecraftDefaults:
         assert first.value == "vector_illustration"
 
 
+class TestStepPromptLists:
+    """The prompt list offered depends on the combined-image mode: dual for
+    exactly 2, multi for 3+."""
+
+    def _capture(self, monkeypatch, input_images, combined):
+        captured = {}
+
+        def fake_select(message, choices=None, **kwargs):
+            captured["titles"] = [
+                c.title if hasattr(c, "title") else c for c in choices
+            ]
+            return _FakeQuestion(None)
+
+        monkeypatch.setattr(imgedit.questionary, "select", fake_select)
+        imgedit.step_prompt(input_images, combined)
+        return captured
+
+    @staticmethod
+    def _title(prompt: str) -> str:
+        # Mirror the exact title transform step_prompt applies.
+        title = prompt.replace("\n", " ").strip()
+        if len(title) > 100:
+            title = title[:97] + "..."
+        return title
+
+    def test_three_combined_images_use_multi_presets(self, monkeypatch):
+        from imgprompt.presets import PRESET_PROMPTS_MULTI
+
+        captured = self._capture(monkeypatch, ["a.jpg", "b.jpg", "c.jpg"], True)
+        assert self._title(PRESET_PROMPTS_MULTI[0]) in captured["titles"]
+
+    def test_two_combined_images_use_dual_presets(self, monkeypatch):
+        from imgprompt.presets import PRESET_PROMPTS_DUAL
+
+        captured = self._capture(monkeypatch, ["a.jpg", "b.jpg"], True)
+        assert self._title(PRESET_PROMPTS_DUAL[0]) in captured["titles"]
+
+    def test_single_image_uses_edit_presets(self, monkeypatch):
+        from imgprompt.presets import PRESET_PROMPTS_EDIT
+
+        captured = self._capture(monkeypatch, ["a.jpg"], False)
+        assert self._title(PRESET_PROMPTS_EDIT[0]) in captured["titles"]
+
+
 # --------------------------------------------------------------------------
 # --replay --model/--provider override (issue #12)
 # --------------------------------------------------------------------------

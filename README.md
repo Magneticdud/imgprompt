@@ -7,6 +7,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 - Interactive file selection if no path is provided.
 - **PDF input**: pass a `.pdf` and it is rasterized to a bitmap before upload (a PNG is saved next to the source); for multi-page PDFs you choose a single page or **all pages** — picking all expands the PDF into one input image per page and runs the whole document through batch mode.
 - **Batch processing**: Process multiple images with the same model and prompt.
+- **Multi-image prompts (combined mode)**: send 2+ images together so the model sees them all in one prompt (`IMG_1`..`IMG_N`) instead of one call per image. The wizard prints the model's input-image limit before you spend.
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.
 - Pre-made and custom prompts.
@@ -159,6 +160,29 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 
 A multi-page PDF processed with **All pages** feeds straight into this batch flow — one input image per page.
 
+### Multiple Images in One Prompt (Combined Mode)
+When 2+ images would otherwise go to batch mode, you can instead send them all
+in a **single prompt / call** (`IMG_1`, `IMG_2`, … `IMG_N`):
+
+- **From the image menu** (run with no arguments): pick **"🧩 Multiple Images (One Prompt)"** and tick the images to combine.
+- **With 2+ image arguments**: the wizard asks how to use them — press Enter for the default batch fan-out, or pick **Combined**. Pass `--combine` to skip the question and combine directly (handy for scripts):
+
+  ```bash
+  python imgedit.py a.jpg b.jpg c.jpg --combine
+  ```
+
+Exactly two images use the dual prompt presets; three or more use the multi
+presets. The summary prints the model's **input-image limit** next to the
+selected inputs, and if you pass more than the model accepts only the first N
+are sent (with a warning), so a provider-side trim is never a surprise.
+
+**Input limits** (max reference images in one combined call): GPT Image 2.5
+**16**, MAI 2.6 **5**, Seedream 5.0 Lite **4**, Qwen Image 3 **4**, Grok
+Imagine 2.0 **3**, Krea 2 and Meta Muse **1**. Models not listed advertise no
+numeric bound. On OpenRouter the limit comes from the model's live capability
+descriptor when discovery is available; this table is the offline fallback.
+OpenAI's edit endpoint accepts a list of images; OVH stays text-to-image only.
+
 ### Inline Preview
 After each generated image is saved, a small preview is shown **inline in the terminal** when your terminal supports graphics. This is best-effort and delegates to whichever image-to-terminal tool you have installed — [`chafa`](https://hpjansson.org/chafa/), [`viu`](https://github.com/atanunq/viu), or kitty's `icat` — each of which auto-detects the terminal's graphics protocol (kitty/iTerm2/sixel) and falls back to Unicode blocks. If none is installed, or the terminal can't display images, the step is silently skipped.
 
@@ -242,6 +266,8 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
   - `stabilityai/stable-diffusion-xl-base-1.0`: Free (Rate limited: 2 per minute without API key, 400 per minute with API key). Fixed 1024x1024. With such generous rate limits it does not need API keys, but if needed you can [read how to get one](https://help.ovhcloud.com/csm/en-gb-public-cloud-ai-endpoints-getting-started?id=kb_article_view&sysparm_article=KB0065401)
 
 Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
+
+Note: models that cap **input references** (images sent together in one prompt) list their limit in the combined-mode summary; see *Multiple Images in One Prompt* under Batch Processing for the per-model figures.
 
 ### Live discovery (OpenRouter only)
 The wizard's OpenRouter ratio/resolution choices and prices are driven by OpenRouter's live catalog when reachable:

@@ -2757,6 +2757,121 @@ class TestDualDispatch:
 
 
 # --------------------------------------------------------------------------
+# Multi-image combined mode: 3+ input images must reach the API in ONE call,
+# just like dual mode. Also pins the per-model input-reference limit lookup
+# (live descriptor first, hardcoded family table as the offline fallback).
+# --------------------------------------------------------------------------
+
+
+class TestMultiInput:
+    def test_is_multi_three_images_is_not_batch(self):
+        req = GenerationRequest(
+            prompt="blend IMG_1..IMG_3",
+            model="openai/gpt-image-2.5-flare",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="low",
+            images=["a.png", "b.png", "c.png"],
+            is_multi=True,
+        )
+        assert req.is_combined is True
+        assert req.is_batch is False
+
+    def test_three_images_without_flag_stays_batch(self):
+        req = GenerationRequest(
+            prompt="x",
+            model="openai/gpt-image-2.5-flare",
+            aspect_ratio="1:1",
+            res_key="1024x1024",
+            quality_key="low",
+            images=["a.png", "b.png", "c.png"],
+        )
+        assert req.is_combined is False
+        assert req.is_batch is True
+
+    def test_multi_run_makes_single_call_with_all_references(
+        self, provider_with_key, tmp_path, monkeypatch
+    ):
+        saved = []
+        monkeypatch.setattr(
+            "imgprompt.providers.openrouter_provider.save_image_bytes",
+            lambda b, src: saved.append((b, src)) or str(tmp_path / "out.png"),
+        )
+        imgs = [_fake_image(tmp_path, name=f"{n}.png") for n in ("a", "b", "c")]
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="blend all three",
+                model="openai/gpt-image-2.5-flare",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="low",
+                images=imgs,
+                is_multi=True,
+            )
+            provider_with_key.run(req)
+        assert mock_post.call_count == 1
+        refs = mock_post.call_args.kwargs["json"]["input_references"]
+        assert len(refs) == 3
+        assert len(saved) == 1
+
+    def test_fallback_table_caps_known_families(self, provider_with_key):
+        # Autouse fixture pins get_capabilities to None, so this exercises the
+        # hardcoded per-family fallback.
+        assert provider_with_key.max_input_images("openai/gpt-image-2.5-flare") == 16
+        assert (
+            provider_with_key.max_input_images("bytedance-seed/seedream-5-0-lite") == 4
+        )
+        assert provider_with_key.max_input_images("krea/krea-2-medium") == 1
+        assert provider_with_key.max_input_images("x-ai/grok-imagine-image-2.0") == 3
+        # No advertised bound and no fallback entry -> None, not a fake cap.
+        assert (
+            provider_with_key.max_input_images("sourceful/riverflow-v2.5-pro") is None
+        )
+
+    def test_descriptor_overrides_the_fallback_table(
+        self, provider_with_key, monkeypatch
+    ):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        _patch_caps(
+            monkeypatch,
+            ModelCapabilities(
+                model="bytedance-seed/seedream-5-0-lite", input_refs_max=7
+            ),
+        )
+        assert (
+            provider_with_key.max_input_images("bytedance-seed/seedream-5-0-lite") == 7
+        )
+
+    def test_offline_trim_uses_fallback_table(
+        self, provider_with_key, tmp_path, monkeypatch, capsys
+    ):
+        imgs = [
+            _fake_image(tmp_path, name=f"{n}.png") for n in ("a", "b", "c", "d", "e")
+        ]
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model="bytedance-seed/seedream-5-0-lite",
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="2K",
+                images=imgs,
+                is_multi=True,
+            )
+            provider_with_key._call_api(req, img_paths=imgs, n=1)
+        refs = mock_post.call_args.kwargs["json"]["input_references"]
+        assert len(refs) == 4  # seedream-5-0-lite caps at 4 input references
+        assert "at most 4 input reference" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
 # Gemini 3.1 Flash Lite image (the new budget model, $0.034/1K, 14 ratios).
 # Added when Nano Banana 2 Lite shipped (June 2026); gemini-2.5-flash-image
 # was retired at the same time and the tests below also pin its removal so

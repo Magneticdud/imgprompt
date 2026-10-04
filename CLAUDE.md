@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single-entry-point terminal wizard (`imgedit.py`) that edits or generates images through several hosted model APIs (OpenAI, Google, OVH, and many models via OpenRouter). The wizard walks the user through provider → model → resolution → quality → prompt, estimates the USD cost before spending, then dispatches to a provider. It also supports batch mode, dual-image mode, replay, and PDF rasterization.
+A single-entry-point terminal wizard (`imgedit.py`) that edits or generates images through several hosted model APIs (OpenAI, Google, OVH, and many models via OpenRouter). The wizard walks the user through provider → model → resolution → quality → prompt, estimates the USD cost before spending, then dispatches to a provider. It also supports batch mode, combined multi-image mode (2+ images in one prompt, `--combine`), replay, and PDF rasterization.
 
 ## Commands
 
@@ -31,7 +31,8 @@ Only pure logic is tested — dimension/DPI math, pricing-token estimates, image
 
 ## Conventions to preserve
 
-- **`GenerationRequest` is a persisted schema.** It is serialized to `.last_generation.json`, so new fields **must** have defaults — old replay files unpack without them (see the comments on `n`, `is_dual`, `extras`, `estimated_cost` in `base.py`). Never make a field required.
+- **`GenerationRequest` is a persisted schema.** It is serialized to `.last_generation.json`, so new fields **must** have defaults — old replay files unpack without them (see the comments on `n`, `is_dual`, `is_multi`, `extras`, `estimated_cost` in `base.py`). Never make a field required. `is_dual` (exactly 2) and `is_multi` (3+) are the two halves of `is_combined`, which is what keeps several images in one call instead of batch fan-out.
+- **Input-image limits**: `ImageProvider.max_input_images(model)` reports how many reference images a model accepts in one combined call (None = no advertised bound). OpenRouter reads the live descriptor and falls back to `_MODEL_MAX_INPUT_PREFIXES`; the wizard prints it in the combined-mode summary.
 - **Adding a provider**: implement `ImageProvider`, register it in `PROVIDER_MAP`. The wizard picks it up automatically; capability/pricing hooks let it drive its own resolution/quality menus without editing `imgedit.py`.
 - **Wizard step functions** return either a value, `None` (user cancelled with Ctrl+C), or the `BACK_OPTION` sentinel (from `presets.py`) to step backward. Preserve this three-way convention when editing steps.
 - **Cost reconciliation**: `estimated_cost` on the request is compared to the provider-reported `usage.cost` after each call; a >10% divergence prints a warning. If you change pricing tables in `presets.py` or the live-pricing path, keep that reconciliation meaningful.
