@@ -27,6 +27,12 @@ class GenerationRequest:
     # image is an independent single-input call. Defaults to False so
     # .last_generation.json files saved before this field existed still load.
     is_dual: bool = False
+    # Generalized combined-input intent: 3+ images all reach the model in ONE
+    # prompt/call (IMG_1..IMG_N referenced together), as opposed to batch mode
+    # where each image is processed independently. is_dual is the 2-image
+    # special case kept for schema compatibility; together they form
+    # `is_combined` below. Defaults to False so older history files load.
+    is_multi: bool = False
     # Wizard's pre-call USD estimate for one API call. Used to reconcile
     # against the provider-reported usage.cost after the call (a >10%
     # divergence is printed). None when no estimate was shown (non-wizard
@@ -34,10 +40,16 @@ class GenerationRequest:
     estimated_cost: float | None = None
 
     @property
+    def is_combined(self) -> bool:
+        # Any multi-image selection that must reach the provider in a single
+        # call: dual (exactly 2) or multi (3+).
+        return self.is_dual or self.is_multi
+
+    @property
     def is_batch(self) -> bool:
-        # Dual mode also carries 2 images but is NOT a batch: the pair must
-        # reach the provider in a single combined call, not one call each.
-        return len(self.images) > 1 and not self.is_dual
+        # Combined mode also carries 2+ images but is NOT a batch: they must
+        # reach the provider in a single call, not one call each.
+        return len(self.images) > 1 and not self.is_combined
 
     @property
     def is_text_to_image(self) -> bool:
@@ -61,6 +73,17 @@ class ImageProvider(ABC):
     @property
     def supports_dual(self) -> bool:
         return False
+
+    def max_input_images(self, model: str) -> int | None:
+        """Maximum number of input/reference images this model accepts in one
+        combined call, or None when the provider advertises no numeric bound.
+
+        The wizard prints this next to a combined-mode summary so the user
+        knows before spending whether some images will be trimmed. Providers
+        with live capability descriptors (OpenRouter) override this to read
+        the descriptor and fall back to their hardcoded table.
+        """
+        return None
 
     @classmethod
     @abstractmethod

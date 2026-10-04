@@ -91,6 +91,48 @@ def test_pre_dual_history_file_loads_with_default(monkeypatch, tmp_path):
     assert loaded_req.is_batch is True
 
 
+def test_is_multi_survives_roundtrip(monkeypatch, tmp_path):
+    _patch_file(monkeypatch, tmp_path)
+    req = GenerationRequest(
+        prompt="blend every input image",
+        model="openai/gpt-image-2.5-flare",
+        aspect_ratio="1:1",
+        res_key="1024x1024",
+        quality_key="low",
+        images=["a.png", "b.png", "c.png"],
+        is_multi=True,
+    )
+    history.save_last_generation("OpenRouter", req)
+    _, loaded_req = history.load_last_generation()
+    assert loaded_req.is_multi is True
+    assert loaded_req.is_combined is True
+    assert loaded_req.is_batch is False
+
+
+def test_pre_multi_history_file_loads_with_default(monkeypatch, tmp_path):
+    """A .last_generation.json written before is_multi existed has no such
+    key; loading must default it to False (plain batch semantics)."""
+    import dataclasses
+    import json
+
+    target = _patch_file(monkeypatch, tmp_path)
+    req = GenerationRequest(
+        prompt="x",
+        model="gpt-image-2",
+        aspect_ratio="1:1",
+        res_key="1K",
+        quality_key="high",
+        images=["a.png", "b.png"],
+    )
+    data = dataclasses.asdict(req)
+    del data["is_multi"]
+    target.write_text(json.dumps({"provider": "OpenAI", "request": data}))
+    _, loaded_req = history.load_last_generation()
+    assert loaded_req.is_multi is False
+    assert loaded_req.is_combined is False
+    assert loaded_req.is_batch is True
+
+
 def test_recraft_style_extras_survive_roundtrip(monkeypatch, tmp_path):
     """--replay must reproduce the exact style/colors of a Recraft run."""
     _patch_file(monkeypatch, tmp_path)
