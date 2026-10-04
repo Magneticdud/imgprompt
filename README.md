@@ -185,8 +185,11 @@ Meta Muse advertises no bound (conservatively treated as **1**). Models not
 listed advertise no numeric bound. On OpenRouter the limit comes from the
 model's live capability descriptor (`supported_parameters.input_references`)
 when discovery is available; the built-in table in
-`imgprompt/providers/openrouter_provider.py` is the offline fallback.
-OpenAI's edit endpoint accepts a list of images; OVH stays text-to-image only.
+`imgprompt/providers/openrouter_provider.py` is the offline fallback. The
+direct providers have no comparable endpoint, so they mirror the equivalent
+OpenRouter models: **OpenAI 16**, **Google 14** (every model each offers
+belongs to that family — `gpt-image-*` and Gemini 3.x image respectively).
+**OVH** is text-to-image only and accepts no input images.
 
 ### Inline Preview
 After each generated image is saved, a small preview is shown **inline in the terminal** when your terminal supports graphics. This is best-effort and delegates to whichever image-to-terminal tool you have installed — [`chafa`](https://hpjansson.org/chafa/), [`viu`](https://github.com/atanunq/viu), or kitty's `icat` — each of which auto-detects the terminal's graphics protocol (kitty/iTerm2/sixel) and falls back to Unicode blocks. If none is installed, or the terminal can't display images, the step is silently skipped.
