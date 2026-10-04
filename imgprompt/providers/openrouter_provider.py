@@ -74,20 +74,33 @@ def _max_n_for(model: str) -> int:
 # descriptor always wins when discovery is available (see
 # `OpenRouterProvider.max_input_images`).
 #
-# Figures are the "up to N input references" notes documented per family in
-# the README (verified against /api/v1/images/models snapshots). Absence
-# from this table means "no bound advertised" -> None, which lets the
-# wizard say so instead of inventing a limit. Entries are prefixes, so a
-# whole family can share one number; `startswith` matches an exact id as a
-# prefix of itself, and no listed prefix is a prefix of another.
+# Figures mirror a live survey of /api/v1/images/models on 2026-10-04 (57
+# models), covering every model this provider offers. Entries are prefixes
+# checked in insertion order, so a specific id/prefix MUST precede the
+# family prefix it belongs to (klein before the flux family, riverflow-pro
+# before sourceful). Absence from the table means "no bound advertised" ->
+# None, so the wizard says so instead of inventing a limit.
+#
+# `meta/` is the one exception: its descriptor is EMPTY, so there is nothing
+# to mirror. The cap of 1 is CONSERVATIVE (same reasoning as the `n` table
+# above) and safe — the alternative, None, would forward more references
+# than the model may accept.
 _MODEL_MAX_INPUT_PREFIXES = {
-    "openai/": 16,  # GPT Image 2.5 family
+    "openai/": 16,  # gpt-image / gpt-5-image families
     "microsoft/mai-image-2.6": 5,  # covers the flash tier too
-    "bytedance-seed/seedream-5-0-lite": 4,
-    "qwen/": 4,
+    "bytedance-seed/": 14,  # Seedream 5.0 Lite and Pro (README's old "4" was stale)
+    # Flux: klein-4b caps at 4, the rest of the family at 8.
+    "black-forest-labs/flux.2-klein": 4,
+    "black-forest-labs/": 8,
+    # Riverflow: pro caps at 10, fast at 4.
+    "sourceful/riverflow-v2.5-pro": 10,
+    "sourceful/": 4,
+    "google/": 14,  # Gemini 3.x image family
+    "qwen/": 4,  # Qwen Image 3 family
     "x-ai/grok-imagine-image-2.0": 3,
-    "krea/": 1,
-    "meta/": 1,  # conservative: empty descriptor, measured single-input only
+    "krea/": 1,  # Krea 2 family
+    "recraft/": 1,  # Recraft v4.1 family
+    "meta/": 1,  # conservative: empty descriptor
 }
 
 

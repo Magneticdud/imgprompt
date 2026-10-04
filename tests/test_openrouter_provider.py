@@ -2819,17 +2819,25 @@ class TestMultiInput:
 
     def test_fallback_table_caps_known_families(self, provider_with_key):
         # Autouse fixture pins get_capabilities to None, so this exercises the
-        # hardcoded per-family fallback.
+        # hardcoded per-family fallback (mirrors the 2026-10-04 live survey).
         assert provider_with_key.max_input_images("openai/gpt-image-2.5-flare") == 16
         assert (
-            provider_with_key.max_input_images("bytedance-seed/seedream-5-0-lite") == 4
+            provider_with_key.max_input_images("bytedance-seed/seedream-5-0-lite") == 14
         )
+        assert (
+            provider_with_key.max_input_images("bytedance-seed/seedream-5-0-pro") == 14
+        )
+        # Specific prefix beats the family prefix: klein-4b is 4, flux is 8.
+        assert (
+            provider_with_key.max_input_images("black-forest-labs/flux.2-klein-4b") == 4
+        )
+        assert provider_with_key.max_input_images("black-forest-labs/flux.2-pro") == 8
+        assert provider_with_key.max_input_images("sourceful/riverflow-v2.5-fast") == 4
+        assert provider_with_key.max_input_images("sourceful/riverflow-v2.5-pro") == 10
         assert provider_with_key.max_input_images("krea/krea-2-medium") == 1
         assert provider_with_key.max_input_images("x-ai/grok-imagine-image-2.0") == 3
-        # No advertised bound and no fallback entry -> None, not a fake cap.
-        assert (
-            provider_with_key.max_input_images("sourceful/riverflow-v2.5-pro") is None
-        )
+        # No fallback entry advertises no bound -> None, not a fake cap.
+        assert provider_with_key.max_input_images("vendor/unlisted-model") is None
 
     def test_descriptor_overrides_the_fallback_table(
         self, provider_with_key, monkeypatch
@@ -2858,7 +2866,7 @@ class TestMultiInput:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="bytedance-seed/seedream-5-0-lite",
+                model="qwen/qwen-image-3",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="2K",
@@ -2867,7 +2875,7 @@ class TestMultiInput:
             )
             provider_with_key._call_api(req, img_paths=imgs, n=1)
         refs = mock_post.call_args.kwargs["json"]["input_references"]
-        assert len(refs) == 4  # seedream-5-0-lite caps at 4 input references
+        assert len(refs) == 4  # Qwen Image 3 caps at 4 input references
         assert "at most 4 input reference" in capsys.readouterr().out
 
 
