@@ -55,6 +55,10 @@ class OVHProvider(ImageProvider):
     def supports_dual(self) -> bool:
         return False
 
+    def max_input_images(self, model: str) -> int | None:
+        # OVH's endpoint is text-to-image only: it accepts no input images.
+        return 0
+
     def run(self, request: GenerationRequest) -> None:
         api_key = os.getenv("OVH_AI_ENDPOINTS_ACCESS_TOKEN")
         headers = {

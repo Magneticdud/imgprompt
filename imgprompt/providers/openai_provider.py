@@ -155,6 +155,13 @@ class OpenAIProvider(ImageProvider):
     def supports_dual(self) -> bool:
         return False
 
+    # Direct OpenAI exposes no capability endpoint. Every model this provider
+    # offers belongs to the gpt-image family, whose equivalent
+    # `openai/gpt-image-*` entries on OpenRouter advertise 16 input
+    # references (surveyed 2026-10-04), so the bound mirrors that.
+    def max_input_images(self, model: str) -> int | None:
+        return 16
+
     def run(self, request: GenerationRequest) -> None:
         api_key, source = resolve_openai_api_key()
         if not api_key:

@@ -192,6 +192,13 @@ class GoogleProvider(ImageProvider):
     def supports_dual(self) -> bool:
         return True
 
+    # The direct Google API exposes no capability endpoint. Every model this
+    # provider offers is a Gemini 3.x image model, whose equivalent
+    # `google/gemini-3.x-image` entries on OpenRouter advertise 14 input
+    # references (surveyed 2026-10-04), so the bound mirrors that.
+    def max_input_images(self, model: str) -> int | None:
+        return 14
+
     def run(self, request: GenerationRequest) -> None:
         # One-shot UNTESTED banner. Module-level latch so a second Google
         # run in the same process doesn't repeat itself.
