@@ -7,6 +7,7 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
 - Interactive file selection if no path is provided.
 - **PDF input**: pass a `.pdf` and it is rasterized to a bitmap before upload (a PNG is saved next to the source); for multi-page PDFs you choose a single page or **all pages** — picking all expands the PDF into one input image per page and runs the whole document through batch mode.
 - **Batch processing**: Process multiple images with the same model and prompt.
+- **Multi-image prompts (combined mode)**: send 2+ images together so the model sees them all in one prompt (`IMG_1`..`IMG_N`) instead of one call per image. The wizard prints the model's input-image limit before you spend.
 - Dynamic cost calculation and display.
 - Selection of Resolution and Quality.
 - Pre-made and custom prompts.
@@ -159,6 +160,40 @@ When you provide 2+ images, the script automatically enters **batch mode**:
 
 A multi-page PDF processed with **All pages** feeds straight into this batch flow — one input image per page.
 
+### Multiple Images in One Prompt (Combined Mode)
+When 2+ images would otherwise go to batch mode, you can instead send them all
+in a **single prompt / call** (`IMG_1`, `IMG_2`, … `IMG_N`):
+
+- **From the image menu** (run with no arguments): pick **"🧩 Multiple Images (One Prompt)"** and tick the images to combine.
+- **With 2+ image arguments**: the wizard asks how to use them — press Enter for the default batch fan-out, or pick **Combined**. Pass `--combine` to skip the question and combine directly (handy for scripts):
+
+  ```bash
+  python imgedit.py a.jpg b.jpg c.jpg --combine
+  ```
+
+Exactly two images use the dual prompt presets; three or more use the multi
+presets. From the menu you then pick which image is `IMG_1` (the rest follow
+in listing order); with CLI arguments the argument order is the `IMG_k` order.
+The `IMG_k → file` mapping is printed either way. The summary prints the
+model's **input-image limit** next to the selected inputs; on OpenRouter, if
+you pass more than the model accepts, only the first N are sent and priced
+(with a warning), so a provider-side trim is never a surprise.
+
+**Input limits** (max reference images in one combined call, from OpenRouter's
+live capability descriptor; the built-in offline fallback matches it): GPT
+Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; Flux
+**8** (klein-4b **4**); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
+Qwen Image 3 **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea 2 **1**.
+Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
+trimmed and the summary says the limit is not advertised. On OpenRouter the limit comes from the
+model's live capability descriptor (`supported_parameters.input_references`)
+when discovery is available; the built-in table in
+`imgprompt/providers/openrouter_provider.py` is the offline fallback. The
+direct providers have no comparable endpoint, so they mirror the equivalent
+OpenRouter models: **OpenAI 16**, **Google 14** (every model each offers
+belongs to that family — `gpt-image-*` and Gemini 3.x image respectively).
+**OVH** is text-to-image only and accepts no input images.
+
 ### Inline Preview
 After each generated image is saved, a small preview is shown **inline in the terminal** when your terminal supports graphics. This is best-effort and delegates to whichever image-to-terminal tool you have installed — [`chafa`](https://hpjansson.org/chafa/), [`viu`](https://github.com/atanunq/viu), or kitty's `icat` — each of which auto-detects the terminal's graphics protocol (kitty/iTerm2/sixel) and falls back to Unicode blocks. If none is installed, or the terminal can't display images, the step is silently skipped.
 
@@ -197,8 +232,8 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     ⚠️ **`high` here is not `high` on `gpt-image-2`.** GPT Image 2.5 kept the token rates but *shifted the ladder*: its `high` spends what `gpt-image-2`'s `medium` spent (1,756 tokens), and its `max` what `gpt-image-2`'s `high` spent (7,024), with `medium` and `xhigh` inserted as genuinely new rungs. So the same word costs 4x less here than on the direct provider — switching a prompt between the two without adjusting the quality name is the easy mistake.
   - ~~`openai/gpt-5.4-image-2`~~: removed in this release. Its `1K`/`2K`/`4K` menu priced tiers that do not exist: **no** OpenAI model on OpenRouter's image API advertises a `resolution` parameter (surveyed across all eight entries, 2026-09-12), so the field went out un-advertised, `quality` was left at the upstream default, and the $0.02/$0.04/$0.08 estimates corresponded to nothing billable. Use the GPT Image 2.5 family above, where the quality axis is the real one. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
   - **Seedream 5.0 family**: the two tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
-    - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 4 images per call. The default Seed model.
-    - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each; single image per call (`n` capped at 1 upstream). The editing-precision tier.
+    - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 14 images per call. The default Seed model.
+    - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each, up to 14 per call; single output image per call (`n` capped at 1 upstream). The editing-precision tier.
   - ~~`bytedance-seed/seedream-4.5`~~: removed in this release, superseded by Seedream 5.0 Lite — cheaper ($0.035 vs $0.04), same 4K ceiling and the same aspect ratios. Its nominal "1K" tier was never really 1K: the upstream floor of 3,686,400 px silently raised every 1K request to ~1920x1920, so you paid $0.04 for 3.69MP where Lite now gives 4.19MP for $0.035. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
   - `black-forest-labs/flux.2-klein-4b`: $0.014 (1K), $0.017 (2K).
   - `black-forest-labs/flux.2-flex`: Output $0.06 (1K), $0.24 (2K); Input $0.06/MP.
@@ -242,6 +277,8 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
   - `stabilityai/stable-diffusion-xl-base-1.0`: Free (Rate limited: 2 per minute without API key, 400 per minute with API key). Fixed 1024x1024. With such generous rate limits it does not need API keys, but if needed you can [read how to get one](https://help.ovhcloud.com/csm/en-gb-public-cloud-ai-endpoints-getting-started?id=kb_article_view&sysparm_article=KB0065401)
 
 Note: Black Forest Labs models cap output at 4MP, so requesting higher resolutions is useless. Input images >4MP are automatically downscaled.
+
+Note: models that cap **input references** (images sent together in one prompt) list their limit in the combined-mode summary; see *Multiple Images in One Prompt* under Batch Processing for the per-model figures.
 
 ### Live discovery (OpenRouter only)
 The wizard's OpenRouter ratio/resolution choices and prices are driven by OpenRouter's live catalog when reachable:

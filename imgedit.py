@@ -34,6 +34,7 @@ from imgprompt.presets import (
     PRESET_PROMPTS_EDIT,
     PRESET_PROMPTS_GENERATE,
     PRESET_PROMPTS_DUAL,
+    PRESET_PROMPTS_MULTI,
     GPT_IMAGE_2_FAMILY,
     gpt_image_2_quality_ladder,
     gpt_image_2_token_cost,
@@ -169,8 +170,10 @@ def resolve_pdf_inputs(paths: list[str]) -> list[str]:
 def select_inputs(provided_path: str | None) -> tuple[list[str], bool, str | None]:
     """Selects images either from arguments or from a list of files.
 
-    Returns (paths, is_dual, replay_choice) where replay_choice is None or
-    one of REPLAY_OPTION / REPLAY_DIFFERENT_OPTION."""
+    Returns (paths, combined, replay_choice) where `combined` is True when the
+    selection is 2+ images that must reach the model in a single prompt (dual
+    or multi), and replay_choice is None or one of REPLAY_OPTION /
+    REPLAY_DIFFERENT_OPTION."""
     if provided_path:
         if os.path.isfile(provided_path):
             return [provided_path], False, None
@@ -182,7 +185,6 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, str | Non
 
     # Add option for Text-to-Image
     t2i_option = "Text-to-Image (No input image)"
-    dual_option = "Two Images (Dual Input)"
 
     choices = []
     # Offer replay as the first choices only if a previous run was saved.
@@ -191,7 +193,7 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, str | Non
         choices.append(REPLAY_DIFFERENT_OPTION)
     choices.append(t2i_option)
     if len(images) >= 2:
-        choices.append(dual_option)
+        choices.append(MULTI_INPUT_OPTION)
     choices.extend(images)
 
     selected = questionary.select(
@@ -207,25 +209,35 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, str | Non
     if selected == t2i_option:
         return [], False, None
 
-    if selected == dual_option:
-        img1 = questionary.select("Select first image (IMG_1):", choices=images).ask()
-        if not img1:
-            sys.exit(0)
-
-        remaining_images = [img for img in images if img != img1]
-        img2 = questionary.select(
-            "Select second image (IMG_2):", choices=remaining_images
+    if selected == MULTI_INPUT_OPTION:
+        chosen = questionary.checkbox(
+            "Select 2+ images to combine in ONE prompt "
+            "(space toggles, Enter confirms):",
+            choices=images,
         ).ask()
-        if not img2:
+        if not chosen:
             sys.exit(0)
-
-        return [img1, img2], True, None
+        if len(chosen) < 2:
+            print("Error: combined mode needs at least 2 images.")
+            sys.exit(1)
+        # The checkbox returns picks in listing order, not click order, but
+        # prompts address images by role ("IMG_1 as the background"), so let
+        # the user choose IMG_1; the rest follow as IMG_2..IMG_N.
+        first = questionary.select("Select first image (IMG_1):", choices=chosen).ask()
+        if not first:
+            sys.exit(0)
+        return [first] + [img for img in chosen if img != first], True, None
 
     return [selected], False, None
 
 
 REPLAY_OPTION = "🔁 Replay last generation"
 REPLAY_DIFFERENT_OPTION = "🔁 Replay on a different model"
+MULTI_INPUT_OPTION = "🧩 Multiple Images (One Prompt)"
+# Mode picker shown when 2+ images arrive as CLI arguments, so the default
+# (plain Enter) keeps the historical batch behaviour.
+BATCH_MODE_OPTION = "Batch — apply the prompt to each image separately"
+COMBINE_MODE_OPTION = "Combined — send all images in ONE prompt together"
 
 
 def maybe_edit_prompt(request: GenerationRequest) -> None:
@@ -496,6 +508,7 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
         height=dim_height,
         n=n_variants,
         is_dual=request.is_dual,
+        is_multi=request.is_multi,
         extras=extras,
         estimated_cost=estimated_call_cost,
     )
@@ -871,9 +884,11 @@ def _ask_required(
     return value
 
 
-def step_prompt(input_images: list, is_dual: bool) -> tuple[str | None, str]:
+def step_prompt(input_images: list, combined: bool) -> tuple[str | None, str]:
     """Step 5: Select prompt. Returns (final_prompt or BACK_OPTION, original_selection)."""
-    if is_dual:
+    if combined and len(input_images) > 2:
+        prompt_list = PRESET_PROMPTS_MULTI
+    elif combined:
         prompt_list = PRESET_PROMPTS_DUAL
     elif input_images:
         prompt_list = PRESET_PROMPTS_EDIT
@@ -1039,6 +1054,36 @@ def step_confirm() -> str | None:
     return confirm
 
 
+def input_cost_per_call(
+    input_images: list[str],
+    mp_rate: float | None,
+    flat_rate: float | None,
+    batch: bool,
+    input_limit: int | None = None,
+) -> float:
+    """USD input-image cost of ONE API call (per-MP and/or flat per image).
+
+    Combined mode sends every image in one call, minus any trim to the
+    model's `input_limit` (OpenRouter drops the extras before sending). Batch
+    mode sends one image per call: the result is the mean per-call cost, so
+    `per_call * len(input_images)` is the exact batch total and the
+    per-call estimate stays meaningful for usage.cost reconciliation.
+    """
+    if not input_images or (mp_rate is None and flat_rate is None):
+        return 0.0
+    billed = input_images
+    if not batch and input_limit is not None:
+        billed = input_images[:input_limit]
+    total = 0.0
+    for path in billed:
+        if mp_rate is not None:
+            with Image.open(path) as img:
+                total += (img.width * img.height) / 1_000_000 * mp_rate
+        if flat_rate is not None:
+            total += flat_rate
+    return total / len(billed) if batch else total
+
+
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image & Gemini Image Editor")
     parser.add_argument(
@@ -1050,6 +1095,12 @@ def main():
         "--free",
         action="store_true",
         help="Start in Text-to-Image mode (no base image)",
+    )
+    parser.add_argument(
+        "--combine",
+        action="store_true",
+        help="With 2+ image arguments, combine them into ONE prompt/call "
+        "instead of batch mode (skips the interactive mode question)",
     )
     parser.add_argument(
         "-n",
@@ -1143,8 +1194,10 @@ def main():
             sys.exit(1)
         print(f"\nPrompt loaded from: {prompt_file}")
 
-    # Determine input images
-    is_dual = False
+    # Determine input images. `combined` is True when 2+ images must reach the
+    # model in ONE prompt (dual for exactly 2, multi for 3+); False keeps the
+    # historical batch behaviour (one independent call per image).
+    combined = False
     input_images = []
     if args.free:
         input_images = []
@@ -1184,9 +1237,26 @@ def main():
             sys.exit(1)
 
         if len(input_images) > 1:
-            print(f"\nBatch mode: {len(input_images)} images selected")
+            # 2+ images from the CLI: offer combined mode (all in one prompt)
+            # alongside the default batch fan-out. --combine skips the question
+            # for scripted/non-interactive runs.
+            if args.combine:
+                combined = True
+            else:
+                mode = questionary.select(
+                    f"{len(input_images)} images selected \u2014 how should they be used?",
+                    choices=[BATCH_MODE_OPTION, COMBINE_MODE_OPTION],
+                    default=BATCH_MODE_OPTION,
+                ).ask()
+                if not mode:
+                    sys.exit(0)
+                combined = mode == COMBINE_MODE_OPTION
+            if combined:
+                print(f"\nCombined mode: {len(input_images)} images \u2192 one prompt")
+            else:
+                print(f"\nBatch mode: {len(input_images)} images selected")
     else:
-        input_images, is_dual, replay_choice = select_inputs(None)
+        input_images, combined, replay_choice = select_inputs(None)
         if replay_choice == REPLAY_DIFFERENT_OPTION:
             run_replay_on_different_model(args.iterations)
             return
@@ -1199,16 +1269,29 @@ def main():
     if input_images:
         input_images = resolve_pdf_inputs(input_images)
 
+    if args.combine and not combined:
+        print("Note: --combine needs 2+ images; using the selection as-is.")
+
+    # `is_dual` stays the exact-2 case (schema-compatible with older history
+    # files); `is_multi` covers 3+. Together they drive the combined dispatch.
+    is_dual = combined and len(input_images) == 2
+    is_multi = combined and len(input_images) > 2
+
     # Legacy support variable
     image_path = input_images[0] if input_images else None
 
     if input_images:
-        if is_dual:
-            print(f"\nSelected Images (dual): {', '.join(input_images)}")
+        if is_dual or is_multi:
+            # Spell out the IMG_k mapping: prompts address images by role
+            # ("IMG_1 as the background"), so the order must be visible.
+            label = "dual" if is_dual else "combined, one prompt"
+            print(f"\nSelected Images ({label}):")
+            for idx, path in enumerate(input_images, 1):
+                print(f"  IMG_{idx}: {path}")
         elif len(input_images) == 1:
             print(f"\nSelected Image: {input_images[0]}")
         else:
-            print(f"\nSelected Images: {', '.join(input_images)}")
+            print(f"\nSelected Images (batch): {', '.join(input_images)}")
     else:
         print(f"\nMode: Text-to-Image (No input image)")
 
@@ -1313,7 +1396,7 @@ def main():
                 final_prompt = cli_prompt
                 current_step = 5
                 continue
-            result_prompt, prompt_selection = step_prompt(input_images, is_dual)
+            result_prompt, prompt_selection = step_prompt(input_images, combined)
             if result_prompt == BACK_OPTION:
                 current_step = 3
                 continue
@@ -1339,12 +1422,17 @@ def main():
 
         elif current_step == 6:
             # Step 7: Summary & Confirm (was Step 6)
-            is_batch_mode = len(input_images) > 1 and not is_dual
+            is_batch_mode = len(input_images) > 1 and not combined
 
             print("\n--- Summary ---")
             if input_images:
                 if is_dual:
                     print(f"Images:     {', '.join(input_images)} (dual mode)")
+                elif is_multi:
+                    print(
+                        f"Images:     {len(input_images)} images "
+                        f"(combined, one prompt)"
+                    )
                 elif is_batch_mode:
                     print(f"Images:     {len(input_images)} images (batch mode)")
                 else:
@@ -1353,6 +1441,36 @@ def main():
                 print(f"Image:      None (Text-to-Image)")
             print(f"Provider:   {provider}")
             print(f"Model:      {model_choice}")
+            # Combined mode sends several references in one call: surface the
+            # model's advertised input cap (or the absence of one) before the
+            # user spends, so a provider-side trim is never a surprise.
+            if is_dual or is_multi:
+                input_limit = provider_obj.max_input_images(model_choice)
+                n_inputs = len(input_images)
+                if input_limit is None:
+                    print(
+                        f"Inputs:     {n_inputs} combined "
+                        f"(model input limit not advertised)"
+                    )
+                elif input_limit == 0:
+                    print("⚠ Inputs:   this model accepts no input images")
+                elif n_inputs > input_limit:
+                    # Only OpenRouter trims before sending; the direct APIs
+                    # get every image and decide for themselves.
+                    outcome = (
+                        f"only the first {input_limit} will be sent"
+                        if provider == "OpenRouter"
+                        else "the API may reject the request"
+                    )
+                    print(
+                        f"⚠ Inputs:   {n_inputs} images, but this model accepts "
+                        f"at most {input_limit}; {outcome}"
+                    )
+                else:
+                    print(
+                        f"Inputs:     {n_inputs} combined "
+                        f"(model accepts up to {input_limit})"
+                    )
             if provider == "OpenAI" and model_choice in GPT_IMAGE_2_FAMILY:
                 print(f"Ratio:      {aspect_ratio}")
                 if dim_width and dim_height:
@@ -1409,36 +1527,33 @@ def main():
 
             # Calculate total cost for batch mode
             input_cost = 0.0
-            if (
-                provider == "OpenRouter"
-                and model_choice
-                in [
-                    "black-forest-labs/flux.2-flex",
-                    "black-forest-labs/flux.2-pro",
-                    "black-forest-labs/flux.2-max",
-                ]
-                and "input_mp_rate" in COSTS[model_choice]
-            ):
-                input_mp_rate = COSTS[model_choice]["input_mp_rate"]
-                if image_path:
-                    with Image.open(image_path) as img:
-                        mp = (img.width * img.height) / 1_000_000
-                    input_cost = mp * input_mp_rate
-                elif is_batch_mode and input_images:
-                    for inp_img in input_images:
-                        with Image.open(inp_img) as img:
-                            mp = (img.width * img.height) / 1_000_000
-                        input_cost += mp * input_mp_rate
-
-            # Flat per-input-image billing (e.g. Grok Imagine: $0.01 per
-            # reference image regardless of size), as opposed to the
-            # per-megapixel Flux rate handled above.
-            if (
-                provider == "OpenRouter"
-                and input_images
-                and "input_flat" in COSTS.get(model_choice, {})
-            ):
-                input_cost += COSTS[model_choice]["input_flat"] * len(input_images)
+            if provider == "OpenRouter" and input_images:
+                model_costs = COSTS.get(model_choice, {})
+                input_mp_rate = (
+                    model_costs.get("input_mp_rate")
+                    if model_choice
+                    in [
+                        "black-forest-labs/flux.2-flex",
+                        "black-forest-labs/flux.2-pro",
+                        "black-forest-labs/flux.2-max",
+                    ]
+                    else None
+                )
+                # Flat per-input-image billing (e.g. Grok Imagine: $0.01 per
+                # reference image regardless of size), as opposed to the
+                # per-megapixel Flux rate above.
+                input_flat = model_costs.get("input_flat")
+                input_cost = input_cost_per_call(
+                    input_images,
+                    mp_rate=input_mp_rate,
+                    flat_rate=input_flat,
+                    batch=is_batch_mode,
+                    input_limit=(
+                        provider_obj.max_input_images(model_choice)
+                        if combined
+                        else None
+                    ),
+                )
 
             total_cost = final_cost + input_cost
 
@@ -1542,6 +1657,7 @@ def main():
         height=dim_height,
         n=n_variants,
         is_dual=is_dual,
+        is_multi=is_multi,
         extras=extras,
         estimated_cost=estimated_call_cost,
     )

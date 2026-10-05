@@ -192,6 +192,13 @@ class GoogleProvider(ImageProvider):
     def supports_dual(self) -> bool:
         return True
 
+    # The direct Google API exposes no capability endpoint. Every model this
+    # provider offers is a Gemini 3.x image model, whose equivalent
+    # `google/gemini-3.x-image` entries on OpenRouter advertise 14 input
+    # references (surveyed 2026-10-04), so the bound mirrors that.
+    def max_input_images(self, model: str) -> int | None:
+        return 14
+
     def run(self, request: GenerationRequest) -> None:
         # One-shot UNTESTED banner. Module-level latch so a second Google
         # run in the same process doesn't repeat itself.
@@ -227,15 +234,13 @@ class GoogleProvider(ImageProvider):
                 img_contexts.append(img)
                 req_contents.append(img)
             else:
-                # Dual mode
-                req_contents.append("IMG_1:")
-                img1 = Image.open(img_paths[0])
-                img_contexts.append(img1)
-                req_contents.append(img1)
-                req_contents.append("IMG_2:")
-                img2 = Image.open(img_paths[1])
-                img_contexts.append(img2)
-                req_contents.append(img2)
+                # Combined mode (dual or multi): label each input IMG_1..IMG_N
+                # so the prompt can reference them by name.
+                for idx, img_path in enumerate(img_paths, 1):
+                    req_contents.append(f"IMG_{idx}:")
+                    img = Image.open(img_path)
+                    img_contexts.append(img)
+                    req_contents.append(img)
 
         try:
             response = self._client.models.generate_content(
