@@ -2838,6 +2838,9 @@ class TestMultiInput:
         assert provider_with_key.max_input_images("x-ai/grok-imagine-image-2.0") == 3
         # No fallback entry advertises no bound -> None, not a fake cap.
         assert provider_with_key.max_input_images("vendor/unlisted-model") is None
+        # Meta Muse's descriptor advertises no input_references: no invented
+        # cap, or dual mode would silently lose IMG_2.
+        assert provider_with_key.max_input_images("meta/muse-image") is None
 
     def test_descriptor_overrides_the_fallback_table(
         self, provider_with_key, monkeypatch

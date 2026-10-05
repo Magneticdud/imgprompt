@@ -220,7 +220,13 @@ def select_inputs(provided_path: str | None) -> tuple[list[str], bool, str | Non
         if len(chosen) < 2:
             print("Error: combined mode needs at least 2 images.")
             sys.exit(1)
-        return list(chosen), True, None
+        # The checkbox returns picks in listing order, not click order, but
+        # prompts address images by role ("IMG_1 as the background"), so let
+        # the user choose IMG_1; the rest follow as IMG_2..IMG_N.
+        first = questionary.select("Select first image (IMG_1):", choices=chosen).ask()
+        if not first:
+            sys.exit(0)
+        return [first] + [img for img in chosen if img != first], True, None
 
     return [selected], False, None
 
@@ -1048,6 +1054,36 @@ def step_confirm() -> str | None:
     return confirm
 
 
+def input_cost_per_call(
+    input_images: list[str],
+    mp_rate: float | None,
+    flat_rate: float | None,
+    batch: bool,
+    input_limit: int | None = None,
+) -> float:
+    """USD input-image cost of ONE API call (per-MP and/or flat per image).
+
+    Combined mode sends every image in one call, minus any trim to the
+    model's `input_limit` (OpenRouter drops the extras before sending). Batch
+    mode sends one image per call: the result is the mean per-call cost, so
+    `per_call * len(input_images)` is the exact batch total and the
+    per-call estimate stays meaningful for usage.cost reconciliation.
+    """
+    if not input_images or (mp_rate is None and flat_rate is None):
+        return 0.0
+    billed = input_images
+    if not batch and input_limit is not None:
+        billed = input_images[:input_limit]
+    total = 0.0
+    for path in billed:
+        if mp_rate is not None:
+            with Image.open(path) as img:
+                total += (img.width * img.height) / 1_000_000 * mp_rate
+        if flat_rate is not None:
+            total += flat_rate
+    return total / len(billed) if batch else total
+
+
 def main():
     parser = argparse.ArgumentParser(description="GPT-Image & Gemini Image Editor")
     parser.add_argument(
@@ -1245,13 +1281,13 @@ def main():
     image_path = input_images[0] if input_images else None
 
     if input_images:
-        if is_dual:
-            print(f"\nSelected Images (dual): {', '.join(input_images)}")
-        elif is_multi:
-            print(
-                f"\nSelected Images (combined, one prompt): "
-                f"{', '.join(input_images)}"
-            )
+        if is_dual or is_multi:
+            # Spell out the IMG_k mapping: prompts address images by role
+            # ("IMG_1 as the background"), so the order must be visible.
+            label = "dual" if is_dual else "combined, one prompt"
+            print(f"\nSelected Images ({label}):")
+            for idx, path in enumerate(input_images, 1):
+                print(f"  IMG_{idx}: {path}")
         elif len(input_images) == 1:
             print(f"\nSelected Image: {input_images[0]}")
         else:
@@ -1416,11 +1452,19 @@ def main():
                         f"Inputs:     {n_inputs} combined "
                         f"(model input limit not advertised)"
                     )
+                elif input_limit == 0:
+                    print("⚠ Inputs:   this model accepts no input images")
                 elif n_inputs > input_limit:
+                    # Only OpenRouter trims before sending; the direct APIs
+                    # get every image and decide for themselves.
+                    outcome = (
+                        f"only the first {input_limit} will be sent"
+                        if provider == "OpenRouter"
+                        else "the API may reject the request"
+                    )
                     print(
                         f"⚠ Inputs:   {n_inputs} images, but this model accepts "
-                        f"at most {input_limit}; only the first {input_limit} "
-                        f"will be sent"
+                        f"at most {input_limit}; {outcome}"
                     )
                 else:
                     print(
@@ -1483,34 +1527,33 @@ def main():
 
             # Calculate total cost for batch mode
             input_cost = 0.0
-            if (
-                provider == "OpenRouter"
-                and model_choice
-                in [
-                    "black-forest-labs/flux.2-flex",
-                    "black-forest-labs/flux.2-pro",
-                    "black-forest-labs/flux.2-max",
-                ]
-                and "input_mp_rate" in COSTS[model_choice]
-            ):
-                input_mp_rate = COSTS[model_choice]["input_mp_rate"]
-                # Sum over every input that reaches the API (1 for a plain
-                # edit, N for combined mode, N for batch). Using the whole
-                # list keeps combined mode from pricing only its first image.
-                for inp_img in input_images:
-                    with Image.open(inp_img) as img:
-                        mp = (img.width * img.height) / 1_000_000
-                    input_cost += mp * input_mp_rate
-
-            # Flat per-input-image billing (e.g. Grok Imagine: $0.01 per
-            # reference image regardless of size), as opposed to the
-            # per-megapixel Flux rate handled above.
-            if (
-                provider == "OpenRouter"
-                and input_images
-                and "input_flat" in COSTS.get(model_choice, {})
-            ):
-                input_cost += COSTS[model_choice]["input_flat"] * len(input_images)
+            if provider == "OpenRouter" and input_images:
+                model_costs = COSTS.get(model_choice, {})
+                input_mp_rate = (
+                    model_costs.get("input_mp_rate")
+                    if model_choice
+                    in [
+                        "black-forest-labs/flux.2-flex",
+                        "black-forest-labs/flux.2-pro",
+                        "black-forest-labs/flux.2-max",
+                    ]
+                    else None
+                )
+                # Flat per-input-image billing (e.g. Grok Imagine: $0.01 per
+                # reference image regardless of size), as opposed to the
+                # per-megapixel Flux rate above.
+                input_flat = model_costs.get("input_flat")
+                input_cost = input_cost_per_call(
+                    input_images,
+                    mp_rate=input_mp_rate,
+                    flat_rate=input_flat,
+                    batch=is_batch_mode,
+                    input_limit=(
+                        provider_obj.max_input_images(model_choice)
+                        if combined
+                        else None
+                    ),
+                )
 
             total_cost = final_cost + input_cost
 
