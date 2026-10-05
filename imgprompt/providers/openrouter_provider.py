@@ -79,12 +79,9 @@ def _max_n_for(model: str) -> int:
 # checked in insertion order, so a specific id/prefix MUST precede the
 # family prefix it belongs to (klein before the flux family, riverflow-pro
 # before sourceful). Absence from the table means "no bound advertised" ->
-# None, so the wizard says so instead of inventing a limit.
-#
-# `meta/` is the one exception: its descriptor is EMPTY, so there is nothing
-# to mirror. The cap of 1 is CONSERVATIVE (same reasoning as the `n` table
-# above) and safe — the alternative, None, would forward more references
-# than the model may accept.
+# None, so the wizard says so instead of inventing a limit. `meta/` is
+# deliberately absent: its descriptor advertises no `input_references`, and a
+# made-up cap would silently drop IMG_2 from dual mode, which main sends.
 _MODEL_MAX_INPUT_PREFIXES = {
     "openai/": 16,  # gpt-image / gpt-5-image families
     "microsoft/mai-image-2.6": 5,  # covers the flash tier too
@@ -100,7 +97,6 @@ _MODEL_MAX_INPUT_PREFIXES = {
     "x-ai/grok-imagine-image-2.0": 3,
     "krea/": 1,  # Krea 2 family
     "recraft/": 1,  # Recraft v4.1 family
-    "meta/": 1,  # conservative: empty descriptor
 }
 
 

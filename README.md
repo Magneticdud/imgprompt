@@ -172,17 +172,20 @@ in a **single prompt / call** (`IMG_1`, `IMG_2`, … `IMG_N`):
   ```
 
 Exactly two images use the dual prompt presets; three or more use the multi
-presets. The summary prints the model's **input-image limit** next to the
-selected inputs, and if you pass more than the model accepts only the first N
-are sent (with a warning), so a provider-side trim is never a surprise.
+presets. From the menu you then pick which image is `IMG_1` (the rest follow
+in listing order); with CLI arguments the argument order is the `IMG_k` order.
+The `IMG_k → file` mapping is printed either way. The summary prints the
+model's **input-image limit** next to the selected inputs; on OpenRouter, if
+you pass more than the model accepts, only the first N are sent and priced
+(with a warning), so a provider-side trim is never a surprise.
 
 **Input limits** (max reference images in one combined call, from OpenRouter's
 live capability descriptor; the built-in offline fallback matches it): GPT
 Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; Flux
 **8** (klein-4b **4**); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
 Qwen Image 3 **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea 2 **1**.
-Meta Muse advertises no bound (conservatively treated as **1**). Models not
-listed advertise no numeric bound. On OpenRouter the limit comes from the
+Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
+trimmed and the summary says the limit is not advertised. On OpenRouter the limit comes from the
 model's live capability descriptor (`supported_parameters.input_references`)
 when discovery is available; the built-in table in
 `imgprompt/providers/openrouter_provider.py` is the offline fallback. The
