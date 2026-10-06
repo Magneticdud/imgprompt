@@ -1145,17 +1145,6 @@ def test_mai_flash_costs_less_than_precision_tier():
     assert flash < precision
 
 
-def test_retired_mai_2_5_tiers_are_gone():
-    """The 2.5 tiers were replaced by the 2.6 family; leaving them listed would
-    let the wizard offer models we no longer price or verify."""
-    from imgprompt.presets import COSTS
-
-    models = OpenRouterProvider.supported_models()
-    for retired in ("microsoft/mai-image-2.5", "microsoft/mai-image-2.5-pro"):
-        assert retired not in models
-        assert retired not in COSTS
-
-
 # --------------------------------------------------------------------------
 # Krea 2 family: three tiers sharing one descriptor (snapshot 2026-07-26) —
 # seven aspect ratios, `resolution` enum pinned to the single value "1K",
@@ -1374,17 +1363,6 @@ class TestGrokImagine:
         assert row["2K low"]["fixed"] < row["2K medium"]["fixed"]
 
 
-def test_retired_grok_image_quality_is_gone():
-    """The image-quality tier was replaced by Grok Imagine 2.0; leaving it
-    listed would let the wizard offer a model we no longer price or verify.
-    Replays that reference it bail out via the retired-model guard."""
-    from imgprompt.presets import COSTS
-
-    retired = "x-ai/grok-imagine-image-quality"
-    assert retired not in OpenRouterProvider.supported_models()
-    assert retired not in COSTS
-
-
 # --------------------------------------------------------------------------
 # Qwen Image 3 family: two tiers sharing one descriptor (snapshot
 # 2026-08-06) — thirteen aspect ratios, `resolution` enum {"1K","2K"}, `n`
@@ -1510,12 +1488,6 @@ class TestGptImage25:
             OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
         )
 
-    def test_sunburst_precedes_flare(self):
-        models = OpenRouterProvider.supported_models()
-        assert models.index("openai/gpt-image-2.5-sunburst") < models.index(
-            "openai/gpt-image-2.5-flare"
-        )
-
     @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
     def test_offline_ratios_exclude_the_unsupported_ones(
         self, model, provider_with_key
@@ -1553,24 +1525,6 @@ class TestGptImage25:
         assert default == "16:9"
 
     @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
-    def test_quality_choices_are_the_five_concrete_tiers(
-        self, model, provider_with_key
-    ):
-        choices, default = provider_with_key.get_quality_choices(
-            model, "1024x1024", None, None, None
-        )
-        assert [c.split(" ")[0] for c in choices] == [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max",
-        ]
-        # "auto" is in the descriptor but has no quotable price.
-        assert not any(c.startswith("auto") for c in choices)
-        assert default == choices[0]
-
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
     def test_quality_prices_are_ordered_cheapest_first(self, model, provider_with_key):
         prices = [
             provider_with_key.resolve_quality(model, "1024x1024", None, None, c)[1]
@@ -1580,18 +1534,6 @@ class TestGptImage25:
         ]
         assert prices == sorted(prices)
         assert len(set(prices)) == len(prices)
-
-    def test_both_tiers_are_priced_identically(self, provider_with_key):
-        """Measured, not just advertised: the SAME probe (1824x1024,
-        quality low) on both tiers returned image_tokens=140,
-        reasoning_tokens=0 and cost $0.00425 — identical to the token and
-        the cent (2026-09-12). Sunburst's premium is latency, not money, so
-        the two estimates must not drift apart by accident."""
-        sunburst, flare = (
-            provider_with_key.get_quality_choices(m, "1344x768", None, None, None)[0]
-            for m in GPT_IMAGE_25_MODELS
-        )
-        assert flare == sunburst
 
     def test_no_costs_row_is_needed(self):
         """Pricing is computed from (w, h, quality), not looked up. A stale
@@ -1626,36 +1568,18 @@ class TestGptImage25:
         assert key == "low"
         assert cost == pytest.approx(0.0042, abs=5e-5)
 
-    @pytest.mark.parametrize(
-        "quality_2_5,quality_2",
-        [("low", "Low"), ("high", "Medium"), ("max", "High")],
-    )
-    def test_shifted_ladder_lines_up_with_gpt_image_2_direct(
-        self, quality_2_5, quality_2, provider_with_key
-    ):
-        """Same rate, same formula, same box — but the 2.5 ladder is
-        shifted, so the rungs that must agree are low/Low, high/Medium and
-        max/High. Asserting high == High instead (the obvious-looking
-        pairing) is exactly the 4x overcharge this guards against."""
-        from imgprompt.providers.openai_provider import OpenAIProvider
-
-        direct = OpenAIProvider()
-        model = "openai/gpt-image-2.5-flare"
-        _, via_openrouter = provider_with_key.resolve_quality(
-            model, "1824x1024", 1824, 1024, f"{quality_2_5} (label)"
-        )
-        _, via_openai = direct.resolve_quality(
-            "gpt-image-2", "1824x1024", 1824, 1024, f"{quality_2} (~n tokens, $0)"
-        )
-        assert via_openrouter == pytest.approx(via_openai)
-
     @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
     def test_quoted_prices_match_the_published_table(self, model, provider_with_key):
         """End-to-end at 1024x1024, straight off OpenAI's published
-        1024x1024 token counts at $30/Mtok."""
-        choices, _ = provider_with_key.get_quality_choices(
+        1024x1024 token counts at $30/Mtok. The exact list also pins the
+        five concrete rungs ("auto" is advertised but has no quotable
+        price) and, run for both tiers, that sunburst and flare price
+        identically — measured 2026-09-12: the same 1824x1024 `low` probe
+        returned image_tokens=140 and $0.00425 on each tier."""
+        choices, default = provider_with_key.get_quality_choices(
             model, "1024x1024", 1024, 1024, None
         )
+        assert default == choices[0]
         assert choices == [
             "low (~196 tokens, $0.0059)",
             "medium (~439 tokens, $0.0132)",
@@ -1881,20 +1805,6 @@ class TestGptImage25:
             )
             provider_with_key._call_api(req, n=4)
             assert mock_post.call_args.kwargs["json"]["n"] == 4
-
-
-def test_retired_gpt_5_4_image_2_is_gone():
-    """Retired because its 1K/2K/4K menu priced tiers the API does not have:
-    no OpenAI model on /api/v1/images advertises `resolution` at all
-    (surveyed across all eight entries, 2026-09-12), so the field went out
-    un-advertised, `quality` stayed at the upstream default and the three
-    prices corresponded to nothing billable. Replays that reference it bail
-    out via the retired-model guard in imgedit.run_replay."""
-    from imgprompt.presets import COSTS
-
-    retired = "openai/gpt-5.4-image-2"
-    assert retired not in OpenRouterProvider.supported_models()
-    assert retired not in COSTS
 
 
 # --------------------------------------------------------------------------
@@ -2273,17 +2183,6 @@ class TestSeedream50:
         assert "size" not in body
 
 
-def test_retired_seedream_4_5_is_gone():
-    """4.5 is dominated by 5.0 Lite on price, tier ceiling and ratios; leaving
-    it listed would let the wizard offer a model we no longer price or verify.
-    Replays that reference it bail out via the retired-model guard."""
-    from imgprompt.presets import COSTS
-
-    retired = "bytedance-seed/seedream-4.5"
-    assert retired not in OpenRouterProvider.supported_models()
-    assert retired not in COSTS
-
-
 # --------------------------------------------------------------------------
 # Seedream 5.0 Lite upstream pixel floor (issue #10, inherited from the
 # retired seedream-4.5): the Seed provider 400s any output below 3,686,400
@@ -2605,15 +2504,6 @@ class TestResolveEffectivePixels:
         out = capsys.readouterr().out
         assert out == ""
 
-    def test_one_to_one_4k_returns_exact_target(self, provider_with_key):
-        # Edge case: 1:1 @ 4K sits at the ceiling exactly (no clamp
-        # active). Pin the exact dimensions so a future rounding drift
-        # is caught.
-        w, h = provider_with_key.resolve_effective_pixels(
-            "bytedance-seed/seedream-5-0-lite", "1:1", "4K"
-        )
-        assert (w, h) == (4096, 4096)
-
     @pytest.mark.parametrize(
         "ratio",
         [
@@ -2885,28 +2775,20 @@ class TestMultiInput:
 # --------------------------------------------------------------------------
 # Gemini 3.1 Flash Lite image (the new budget model, $0.034/1K, 14 ratios).
 # Added when Nano Banana 2 Lite shipped (June 2026); gemini-2.5-flash-image
-# was retired at the same time and the tests below also pin its removal so
-# a future re-introduction is caught.
+# was retired at the same time (pinned in test_retired_models_stay_out_of_
+# the_picker at the end of this file).
 # --------------------------------------------------------------------------
 
 
 class TestGeminiFlashLite:
     """Nano Banana 2 Lite: 1K only, exposes all 14 documented Gemini 3.x
-    aspect ratios. Also pins that the retired 2.5-flash-image entry is gone.
+    aspect ratios.
     """
 
     def test_lite_is_in_supported_models(self):
         assert (
             "google/gemini-3.1-flash-lite-image"
             in OpenRouterProvider.supported_models()
-        )
-
-    def test_legacy_2_5_flash_image_is_removed(self):
-        # gemini-2.5-flash-image shutdown is 2 Oct 2026; the model is gone
-        # from `supported_models()` so the wizard never surfaces it. If a
-        # re-introduction is attempted, this test fails loudly.
-        assert (
-            "google/gemini-2.5-flash-image" not in OpenRouterProvider.supported_models()
         )
 
     def test_lite_quality_choices_are_1k_only(self, provider_with_key):
@@ -3095,3 +2977,26 @@ class TestGeminiFlashNonLite:
         assert body["aspect_ratio"] == "4:1"
         assert body["resolution"] == "1K"
         assert "size" not in body
+
+
+# --------------------------------------------------------------------------
+# Retired models. Each was dropped deliberately (superseded, or priced tiers
+# the API never billed); see git history for the per-model rationale.
+# Replays that reference one bail out via the guard in imgedit.run_replay.
+# Stale COSTS rows are caught generically in test_presets.py.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "retired",
+    [
+        "microsoft/mai-image-2.5",
+        "microsoft/mai-image-2.5-pro",
+        "x-ai/grok-imagine-image-quality",
+        "openai/gpt-5.4-image-2",
+        "bytedance-seed/seedream-4.5",
+        "google/gemini-2.5-flash-image",  # upstream shutdown 2 Oct 2026
+    ],
+)
+def test_retired_models_stay_out_of_the_picker(retired):
+    assert retired not in OpenRouterProvider.supported_models()
