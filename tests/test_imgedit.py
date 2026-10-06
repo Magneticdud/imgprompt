@@ -419,6 +419,19 @@ class TestReplayOverride:
         assert "not supported" in out
         assert "model-a" in out  # the supported list is shown
 
+    # Value: protects=bare --replay of a saved model since dropped from its
+    # provider exits before any API call; fails_when=the retired-model guard in
+    # run_replay is removed or only checks overrides; why_new=only the
+    # --model override branch was tested; seam=none
+    def test_retired_saved_model_fails_fast_without_running(self, replay_env, capsys):
+        req, saved = replay_env
+        req.model = "retired/no-longer-listed"
+        with pytest.raises(SystemExit):
+            run_replay(None)
+        assert _DummyProvider.runs == []
+        assert saved == []
+        assert "no longer supported" in capsys.readouterr().out
+
     def test_unknown_provider_fails_fast(self, replay_env, capsys):
         with pytest.raises(SystemExit):
             run_replay(None, provider_override="closedai")
