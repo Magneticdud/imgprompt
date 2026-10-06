@@ -260,20 +260,6 @@ class TestGptImage25Direct:
             1440,
         )
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25)
-    def test_quality_menu_is_the_five_rung_ladder(self, model, provider):
-        choices, default = provider.get_quality_choices(
-            model, "1024x1024", 1024, 1024, None
-        )
-        assert [c.split(" ")[0] for c in choices] == [
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max",
-        ]
-        assert default == choices[0]
-
     def test_gpt_image_2_keeps_its_three_rungs(self, provider):
         choices, _ = provider.get_quality_choices(
             "gpt-image-2", "1024x1024", 1024, 1024, None
@@ -282,7 +268,11 @@ class TestGptImage25Direct:
 
     @pytest.mark.parametrize("model", GPT_IMAGE_25)
     def test_prices_match_the_published_table(self, model, provider):
-        choices, _ = provider.get_quality_choices(model, "1024x1024", 1024, 1024, None)
+        """The exact list also pins the five-rung ladder and its order."""
+        choices, default = provider.get_quality_choices(
+            model, "1024x1024", 1024, 1024, None
+        )
+        assert default == choices[0]
         assert choices == [
             "low (~196 tokens, $0.0059)",
             "medium (~439 tokens, $0.0132)",

@@ -4,8 +4,6 @@ These are the functions behind the recent 'custom resolution' and
 'physical units + DPI' work, so they're the highest-value things to lock down.
 """
 
-import math
-
 import pytest
 
 from imgprompt.presets import (
@@ -91,27 +89,6 @@ class TestValidateGptImage2Dims:
 
 
 class TestAutoAdjustGptImage2Dims:
-    @pytest.mark.parametrize(
-        "w,h",
-        [
-            (1024, 1024),
-            (100, 100),  # far too small -> scaled up
-            (5000, 5000),  # too big -> scaled down + clamped
-            (4000, 100),  # extreme aspect -> corrected, regression case
-            (100, 4000),  # extreme aspect, tall orientation
-            (1, 1),
-            (1920, 1088),
-        ],
-    )
-    def test_output_is_always_valid(self, w, h):
-        aw, ah = auto_adjust_gpt_image2_dims(w, h)
-        assert aw % 16 == 0 and ah % 16 == 0
-        assert aw <= GPT_IMAGE_2_MAX_EDGE and ah <= GPT_IMAGE_2_MAX_EDGE
-        assert aw > 0 and ah > 0
-        # The structural constraints (÷16, max edge, aspect) must always hold.
-        aspect = max(aw, ah) / min(aw, ah)
-        assert aspect <= GPT_IMAGE_2_MAX_ASPECT + 1e-9
-
     def test_already_valid_stays_close(self):
         aw, ah = auto_adjust_gpt_image2_dims(1024, 1024)
         assert (aw, ah) == (1024, 1024)
@@ -133,12 +110,14 @@ class TestAutoAdjustGptImage2Dims:
 
     def test_output_always_passes_validation_over_a_grid(self):
         # The adjusted dimensions must satisfy every gpt-image-2 constraint for
-        # any plausible input, not just the hand-picked cases above.
-        for w in range(1, 8001, 137):
-            for h in range(1, 8001, 137):
-                aw, ah = auto_adjust_gpt_image2_dims(w, h)
-                errors = validate_gpt_image2_dims(aw, ah)
-                assert errors == [], f"{w}x{h} -> {aw}x{ah}: {errors}"
+        # any plausible input, plus hand-picked edges the grid steps over:
+        # far too small, too big, and extreme aspect in both orientations.
+        grid = [(w, h) for w in range(1, 8001, 137) for h in range(1, 8001, 137)]
+        edges = [(100, 100), (5000, 5000), (4000, 100), (100, 4000), (1920, 1088)]
+        for w, h in grid + edges:
+            aw, ah = auto_adjust_gpt_image2_dims(w, h)
+            errors = validate_gpt_image2_dims(aw, ah)
+            assert errors == [], f"{w}x{h} -> {aw}x{ah}: {errors}"
 
 
 class TestCalcGptImage2Tokens:
@@ -160,10 +139,6 @@ class TestCalcGptImage2Tokens:
         small = calc_gpt_image2_tokens(1024, 1024, "high")
         big = calc_gpt_image2_tokens(2048, 2048, "high")
         assert big > small
-
-    def test_returns_ceiling(self):
-        val = calc_gpt_image2_tokens(1920, 1088, "medium")
-        assert val == math.ceil(val)
 
 
 class TestGptImage2TokenCost:
@@ -206,15 +181,6 @@ class TestGptImage2TokenCost:
         assert gpt_image_2_quality_label(1824, 1024, "low") == (
             "low (~140 tokens, $0.0042)"
         )
-
-    @pytest.mark.parametrize("quality", ["low", "medium", "high", "xhigh", "max"])
-    def test_every_rung_of_the_ladder_prices(self, quality):
-        """xhigh/max exist only on the 2.5 family; a missing q_map entry
-        would raise KeyError mid-wizard."""
-        from imgprompt.presets import GPT_IMAGE_2_5_Q_MAP, gpt_image_2_token_cost
-
-        tokens, cost = gpt_image_2_token_cost(1024, 1024, quality, GPT_IMAGE_2_5_Q_MAP)
-        assert tokens > 0 and cost > 0
 
     @pytest.mark.parametrize(
         "quality,tokens",
@@ -271,3 +237,30 @@ class TestPresetTableConsistency:
     def test_every_preset_is_valid(self, dims):
         w, h = dims
         assert validate_gpt_image2_dims(w, h) == [], f"{w}x{h} violates constraints"
+
+
+class TestCostsTable:
+    def test_every_row_prices_a_supported_model(self):
+        """A model dropped from a provider must take its COSTS row with it,
+        or the fallback table keeps pricing something the wizard can never
+        offer (and a re-listing would silently inherit a stale price).
+        Lists the providers explicitly rather than importing imgedit, whose
+        import re-execs into .venv and loads .env; a new provider with COSTS
+        rows fails here until it is added."""
+        from imgprompt.presets import COSTS
+        from imgprompt.providers.google_provider import GoogleProvider
+        from imgprompt.providers.openai_provider import OpenAIProvider
+        from imgprompt.providers.openrouter_provider import OpenRouterProvider
+        from imgprompt.providers.ovh_provider import OVHProvider
+
+        supported = {
+            model
+            for provider in (
+                GoogleProvider,
+                OpenAIProvider,
+                OpenRouterProvider,
+                OVHProvider,
+            )
+            for model in provider.supported_models()
+        }
+        assert sorted(set(COSTS) - supported) == []
