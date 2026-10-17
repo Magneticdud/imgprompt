@@ -60,6 +60,7 @@ _MODEL_MAX_N_PREFIXES = {
     "x-ai/grok-imagine-image-2.0": 1,
     "black-forest-labs/": 1,  # FLUX 3 family: descriptor `n` range 1..1
     "google/": 1,  # Gemini image family: descriptor `n` range 1..1
+    "tencent/": 1,  # Hy Image 3.5 Preview: descriptor `n` range 1..1
 }
 
 
@@ -94,6 +95,7 @@ _MODEL_MAX_INPUT_PREFIXES = {
     "google/": 14,  # Gemini image family (Nano Banana 2.1, Pro, 2 Lite)
     "qwen/": 4,  # Qwen Image 3 and 2.1 Turbo
     "x-ai/grok-imagine-image-2.0": 3,
+    "tencent/": 20,  # Hy Image 3.5 Preview
     "krea/k3-edit": 8,  # must precede the family prefix below
     "krea/": 1,  # Krea 2 family
     "recraft/": 1,  # Recraft v4.1 family
@@ -218,6 +220,14 @@ _QWEN_RATIOS = [
     "1:4",
     "4:1",
 ]
+
+# Tencent Hy Image 3.5 Preview on /api/v1/images (verified 2026-10-17
+# against /api/v1/images/models). One endpoint for text-to-image and edits:
+# the same thirteen ratios as Qwen (so the picker reuses _QWEN_RATIOS),
+# `resolution` enum {"1K", "1.5K", "2K", "4K"}, `n` pinned to 1, and up to
+# 20 input references — the highest cap in the catalog. Token-billed on
+# output only; see the COSTS row for how the per-tier estimate is derived.
+_TENCENT_MODELS = ("tencent/hy-image-v3.5-preview",)
 
 # Meta Muse Image on /api/v1/images. The odd one out of the whole catalog:
 # its capability descriptor is EMPTY (`supported_parameters: {}`) and
@@ -619,6 +629,9 @@ class OpenRouterProvider(ImageProvider):
             "qwen/qwen-image-2.1-turbo",
             "qwen/qwen-image-3",
             "qwen/qwen-image-3-pro",
+            # Tencent Hy Image 3.5 Preview: token-billed, ≈$0.007 at 1K
+            # (estimate), up to 20 input references.
+            *_TENCENT_MODELS,
             # Krea 2 family, cheapest tier first (turbo $0.015 → large $0.06).
             "krea/krea-2-medium-turbo",
             "krea/krea-2-medium",
@@ -682,7 +695,7 @@ class OpenRouterProvider(ImageProvider):
             # pixel preview, so we keep them off the picker; no 4:5/5:4/21:9
             # upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
-        elif model in _QWEN_MODELS:
+        elif model in _QWEN_MODELS or model in _TENCENT_MODELS:
             # See _QWEN_RATIOS for why 1:2/2:1 are excluded from the picker.
             ratio_options = list(_QWEN_RATIOS)
         elif model in _META_MODELS:
@@ -882,6 +895,9 @@ class OpenRouterProvider(ImageProvider):
         elif model == _KREA_EDIT_MODEL:
             # K3 Edit's `resolution` enum is {"1K", "2K"} (verified 2026-10-17).
             sizes = ["1K", "2K"]
+        elif model in _TENCENT_MODELS:
+            # Hy Image 3.5's `resolution` enum (verified 2026-10-17).
+            sizes = ["1K", "1.5K", "2K", "4K"]
         elif model == "bytedance-seed/seedream-5-0-lite":
             # Lite's `resolution` enum is ["2K","4K"] — no 1K (verified
             # 2026-09-11). The retired 4.5 offered a 1K that the upstream

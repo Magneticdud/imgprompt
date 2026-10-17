@@ -1243,6 +1243,64 @@ def test_krea_tier_prices_are_ordered():
 
 
 # --------------------------------------------------------------------------
+# Tencent Hy Image 3.5 Preview (snapshot 2026-10-17): Qwen's thirteen
+# ratios, 1K/1.5K/2K/4K, n pinned to 1, up to 20 input references.
+# --------------------------------------------------------------------------
+
+_HY = "tencent/hy-image-v3.5-preview"
+
+
+class TestTencentHyImage:
+    def test_in_supported_models(self):
+        assert _HY in OpenRouterProvider.supported_models()
+
+    def test_resolution_choices_match_qwen_ratios(self, provider_with_key):
+        choices, _ = provider_with_key.get_resolution_choices(_HY, None)
+        assert (
+            choices
+            == provider_with_key.get_resolution_choices("qwen/qwen-image-3", None)[0]
+        )
+
+    def test_quality_choices_offer_four_tiers(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            _HY, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "1.5K", "2K", "4K"]
+        assert default == choices[0]
+
+    def test_tier_prices_grow_and_inputs_are_free(self):
+        from imgprompt.presets import COSTS
+
+        row = COSTS[_HY]
+        prices = [row[t]["fixed"] for t in ("1K", "1.5K", "2K", "4K")]
+        assert prices == sorted(prices)
+        assert "input_flat" not in row
+
+    def test_input_limit_fallback(self, provider_with_key):
+        assert provider_with_key.max_input_images(_HY) == 20
+        assert provider_with_key.min_input_images(_HY) == 0
+
+    def test_n_clamped_to_one_without_descriptor(self, provider_with_key):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=_HY,
+                aspect_ratio="4:1",
+                res_key="2048x512",
+                quality_key="1.5K",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+        body = mock_post.call_args.kwargs["json"]
+        assert body["n"] == 1
+        assert body["resolution"] == "1.5K"
+        assert body["aspect_ratio"] == "4:1"
+
+
+# --------------------------------------------------------------------------
 # Krea K3 Edit (snapshot 2026-10-17): edit-only (1..8 input references),
 # 1K/2K, the same seven ratios as Krea 2, and no `n` parameter.
 # --------------------------------------------------------------------------
@@ -2103,6 +2161,10 @@ def test_flux3_klein_is_the_cheapest_flat_priced_openrouter_model():
     estimate is ~80x Muse. Folding an estimate spanning two orders of
     magnitude into a "cheapest" comparison against a verified flat price
     would make the assertion meaningless in both directions.
+
+    Tencent Hy Image 3.5 is excluded for the same reason: token-billed, and
+    its 1K row ($0.0066) is an unverified tokens-per-pixel assumption, not
+    a published per-image price.
     """
     from imgprompt.presets import COSTS
 
@@ -2110,7 +2172,9 @@ def test_flux3_klein_is_the_cheapest_flat_priced_openrouter_model():
     assert COSTS[MUSE]["Standard"]["fixed"] == 0.01
     assert COSTS[klein]["768"]["fixed"] == 0.008
     flat_priced = [
-        m for m in OpenRouterProvider.supported_models() if m not in GPT_IMAGE_25_MODELS
+        m
+        for m in OpenRouterProvider.supported_models()
+        if m not in GPT_IMAGE_25_MODELS and m != _HY
     ]
     cheapest = min(
         tier["fixed"]

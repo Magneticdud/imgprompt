@@ -182,7 +182,7 @@ you pass more than the model accepts, only the first N are sent and priced
 live capability descriptor; the built-in offline fallback matches it): GPT
 Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini image (Nano Banana) **14**; FLUX 3
 **10** (both tiers); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
-Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea K3 Edit **8**; Krea 2 **1**.
+Hy Image 3.5 Preview **20**; Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea K3 Edit **8**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
 trimmed and the summary says the limit is not advertised. On OpenRouter the limit comes from the
 model's live capability descriptor (`supported_parameters.input_references`)
@@ -250,6 +250,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `qwen/qwen-image-2.1-turbo`: $0.0184 flat (1K and 2K bill the same); input reference images are free. Despite the lower number, 2.1 is newer than 3 (Sept vs. July 2026): it is the open-weights 7B line, not a predecessor. `qwen/qwen-image-2.1-pro` is intentionally not offered — at a flat $0.046 it costs more than 3 Pro at 1K.
     - `qwen/qwen-image-3`: $0.03 flat (1K and 2K bill the same); input reference images cost a flat $0.003 each.
     - `qwen/qwen-image-3-pro`: $0.04 (1K), $0.075 (2K); input reference images cost a flat $0.003 each.
+  - `tencent/hy-image-v3.5-preview`: Tencent's unified generation + editing model (text-to-image or up to **20** input references in one call). `1K`/`1.5K`/`2K`/`4K`, the same thirteen aspect ratios as Qwen (eleven in the wizard), single image per call. Token-billed on output only at $1.6/Mtok; input images are free. OpenRouter does not publish tokens per image, so the estimates — ≈$0.0066 (1K), $0.0147 (1.5K), $0.026 (2K), $0.105 (4K) — assume one token per 16x16 pixel block and are not yet confirmed by a real call; `usage.cost` is the authoritative charge.
   - **Krea 2 family** (all three tiers share one descriptor: 1K only, seven ratios — `1:1`, `2:3`, `3:2`, `4:3`, `4:5`, `9:16`, `16:9` (no `3:4`/`5:4`/`21:9`) — one input reference, single image per call. Prices are the model pages' headline figures: OpenRouter reports **no** pricing for this family through the API, so the pre-call estimate always comes from the hardcoded table and `usage.cost` is the authoritative charge):
     - `krea/krea-2-medium-turbo`: $0.015 — distilled speed tier, for rapid iteration.
     - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.

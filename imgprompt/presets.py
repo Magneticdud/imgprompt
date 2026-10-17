@@ -485,6 +485,22 @@ COSTS["krea/k3-edit"] = {
     "input_flat": 0.02,
 }
 
+# Tencent Hy Image 3.5 Preview (via OpenRouter). Token-billed on output
+# only: /api/v1/images/models/tencent/hy-image-v3.5-preview/endpoints lists a
+# single `output_image` entry at $1.6/Mtok (snapshot 2026-10-17), so input
+# references are free and live pricing cannot quote a per-image figure —
+# this table is the only estimate source. The token count per image is NOT
+# published; the rows assume one token per 16x16 pixel block (1K = 4,096
+# tokens), i.e. tier pixels / 256 x $1.6/Mtok. Not yet confirmed by a real
+# call: usage.cost is the authoritative charge, and the >10% reconciliation
+# warning will flag it if the assumption is wrong.
+COSTS["tencent/hy-image-v3.5-preview"] = {
+    "1K": {"fixed": 0.0066},  # 1024² / 256 = 4,096 tokens
+    "1.5K": {"fixed": 0.0147},  # 1536² / 256 = 9,216 tokens
+    "2K": {"fixed": 0.0262},  # 2048² / 256 = 16,384 tokens
+    "4K": {"fixed": 0.1049},  # 4096² / 256 = 65,536 tokens
+}
+
 # xAI Grok Imagine 2.0 (via OpenRouter). Unique in the catalog: the price
 # depends on TWO axes — the resolution tier (1K/2K) AND a `quality` enum
 # (low/medium) the retired image-quality tier didn't have — so the keys
