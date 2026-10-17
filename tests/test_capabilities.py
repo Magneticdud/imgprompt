@@ -71,6 +71,20 @@ class TestParseItem:
         assert caps.resolutions == ()
         assert caps.n_max is None
         assert caps.input_refs_max is None
+        assert caps.input_refs_min is None
+
+    def test_input_references_minimum_is_parsed(self):
+        """Edit-only models (Krea K3 Edit) advertise a non-zero lower bound."""
+        caps = _parse_item(
+            {
+                "id": "krea/k3-edit",
+                "supported_parameters": {
+                    "input_references": {"type": "range", "min": 1, "max": 8}
+                },
+            }
+        )
+        assert caps.input_refs_min == 1
+        assert caps.input_refs_max == 8
 
     def test_item_without_id_is_dropped(self):
         assert _parse_item({"supported_parameters": {}}) is None

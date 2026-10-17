@@ -24,9 +24,9 @@ session only (one request per model actually selected).
 Failure policy everywhere: degrade to "no live data" — callers keep their
 hardcoded behaviour — and never print more than one note per session.
 
-NOTE: only OpenRouter gets live discovery. OpenAI, Google direct and OVH
-expose no comparable pricing/capability API, so their tables in
-presets.py stay hardcoded on purpose.
+NOTE: only OpenRouter gets live discovery. OpenAI and OVH expose no
+comparable pricing/capability API, so their tables in presets.py stay
+hardcoded on purpose.
 """
 
 import json
@@ -61,6 +61,7 @@ class ModelCapabilities:
     n_min: int = 1
     n_max: int | None = None
     input_refs_max: int | None = None
+    input_refs_min: int | None = None
     extra_flags: frozenset = frozenset()
 
 
@@ -98,7 +99,7 @@ def _parse_item(item: dict) -> ModelCapabilities | None:
         return _safe_int(d.get("min")), _safe_int(d.get("max"))
 
     n_min, n_max = _range("n")
-    _, refs_max = _range("input_references")
+    refs_min, refs_max = _range("input_references")
     flags = frozenset(
         k for k, v in sp.items() if isinstance(v, dict) and v.get("type") == "boolean"
     )
@@ -109,6 +110,7 @@ def _parse_item(item: dict) -> ModelCapabilities | None:
         n_min=1 if n_min is None else n_min,
         n_max=n_max,
         input_refs_max=refs_max,
+        input_refs_min=refs_min,
         extra_flags=flags,
     )
 
