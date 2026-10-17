@@ -2331,14 +2331,17 @@ class TestRecraftFamily:
 
 
 class TestSeedream50:
+    FLASH = "bytedance-seed/seedream-5-0-flash"
     LITE = "bytedance-seed/seedream-5-0-lite"
     PRO = "bytedance-seed/seedream-5-0-pro"
 
-    def test_both_in_supported_models_with_lite_first(self):
+    def test_all_in_supported_models_with_flash_first(self):
         models = OpenRouterProvider.supported_models()
-        assert self.LITE in models and self.PRO in models
-        # Lite is the family default: it must precede Pro.
-        assert models.index(self.LITE) < models.index(self.PRO)
+        assert all(m in models for m in (self.FLASH, self.LITE, self.PRO))
+        # Flash is the family default: it must precede Lite and Pro.
+        assert (
+            models.index(self.FLASH) < models.index(self.LITE) < models.index(self.PRO)
+        )
         # ...but the overall default stays the first entry, not Seedream.
         assert models[0] == "openai/gpt-image-2.5-sunburst"
 
@@ -2355,6 +2358,31 @@ class TestSeedream50:
         )
         assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
         assert default == choices[0]
+
+    def test_flash_tiers_are_1k_and_2k(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            self.FLASH, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+        assert default == choices[0]
+
+    def test_flash_is_the_cheapest_seed_tier(self):
+        """Flat $0.018 at both tiers, free inputs, under every Lite/Pro row."""
+        from imgprompt.presets import COSTS
+
+        row = COSTS[self.FLASH]
+        assert row["1K"]["fixed"] == row["2K"]["fixed"] == 0.018
+        assert "input_flat" not in row
+        others = [
+            t["fixed"]
+            for m in (self.LITE, self.PRO)
+            for k, t in COSTS[m].items()
+            if k != "input_flat"
+        ]
+        assert row["1K"]["fixed"] < min(others)
+
+    def test_flash_input_limit_fallback(self, provider_with_key):
+        assert provider_with_key.max_input_images(self.FLASH) == 14
 
     def test_lite_is_flat_priced_across_tiers(self):
         from imgprompt.presets import COSTS
@@ -2382,7 +2410,7 @@ class TestSeedream50:
 
         assert all(t["fixed"] < 0.04 for t in COSTS[self.LITE].values())
 
-    @pytest.mark.parametrize("model,cap", [(LITE, 4), (PRO, 1)])
+    @pytest.mark.parametrize("model,cap", [(FLASH, 1), (LITE, 4), (PRO, 1)])
     def test_n_clamped_per_tier(self, provider_with_key, model, cap):
         """Offline safety net: the descriptors pin n at 1..4 (Lite) and 1..1
         (Pro), and without the per-model entries both would inherit the

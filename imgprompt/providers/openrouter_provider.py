@@ -43,11 +43,12 @@ _MAX_N = 10
 # fit for server-side variant fan-out. If a future probe shows it honours
 # n > 1, raise this number — nothing else has to change.
 #
-# The two Seedream 5.0 entries are full model ids rather than family
-# prefixes: the tiers disagree (Lite 1..4, Pro 1..1, verified 2026-09-11)
+# The Seedream 5.0 entries are full model ids rather than family
+# prefixes: the tiers disagree (Lite 1..4, Pro 1..1, verified 2026-09-11;
+# Flash 1..1, verified 2026-10-17)
 # so `bytedance-seed/` cannot carry one number for both. `startswith`
-# matches an exact id as a prefix of itself, and neither id is a prefix
-# of the other, so the lookup stays unambiguous. Without these the
+# matches an exact id as a prefix of itself, and no id is a prefix
+# of another, so the lookup stays unambiguous. Without these the
 # offline path would inherit the global cap of 10 and the wizard would
 # price a 10-variant batch Pro can never produce.
 _MODEL_MAX_N_PREFIXES = {
@@ -55,6 +56,7 @@ _MODEL_MAX_N_PREFIXES = {
     "krea/": 1,
     "meta/": 1,
     "qwen/": 6,
+    "bytedance-seed/seedream-5-0-flash": 1,
     "bytedance-seed/seedream-5-0-lite": 4,
     "bytedance-seed/seedream-5-0-pro": 1,
     "x-ai/grok-imagine-image-2.0": 1,
@@ -87,7 +89,7 @@ def _max_n_for(model: str) -> int:
 _MODEL_MAX_INPUT_PREFIXES = {
     "openai/": 16,  # gpt-image / gpt-5-image families
     "microsoft/mai-image-2.6": 5,  # covers the flash tier too
-    "bytedance-seed/": 14,  # Seedream 5.0 Lite and Pro (README's old "4" was stale)
+    "bytedance-seed/": 14,  # Seedream 5.0 Flash, Lite and Pro
     "black-forest-labs/": 10,  # FLUX 3 and FLUX 3 Klein
     # Riverflow: pro caps at 10, fast at 4.
     "sourceful/riverflow-v2.5-pro": 10,
@@ -138,6 +140,11 @@ _DEFAULT_TIMEOUT = (10, 300)
 # `high_resolution` tier, so the floor demonstrably does not apply to it;
 # and it caps at 2K (4.19MP), nowhere near the ceiling. Do not add
 # entries for it without verifying against a real upstream response.
+#
+# Seedream 5.0 Flash is left out on the same reasoning as Pro: its
+# descriptor advertises 1K and it caps at 2K. Unlike Pro, its price is flat,
+# so the price gives no evidence either way. Not yet confirmed with a real
+# 1K call; if one 400s on the floor, add Flash to _MODEL_PIXEL_FLOORS.
 _MODEL_PIXEL_FLOORS = {
     "bytedance-seed/seedream-5-0-lite": 3_686_400,
 }
@@ -597,9 +604,11 @@ class OpenRouterProvider(ImageProvider):
             # the most expensive thing on offer.
             "openai/gpt-image-2.5-sunburst",
             "openai/gpt-image-2.5-flare",
-            # Seedream 5.0, cheaper/higher-resolution tier first: Lite is the
-            # family default. It supersedes seedream-4.5 outright — $0.035 vs
-            # $0.04 flat, same 4K ceiling, same ratios — so 4.5 is retired.
+            # Seedream 5.0, cheapest tier first: Flash ($0.018 flat, 1K/2K)
+            # is the family default. Lite stays for 4K and replaced
+            # seedream-4.5 outright ($0.035 vs $0.04 flat, same 4K ceiling,
+            # same ratios), so 4.5 is retired.
+            "bytedance-seed/seedream-5-0-flash",
             "bytedance-seed/seedream-5-0-lite",
             "bytedance-seed/seedream-5-0-pro",
             # FLUX 3, cheaper tier first. Supersedes the whole FLUX.2 line:
@@ -898,6 +907,10 @@ class OpenRouterProvider(ImageProvider):
         elif model in _TENCENT_MODELS:
             # Hy Image 3.5's `resolution` enum (verified 2026-10-17).
             sizes = ["1K", "1.5K", "2K", "4K"]
+        elif model == "bytedance-seed/seedream-5-0-flash":
+            # Flash's `resolution` enum is ["1K","2K"], like Pro (verified
+            # 2026-10-17). Both tiers cost the same.
+            sizes = ["1K", "2K"]
         elif model == "bytedance-seed/seedream-5-0-lite":
             # Lite's `resolution` enum is ["2K","4K"] — no 1K (verified
             # 2026-09-11). The retired 4.5 offered a 1K that the upstream

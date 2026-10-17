@@ -381,6 +381,13 @@ COSTS = {
         "2K": {"fixed": 0.15},
         "4K": {"fixed": 0.17},
     },
+    # Seedream 5.0 Flash: the fast, cheap tier and the family default. One
+    # flat price at both tiers (1K and 2K), so 1K saves nothing over 2K.
+    # Input references are free. Verified 2026-10-17 against /endpoints.
+    "bytedance-seed/seedream-5-0-flash": {
+        "1K": {"fixed": 0.018},
+        "2K": {"fixed": 0.018},
+    },
     # Seedream 5.0 Lite: one flat price at every tier, like the 4.5 it
     # replaces, but cheaper ($0.035 vs $0.04) and with no 1K tier — its
     # `resolution` enum is ["2K","4K"]. Input references are free.

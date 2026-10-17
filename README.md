@@ -180,7 +180,7 @@ you pass more than the model accepts, only the first N are sent and priced
 
 **Input limits** (max reference images in one combined call, from OpenRouter's
 live capability descriptor; the built-in offline fallback matches it): GPT
-Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini image (Nano Banana) **14**; FLUX 3
+Image 2.5 **16**; Seedream 5.0 Flash/Lite/Pro **14**; Gemini image (Nano Banana) **14**; FLUX 3
 **10** (both tiers); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
 Hy Image 3.5 Preview **20**; Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea K3 Edit **8**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
@@ -230,8 +230,9 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
     ⚠️ **`high` here is not `high` on `gpt-image-2`.** GPT Image 2.5 kept the token rates but *shifted the ladder*: its `high` spends what `gpt-image-2`'s `medium` spent (1,756 tokens), and its `max` what `gpt-image-2`'s `high` spent (7,024), with `medium` and `xhigh` inserted as genuinely new rungs. So the same word costs 4x less here than on the direct provider — switching a prompt between the two without adjusting the quality name is the easy mistake.
   - ~~`openai/gpt-5.4-image-2`~~: removed in this release. Its `1K`/`2K`/`4K` menu priced tiers that do not exist: **no** OpenAI model on OpenRouter's image API advertises a `resolution` parameter (surveyed across all eight entries, 2026-09-12), so the field went out un-advertised, `quality` was left at the upstream default, and the $0.02/$0.04/$0.08 estimates corresponded to nothing billable. Use the GPT Image 2.5 family above, where the quality axis is the real one. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
-  - **Seedream 5.0 family**: the two tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
-    - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 14 images per call. The default Seed model.
+  - **Seedream 5.0 family**: the tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
+    - `bytedance-seed/seedream-5-0-flash`: $0.018 per image (1K and 2K cost the same, so 2K is the better deal), **capped at 2K**. Input references are free, up to 14 images per call; single output image per call (`n` capped at 1 upstream). The fast, cheap tier and the default Seed model.
+    - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 14 images per call. Pick it for 4K.
     - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each, up to 14 per call; single output image per call (`n` capped at 1 upstream). The editing-precision tier.
   - ~~`bytedance-seed/seedream-4.5`~~: removed in this release, superseded by Seedream 5.0 Lite — cheaper ($0.035 vs $0.04), same 4K ceiling and the same aspect ratios. Its nominal "1K" tier was never really 1K: the upstream floor of 3,686,400 px silently raised every 1K request to ~1920x1920, so you paid $0.04 for 3.69MP where Lite now gives 4.19MP for $0.035. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
   - **FLUX 3 family** (both tiers share one descriptor: five resolution tiers — `768`, `1K`, `1.5K`, `2K`, `4K` — up to 10 input references, single image per call (`n` capped at 1 upstream). Billed on output only: no input-image surcharge):
