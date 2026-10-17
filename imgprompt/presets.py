@@ -502,6 +502,14 @@ COSTS["qwen/qwen-image-3-pro"] = {
     "input_flat": 0.003,
 }
 
+# Qwen Image 2.1 Turbo (via OpenRouter). Flat $0.0184/image at both 1K
+# and 2K, input references free — snapshot from
+# /api/v1/images/models/qwen/qwen-image-2.1-turbo/endpoints, 2026-10-17.
+COSTS["qwen/qwen-image-2.1-turbo"] = {
+    "1K": {"fixed": 0.0184},
+    "2K": {"fixed": 0.0184},
+}
+
 # Meta Muse Image (via OpenRouter). Flat $0.01/image — the cheapest model
 # in the catalog. Like Krea, live discovery CANNOT price it: its
 # /api/v1/images/models/meta/muse-image/endpoints response carries an empty

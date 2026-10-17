@@ -1364,14 +1364,18 @@ class TestGrokImagine:
 
 
 # --------------------------------------------------------------------------
-# Qwen Image 3 family: two tiers sharing one descriptor (snapshot
-# 2026-08-06) — thirteen aspect ratios, `resolution` enum {"1K","2K"}, `n`
-# range 1..6, up to 4 input references. Every case below runs against both.
+# Qwen Image family: Qwen Image 3 (two tiers) and 2.1 Turbo share one
+# descriptor (snapshots 2026-08-06 / 2026-10-17) — thirteen aspect ratios,
+# `resolution` enum {"1K","2K"}, `n` range 1..6, up to 4 input references.
+# Every case below runs against all three.
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model", ["qwen/qwen-image-3", "qwen/qwen-image-3-pro"])
-class TestQwenImage3:
+@pytest.mark.parametrize(
+    "model",
+    ["qwen/qwen-image-2.1-turbo", "qwen/qwen-image-3", "qwen/qwen-image-3-pro"],
+)
+class TestQwenImage:
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Qwen.
@@ -1445,10 +1449,28 @@ class TestQwenImage3:
 
         assert mock_post.call_args.kwargs["json"]["n"] == 6
 
-    def test_input_flat_rate_is_priced(self, model):
-        from imgprompt.presets import COSTS
 
-        assert COSTS[model]["input_flat"] == 0.003
+@pytest.mark.parametrize("model", ["qwen/qwen-image-3", "qwen/qwen-image-3-pro"])
+def test_qwen3_input_flat_rate_is_priced(model):
+    from imgprompt.presets import COSTS
+
+    assert COSTS[model]["input_flat"] == 0.003
+
+
+def test_qwen21_turbo_is_cheapest_qwen_with_free_inputs():
+    """2.1 Turbo undercuts Qwen Image 3 at every tier and bills nothing for
+    input references (OpenRouter snapshot 2026-10-17)."""
+    from imgprompt.presets import COSTS
+
+    turbo = COSTS["qwen/qwen-image-2.1-turbo"]
+    assert "input_flat" not in turbo
+    for tier in ("1K", "2K"):
+        assert turbo[tier]["fixed"] < COSTS["qwen/qwen-image-3"][tier]["fixed"]
+
+
+def test_qwen21_pro_is_not_offered():
+    """2.1 Pro is deliberately excluded: it costs more than 3 Pro at 1K."""
+    assert "qwen/qwen-image-2.1-pro" not in OpenRouterProvider.supported_models()
 
 
 def test_qwen_pro_costs_more_than_base_at_2k():

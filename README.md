@@ -183,7 +183,7 @@ you pass more than the model accepts, only the first N are sent and priced
 live capability descriptor; the built-in offline fallback matches it): GPT
 Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; Flux
 **8** (klein-4b **4**); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
-Qwen Image 3 **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea 2 **1**.
+Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
 trimmed and the summary says the limit is not advertised. On OpenRouter the limit comes from the
 model's live capability descriptor (`supported_parameters.input_references`)
@@ -247,7 +247,8 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
   - `sourceful/riverflow-v2.5-pro`: $0.13 (1K), $0.15 (2K), $0.17 (4K).
   - `x-ai/grok-imagine-image-2.0`: priced on **two** axes — resolution tier (`1K`/`2K`, capped at 2K) x quality (`low`/`medium`): $0.04 (1K low), $0.06 (1K medium), $0.06 (2K low), $0.08 (2K medium). The wizard's resolution step offers all four combinations as one list, cheapest first. Seven aspect ratios (`1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`; the phone-screen ratios the descriptor also lists have no pixel-preview preset), up to 3 input references at a flat $0.01 each. Single image per call (`n` capped at 1 upstream).
   - ~~`x-ai/grok-imagine-image-quality`~~: removed in this release, superseded by Grok Imagine 2.0 — same seven ratios and the same 2K ceiling, cheaper at low quality ($0.04 vs $0.05 at 1K) and sharper at medium ($0.08 vs $0.07 at 2K). Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
-  - **Qwen Image 3 family** (both tiers share one descriptor: `1K`/`2K` resolution, thirteen aspect ratios — `1:1`, `1:2`, `1:4`, `2:1`, `2:3`, `3:2`, `3:4`, `4:1`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9` (the wizard offers eleven of these; `1:2`/`2:1` have no pixel-preview preset), up to 4 input references, up to 6 variants per call):
+  - **Qwen Image family** (Qwen Image 3 and 2.1 Turbo share one descriptor: `1K`/`2K` resolution, thirteen aspect ratios — `1:1`, `1:2`, `1:4`, `2:1`, `2:3`, `3:2`, `3:4`, `4:1`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9` (the wizard offers eleven of these; `1:2`/`2:1` have no pixel-preview preset), up to 4 input references, up to 6 variants per call):
+    - `qwen/qwen-image-2.1-turbo`: $0.0184 flat (1K and 2K bill the same); input reference images are free. Despite the lower number, 2.1 is newer than 3 (Sept vs. July 2026): it is the open-weights 7B line, not a predecessor. `qwen/qwen-image-2.1-pro` is intentionally not offered — at a flat $0.046 it costs more than 3 Pro at 1K.
     - `qwen/qwen-image-3`: $0.03 flat (1K and 2K bill the same); input reference images cost a flat $0.003 each.
     - `qwen/qwen-image-3-pro`: $0.04 (1K), $0.075 (2K); input reference images cost a flat $0.003 each.
   - **Krea 2 family** (all three tiers share one descriptor: 1K only, seven ratios — `1:1`, `2:3`, `3:2`, `4:3`, `4:5`, `9:16`, `16:9` (no `3:4`/`5:4`/`21:9`) — one input reference, single image per call. Prices are the model pages' headline figures: OpenRouter reports **no** pricing for this family through the API, so the pre-call estimate always comes from the hardcoded table and `usage.cost` is the authoritative charge):
