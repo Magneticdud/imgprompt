@@ -469,6 +469,20 @@ COSTS["krea/krea-2-medium-turbo"] = {"1K": {"fixed": 0.015}}
 COSTS["krea/krea-2-medium"] = {"1K": {"fixed": 0.03}}
 COSTS["krea/krea-2-large"] = {"1K": {"fixed": 0.06}}
 
+# Krea K3 Edit (via OpenRouter). Same empty `pricing` array on /endpoints as
+# Krea 2 (checked 2026-10-17), so this table is the only estimate source.
+# Output: Krea's published list price, $0.03 at 1K / $0.06 at 2K, which Krea
+# quotes "without image references". Input: OpenRouter's /api/v1/models
+# listing for the model carries `image: 0.02`, read here as a flat $0.02 per
+# reference image. That figure is not confirmed by a real call yet —
+# usage.cost is the authoritative charge and the >10% reconciliation warning
+# will flag it if it is wrong.
+COSTS["krea/k3-edit"] = {
+    "1K": {"fixed": 0.03},
+    "2K": {"fixed": 0.06},
+    "input_flat": 0.02,
+}
+
 # xAI Grok Imagine 2.0 (via OpenRouter). Unique in the catalog: the price
 # depends on TWO axes — the resolution tier (1K/2K) AND a `quality` enum
 # (low/medium) the retired image-quality tier didn't have — so the keys

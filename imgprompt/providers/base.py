@@ -85,6 +85,12 @@ class ImageProvider(ABC):
         """
         return None
 
+    def min_input_images(self, model: str) -> int:
+        """Minimum number of input images this model needs: 0 for models that
+        can generate from text alone, >0 for edit-only models. The wizard
+        warns in the summary when too few images were given."""
+        return 0
+
     @classmethod
     @abstractmethod
     def provider_name(cls) -> str: ...

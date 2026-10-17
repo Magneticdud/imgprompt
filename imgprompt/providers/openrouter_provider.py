@@ -93,6 +93,7 @@ _MODEL_MAX_INPUT_PREFIXES = {
     "google/": 14,  # Gemini 3.x image family
     "qwen/": 4,  # Qwen Image 3 and 2.1 Turbo
     "x-ai/grok-imagine-image-2.0": 3,
+    "krea/k3-edit": 8,  # must precede the family prefix below
     "krea/": 1,  # Krea 2 family
     "recraft/": 1,  # Recraft v4.1 family
 }
@@ -166,6 +167,22 @@ _KREA_MODELS = (
 # its mirror 5:4 is not, and 2:3 is supported but 3:4 is not — this is
 # what the descriptor says, not an oversight. Anything else 400s upstream.
 _KREA_RATIOS = ["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]
+
+# Krea K3 Edit on /api/v1/images (verified 2026-10-17 against
+# /api/v1/images/models). EDIT-ONLY: `input_references` is a 1..8 range, so a
+# text-to-image call (no input image) is invalid — see _MODEL_MIN_INPUTS.
+# Same seven ratios as Krea 2 (_KREA_RATIOS), but `resolution` is {"1K",
+# "2K"}, and like Krea 2 the descriptor omits `n` (one image per call, caught
+# by the "krea/" entry in _MODEL_MAX_N_PREFIXES). Kept out of _KREA_MODELS
+# because that tuple pins the tier step to 1K.
+_KREA_EDIT_MODEL = "krea/k3-edit"
+
+# Minimum number of INPUT images a model needs — the lower bound of the
+# descriptor's `input_references` range. Offline fallback for models whose
+# minimum is above 0 (edit-only); absence means 0 (text-to-image allowed).
+_MODEL_MIN_INPUTS = {
+    _KREA_EDIT_MODEL: 1,
+}
 
 # Qwen Image family on /api/v1/images. Qwen Image 3 (both tiers) and Qwen
 # Image 2.1 Turbo ship the SAME descriptor (verified 2026-08-06 for 3,
@@ -604,6 +621,8 @@ class OpenRouterProvider(ImageProvider):
             "krea/krea-2-medium-turbo",
             "krea/krea-2-medium",
             "krea/krea-2-large",
+            # Krea K3 Edit: edit-only (needs 1..8 input images), 1K/2K.
+            _KREA_EDIT_MODEL,
             # Meta Muse Image: single model, $0.01/image — second only to
             # FLUX 3 Klein among flat prices — so it sits with the other
             # cheap entries rather than with its (nonexistent) family.
@@ -649,7 +668,7 @@ class OpenRouterProvider(ImageProvider):
             # /api/v1/images/models (identical for 2.6 and 2.6 Flash) — sending
             # anything else 400s upstream.
             ratio_options = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]
-        elif model in _KREA_MODELS:
+        elif model in _KREA_MODELS or model == _KREA_EDIT_MODEL:
             # Krea's descriptor lists exactly these seven (see _KREA_RATIOS
             # for the 4:5-without-5:4 asymmetry). Every one has a
             # RATIO_TO_RESOLUTION entry, so the picker can preview them all.
@@ -857,6 +876,9 @@ class OpenRouterProvider(ImageProvider):
             # DOES exist, so "1K" is a real canonical tier that _build_payload
             # forwards on the wire — not a synthetic "Standard" placeholder.
             sizes = ["1K"]
+        elif model == _KREA_EDIT_MODEL:
+            # K3 Edit's `resolution` enum is {"1K", "2K"} (verified 2026-10-17).
+            sizes = ["1K", "2K"]
         elif model == "bytedance-seed/seedream-5-0-lite":
             # Lite's `resolution` enum is ["2K","4K"] — no 1K (verified
             # 2026-09-11). The retired 4.5 offered a 1K that the upstream
@@ -1019,6 +1041,14 @@ class OpenRouterProvider(ImageProvider):
                 return cap
         return None
 
+    def min_input_images(self, model: str) -> int:
+        """Min input references for a model: live descriptor first, then the
+        hardcoded edit-only table, else 0 (text-to-image allowed)."""
+        caps = get_capabilities(model)
+        if caps is not None and caps.input_refs_min is not None:
+            return caps.input_refs_min
+        return _MODEL_MIN_INPUTS.get(model, 0)
+
     def preflight_warnings(
         self, model: str, aspect_ratio: str | None, quality_key: str | None
     ) -> list[str]:
@@ -1079,6 +1109,17 @@ class OpenRouterProvider(ImageProvider):
         # Reset the per-run cost cache so a previous run's reported cost
         # doesn't suppress this run's announcement when the value repeats.
         self._reported_cost = None
+
+        min_inputs = self.min_input_images(request.model)
+        if len(request.images) < min_inputs:
+            # Edit-only model with no input image: the call would 400
+            # upstream, so stop here instead of sending it.
+            print(
+                f"Error: {request.model} is edit-only and needs at least "
+                f"{min_inputs} input image(s). Pass an image path, or pick a "
+                f"text-to-image model."
+            )
+            return
 
         # request.is_batch (not a raw len() check) so dual mode — two images
         # in ONE combined call — routes to _run_variants, which forwards all

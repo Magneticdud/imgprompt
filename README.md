@@ -183,7 +183,7 @@ you pass more than the model accepts, only the first N are sent and priced
 live capability descriptor; the built-in offline fallback matches it): GPT
 Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; FLUX 3
 **10** (both tiers); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
-Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea 2 **1**.
+Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea K3 Edit **8**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
 trimmed and the summary says the limit is not advertised. On OpenRouter the limit comes from the
 model's live capability descriptor (`supported_parameters.input_references`)
@@ -255,6 +255,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `krea/krea-2-medium-turbo`: $0.015 — distilled speed tier, for rapid iteration.
     - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.
     - `krea/krea-2-large`: $0.06 — 2x+ the size of Medium, lighter post-training: rawer, more textured.
+  - `krea/k3-edit`: **edit-only** — needs 1 to 8 input images and cannot generate from text alone (the wizard warns in the summary and the call is not sent without an image). `1K`/`2K`, the same seven ratios as Krea 2, single image per call. $0.03 (1K) / $0.06 (2K), Krea's list price "without image references"; plus an estimated $0.02 per input image, from OpenRouter's model listing and not yet confirmed by a real call. As with Krea 2, OpenRouter's images API reports no pricing, so `usage.cost` is the authoritative charge.
   - `meta/muse-image`: **$0.01 per image — the cheapest flat-priced model in the catalog after FLUX 3 Klein** ($0.008 at 768, $0.009 at 1K). (A `low`-quality GPT Image 2.5 render estimates lower still, but that family is token-billed: its price moves with quality and output size rather than being a flat per-image charge.) Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
 
     Unlike every other model here, OpenRouter publishes **no** capability descriptor and **no** endpoints entry for it, so everything below was measured against real calls (2026-09-12) rather than read from the API:

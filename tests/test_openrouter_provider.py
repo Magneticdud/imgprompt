@@ -1243,6 +1243,84 @@ def test_krea_tier_prices_are_ordered():
 
 
 # --------------------------------------------------------------------------
+# Krea K3 Edit (snapshot 2026-10-17): edit-only (1..8 input references),
+# 1K/2K, the same seven ratios as Krea 2, and no `n` parameter.
+# --------------------------------------------------------------------------
+
+_K3 = "krea/k3-edit"
+
+
+class TestKreaK3Edit:
+    def test_in_supported_models(self):
+        assert _K3 in OpenRouterProvider.supported_models()
+
+    def test_resolution_choices_match_krea_ratios(self, provider_with_key):
+        choices, _ = provider_with_key.get_resolution_choices(_K3, None)
+        assert choices == ["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]
+
+    def test_quality_choices_offer_1k_and_2k(self, provider_with_key):
+        choices, default = provider_with_key.get_quality_choices(
+            _K3, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+        assert default == choices[0]
+
+    def test_2k_costs_more_than_1k_and_inputs_are_billed(self):
+        from imgprompt.presets import COSTS
+
+        row = COSTS[_K3]
+        assert row["1K"]["fixed"] < row["2K"]["fixed"]
+        assert row["input_flat"] > 0
+
+    def test_input_limit_fallback_is_eight_not_the_krea2_cap(self, provider_with_key):
+        """The "krea/" family prefix caps Krea 2 at 1 reference; K3 Edit's
+        specific entry must win, or combined mode would trim to one image."""
+        assert provider_with_key.max_input_images(_K3) == 8
+        assert provider_with_key.max_input_images("krea/krea-2-large") == 1
+
+    def test_minimum_inputs(self, provider_with_key, monkeypatch):
+        from imgprompt.providers.capabilities import ModelCapabilities
+
+        assert provider_with_key.min_input_images(_K3) == 1
+        assert provider_with_key.min_input_images("krea/krea-2-medium") == 0
+        _patch_caps(monkeypatch, ModelCapabilities(model=_K3, input_refs_min=2))
+        assert provider_with_key.min_input_images(_K3) == 2
+
+    def test_run_without_input_image_sends_nothing(self, provider_with_key, capsys):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            req = GenerationRequest(
+                prompt="x",
+                model=_K3,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+            )
+            provider_with_key.run(req)
+        mock_post.assert_not_called()
+        assert "edit-only" in capsys.readouterr().out
+
+    def test_n_clamped_to_one_without_descriptor(self, provider_with_key):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=_K3,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="2K",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+        body = mock_post.call_args.kwargs["json"]
+        assert body["n"] == 1
+        assert body["resolution"] == "2K"
+
+
+# --------------------------------------------------------------------------
 # xAI Grok Imagine 2.0 (issue #7, supersedes the image-quality tier): 1K/2K
 # only, seven standard ratios surfaced (phone-screen ratios exist upstream
 # but have no wizard preview entry), flat $0.01 per input image — and, alone

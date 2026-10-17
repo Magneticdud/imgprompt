@@ -1441,6 +1441,12 @@ def main():
                 print(f"Image:      None (Text-to-Image)")
             print(f"Provider:   {provider}")
             print(f"Model:      {model_choice}")
+            min_inputs = provider_obj.min_input_images(model_choice)
+            if len(input_images) < min_inputs:
+                print(
+                    f"⚠ Inputs:   this model is edit-only and needs at least "
+                    f"{min_inputs} input image(s); the call will not be sent"
+                )
             # Combined mode sends several references in one call: surface the
             # model's advertised input cap (or the absence of one) before the
             # user spends, so a provider-side trim is never a surprise.
