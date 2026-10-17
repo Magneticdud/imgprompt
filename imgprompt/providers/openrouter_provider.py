@@ -93,7 +93,7 @@ _MODEL_MAX_INPUT_PREFIXES = {
     "sourceful/riverflow-v2.5-pro": 10,
     "sourceful/": 4,
     "google/": 14,  # Gemini 3.x image family
-    "qwen/": 4,  # Qwen Image 3 family
+    "qwen/": 4,  # Qwen Image 3 and 2.1 Turbo
     "x-ai/grok-imagine-image-2.0": 3,
     "krea/": 1,  # Krea 2 family
     "recraft/": 1,  # Recraft v4.1 family
@@ -169,12 +169,21 @@ _KREA_MODELS = (
 # what the descriptor says, not an oversight. Anything else 400s upstream.
 _KREA_RATIOS = ["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]
 
-# Qwen Image 3 family on /api/v1/images. Both tiers ship the SAME
-# descriptor (verified 2026-08-06 against /api/v1/images/models) — thirteen
+# Qwen Image family on /api/v1/images. Qwen Image 3 (both tiers) and Qwen
+# Image 2.1 Turbo ship the SAME descriptor (verified 2026-08-06 for 3,
+# 2026-10-17 for 2.1 Turbo, against /api/v1/images/models) — thirteen
 # aspect ratios, `resolution` enum {"1K", "2K"}, `n` range 1..6, up to 4
 # input references — and differ only in price, so the wizard branches below
-# treat them as one.
-_QWEN_MODELS = ("qwen/qwen-image-3", "qwen/qwen-image-3-pro")
+# treat them as one. Despite the lower number, 2.1 is the NEWER release
+# (Sept 2026, the open-weights 7B line; 3.0 is the July 2026 flagship), so
+# it sits alongside 3 rather than replacing it. Qwen Image 2.1 Pro is
+# deliberately left out: at a flat $0.046 it costs more than 3 Pro at 1K
+# ($0.04) for a smaller model.
+_QWEN_MODELS = (
+    "qwen/qwen-image-2.1-turbo",
+    "qwen/qwen-image-3",
+    "qwen/qwen-image-3-pro",
+)
 
 # Eleven of Qwen's thirteen ratios, in the wizard's canonical
 # OPENROUTER_RESOLUTIONS order. `1:2` and `2:1` are also in the descriptor
@@ -585,7 +594,9 @@ class OpenRouterProvider(ImageProvider):
             # axis, so it is both cheaper ($0.04 low 1K vs $0.05) and
             # sharper ($0.08 medium 2K vs $0.07) than the single-axis model.
             "x-ai/grok-imagine-image-2.0",
-            # Qwen Image 3 family, cheaper tier first.
+            # Qwen Image family, cheapest first (2.1 turbo $0.0184 →
+            # 3 $0.03 → 3 pro $0.04/$0.075).
+            "qwen/qwen-image-2.1-turbo",
             "qwen/qwen-image-3",
             "qwen/qwen-image-3-pro",
             # Krea 2 family, cheapest tier first (turbo $0.015 → large $0.06).
