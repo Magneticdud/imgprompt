@@ -58,6 +58,7 @@ _MODEL_MAX_N_PREFIXES = {
     "bytedance-seed/seedream-5-0-lite": 4,
     "bytedance-seed/seedream-5-0-pro": 1,
     "x-ai/grok-imagine-image-2.0": 1,
+    "black-forest-labs/": 1,  # FLUX 3 family: descriptor `n` range 1..1
 }
 
 
@@ -77,8 +78,7 @@ def _max_n_for(model: str) -> int:
 # Figures mirror a live survey of /api/v1/images/models on 2026-10-04 (57
 # models), covering every model this provider offers. Entries are prefixes
 # checked in insertion order, so a specific id/prefix MUST precede the
-# family prefix it belongs to (klein before the flux family, riverflow-pro
-# before sourceful). Absence from the table means "no bound advertised" ->
+# family prefix it belongs to (e.g. riverflow-pro before sourceful). Absence from the table means "no bound advertised" ->
 # None, so the wizard says so instead of inventing a limit. `meta/` is
 # deliberately absent: its descriptor advertises no `input_references`, and a
 # made-up cap would silently drop IMG_2 from dual mode, which main sends.
@@ -86,9 +86,7 @@ _MODEL_MAX_INPUT_PREFIXES = {
     "openai/": 16,  # gpt-image / gpt-5-image families
     "microsoft/mai-image-2.6": 5,  # covers the flash tier too
     "bytedance-seed/": 14,  # Seedream 5.0 Lite and Pro (README's old "4" was stale)
-    # Flux: klein-4b caps at 4, the rest of the family at 8.
-    "black-forest-labs/flux.2-klein": 4,
-    "black-forest-labs/": 8,
+    "black-forest-labs/": 10,  # FLUX 3 and FLUX 3 Klein
     # Riverflow: pro caps at 10, fast at 4.
     "sourceful/riverflow-v2.5-pro": 10,
     "sourceful/": 4,
@@ -227,7 +225,7 @@ _QWEN_RATIOS = [
 # `resolution` is accepted by the schema and then IGNORED: the 16:9 probe
 # sent resolution "1K" and got 1920x1280 back. Hence the synthetic
 # "Standard" tier in get_quality_choices (same treatment as MAI/Recraft) —
-# deliberately outside {512,1K,2K,4K} so _build_payload never puts a
+# deliberately outside _VALID_TIER_QUALITY_KEYS so _build_payload never puts a
 # `resolution` field on the wire.
 #
 # Output arrives as image/webp, not PNG; save_image_bytes already picks the
@@ -350,7 +348,9 @@ def _gpt_image_25_dims(
 # Used to derive an explicit `size` for models in _MODEL_PIXEL_FLOORS.
 _TIER_PIXELS = {
     "512": 512 * 512,
+    "768": 768 * 768,
     "1K": 1024 * 1024,
+    "1.5K": 1536 * 1536,
     "2K": 2048 * 2048,
     "4K": 4096 * 4096,
 }
@@ -365,7 +365,7 @@ _TIER_PIXELS = {
 # the guarded contract. Used at the four module callsites below with
 # deliberately distinct semantics — see the per-callsite comments for
 # why each one tests the membership.
-_VALID_TIER_QUALITY_KEYS = ("512", "1K", "2K", "4K")
+_VALID_TIER_QUALITY_KEYS = ("512", "768", "1K", "1.5K", "2K", "4K")
 
 # Pin the constant/`_TIER_PIXELS` pairing: if a future commit adds a
 # new tier to one but not the other, the import below fails
@@ -577,10 +577,11 @@ class OpenRouterProvider(ImageProvider):
             # $0.04 flat, same 4K ceiling, same ratios — so 4.5 is retired.
             "bytedance-seed/seedream-5-0-lite",
             "bytedance-seed/seedream-5-0-pro",
-            "black-forest-labs/flux.2-klein-4b",
-            "black-forest-labs/flux.2-flex",
-            "black-forest-labs/flux.2-pro",
-            "black-forest-labs/flux.2-max",
+            # FLUX 3, cheaper tier first. Supersedes the whole FLUX.2 line:
+            # five resolution tiers instead of two, 10 references instead
+            # of 8, and no per-megapixel input surcharge.
+            "black-forest-labs/flux-3-image-klein",
+            "black-forest-labs/flux-3-image",
             "sourceful/riverflow-v2.5-fast",
             "sourceful/riverflow-v2.5-pro",
             "google/gemini-3.1-flash-image",
@@ -603,9 +604,9 @@ class OpenRouterProvider(ImageProvider):
             "krea/krea-2-medium-turbo",
             "krea/krea-2-medium",
             "krea/krea-2-large",
-            # Meta Muse Image: single model, $0.01/image — the cheapest in
-            # the catalog — so it sits with the other cheap entries rather
-            # than with its (nonexistent) family.
+            # Meta Muse Image: single model, $0.01/image — second only to
+            # FLUX 3 Klein among flat prices — so it sits with the other
+            # cheap entries rather than with its (nonexistent) family.
             "meta/muse-image",
             # Recraft v4.1 family, grouped at the end: two axes — output
             # (raster vs. SVG vector) × tier (base/utility vs. pro).
@@ -749,7 +750,7 @@ class OpenRouterProvider(ImageProvider):
             to OpenRouter's own (aspect_ratio, resolution) translation);
           - ``aspect_ratio`` is missing or "Auto" (model-chosen geometry);
           - ``quality_key``'s tier half isn't one of the canonical tiers
-            (``512`` / ``1K`` / ``2K`` / ``4K``) — if it were (e.g.
+            (``_VALID_TIER_QUALITY_KEYS``) — if it were (e.g.
             "Standard" for a clamped model) the helper would silently
             fall back to the floor as the target, which would be
             misleading rather than informational;
@@ -784,7 +785,7 @@ class OpenRouterProvider(ImageProvider):
         if aspect_ratio is None or aspect_ratio == "Auto":
             return None
         # Wizard-summary gate: only canonical tier resolution keys
-        # (`512`/`1K`/`2K`/`4K`) get a size computed here. Non-tier
+        # (`_VALID_TIER_QUALITY_KEYS`) get a size computed here. Non-tier
         # values (`'Standard'` for MAI/Recraft, `'high'` from the
         # OpenAI legacy) fall through to the `res_key` preset —
         # without this gate they would silently fall back to the
@@ -816,7 +817,7 @@ class OpenRouterProvider(ImageProvider):
             # No `resolution` parameter upstream at all: this family's only
             # price axis is `quality`, so the tier step offers the quality
             # enum directly (cheapest first). None of these values is in
-            # {512,1K,2K,4K}, so _build_payload never emits a `resolution`
+            # _VALID_TIER_QUALITY_KEYS, so _build_payload never emits a `resolution`
             # field for them — it emits `quality` instead.
             #
             # The ladder comes from presets, shared with the direct OpenAI
@@ -831,7 +832,8 @@ class OpenRouterProvider(ImageProvider):
         elif model == "sourceful/riverflow-v2.5-pro":
             sizes = ["1K", "2K", "4K"]
         elif model.startswith("black-forest-labs/"):
-            sizes = ["1K", "2K"]
+            # FLUX 3's `resolution` enum (verified 2026-10-17, both tiers).
+            sizes = ["768", "1K", "1.5K", "2K", "4K"]
         elif model in (
             "google/gemini-3-pro-image",
             "google/gemini-3.1-flash-image",
@@ -846,7 +848,7 @@ class OpenRouterProvider(ImageProvider):
             # MAI exposes NO `resolution` parameter on /api/v1/images
             # (descriptor verified 2026-09-11, both tiers): the model picks the
             # output size from the aspect ratio alone. "Standard" is deliberately
-            # outside the {512,1K,2K,4K} set so _build_payload never emits
+            # outside the _VALID_TIER_QUALITY_KEYS set so _build_payload never emits
             # a resolution field for it.
             sizes = ["Standard"]
         elif model in _KREA_MODELS:
@@ -881,7 +883,7 @@ class OpenRouterProvider(ImageProvider):
             # Muse accepts `resolution` at the gateway and then ignores it
             # (a 1K request came back at 1920x1280, verified 2026-09-12),
             # so there is no tier to offer. "Standard" is deliberately
-            # outside the {512,1K,2K,4K} set, which keeps _build_payload
+            # outside the _VALID_TIER_QUALITY_KEYS set, which keeps _build_payload
             # from emitting a resolution field that would do nothing.
             sizes = ["Standard"]
         elif model.startswith("recraft/"):
@@ -1310,7 +1312,7 @@ class OpenRouterProvider(ImageProvider):
                 if request.aspect_ratio and request.aspect_ratio != "Auto":
                     payload["aspect_ratio"] = request.aspect_ratio
                 # The new API also accepts "512" as a normalized tier — pass
-                # through anything in the {512,1K,2K,4K} set (older code omitted
+                # through anything in the _VALID_TIER_QUALITY_KEYS set (older code omitted
                 # "1K" because chat-completions had no resolution field, so this
                 # is also a small bugfix).
                 # Payload gate: only canonical tier keys are forwarded

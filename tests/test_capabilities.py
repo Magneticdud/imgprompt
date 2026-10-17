@@ -285,11 +285,14 @@ class TestFileCache:
 # Live pricing from /endpoints (issue #3).
 # --------------------------------------------------------------------------
 
-# The common shape: variants that spell their tier directly (Flux 2 Pro,
-# snapshot 2026-09-12).
+# The common shape: variants that spell their tier directly (FLUX 3 Image,
+# snapshot 2026-10-17) — including the fractional "1.5k" tier.
 FLUX_PRICING = [
-    {"billable": "output_image", "unit": "image", "cost_usd": 0.03, "variant": "1k"},
-    {"billable": "output_image", "unit": "image", "cost_usd": 0.075, "variant": "2k"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.041, "variant": "768"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.048, "variant": "1k"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.07, "variant": "1.5k"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.1, "variant": "2k"},
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.607, "variant": "4k"},
 ]
 
 # Grok Imagine 2.0, snapshot 2026-09-12: the only model priced on two axes —
@@ -370,8 +373,10 @@ class TestLivePricing:
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
             _stub_endpoints(mock_get, FLUX_PRICING)
-            assert output_image_price("black-forest-labs/flux.2-pro", "1K") == 0.03
-            assert output_image_price("black-forest-labs/flux.2-pro", "2K") == 0.075
+            assert output_image_price("black-forest-labs/flux-3-image", "768") == 0.041
+            assert output_image_price("black-forest-labs/flux-3-image", "1K") == 0.048
+            assert output_image_price("black-forest-labs/flux-3-image", "1.5K") == 0.07
+            assert output_image_price("black-forest-labs/flux-3-image", "2K") == 0.1
         # Session cache: one endpoints call for both lookups.
         assert mock_get.call_count == 1
 

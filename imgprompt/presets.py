@@ -387,24 +387,23 @@ COSTS = {
         "2K": {"fixed": 0.09},
         "input_flat": 0.003,
     },
-    "black-forest-labs/flux.2-klein-4b": {
-        "1K": {"fixed": 0.014},
-        "2K": {"fixed": 0.017},
+    # FLUX 3 family (both tiers share one descriptor: five resolution tiers
+    # 768/1K/1.5K/2K/4K, up to 10 input references, n pinned to 1). Billed
+    # on output only — unlike FLUX.2 there is no per-megapixel input
+    # surcharge. Verified 2026-10-17 against /endpoints.
+    "black-forest-labs/flux-3-image-klein": {
+        "768": {"fixed": 0.008},
+        "1K": {"fixed": 0.009},
+        "1.5K": {"fixed": 0.011},
+        "2K": {"fixed": 0.014},
+        "4K": {"fixed": 0.036},
     },
-    "black-forest-labs/flux.2-flex": {
-        "1K": {"fixed": 0.06},
-        "2K": {"fixed": 0.24},
-        "input_mp_rate": 0.06,
-    },
-    "black-forest-labs/flux.2-pro": {
-        "1K": {"fixed": 0.03},
-        "2K": {"fixed": 0.075},
-        "input_mp_rate": 0.015,
-    },
-    "black-forest-labs/flux.2-max": {
-        "1K": {"fixed": 0.07},
-        "2K": {"fixed": 0.16},
-        "input_mp_rate": 0.03,
+    "black-forest-labs/flux-3-image": {
+        "768": {"fixed": 0.041},
+        "1K": {"fixed": 0.048},
+        "1.5K": {"fixed": 0.07},
+        "2K": {"fixed": 0.1},
+        "4K": {"fixed": 0.607},
     },
 }
 
@@ -511,7 +510,7 @@ COSTS["qwen/qwen-image-2.1-turbo"] = {
 }
 
 # Meta Muse Image (via OpenRouter). Flat $0.01/image — the cheapest model
-# in the catalog. Like Krea, live discovery CANNOT price it: its
+# in the catalog until FLUX 3 Klein ($0.008-$0.009 at 768/1K). Like Krea, live discovery CANNOT price it: its
 # /api/v1/images/models/meta/muse-image/endpoints response carries an empty
 # `endpoints` array outright (checked 2026-09-12), so `_tier_price` always
 # falls back to this table. The figure is the model page's headline and was

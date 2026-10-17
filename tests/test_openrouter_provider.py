@@ -447,7 +447,7 @@ class TestCallApi:
             # per-model cap would mask the global one under test.
             req = GenerationRequest(
                 prompt="x",
-                model="black-forest-labs/flux.2-pro",
+                model="sourceful/riverflow-v2.5-fast",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -1484,6 +1484,83 @@ def test_qwen_pro_costs_more_than_base_at_2k():
 
 
 # --------------------------------------------------------------------------
+# FLUX 3 family (black-forest-labs/flux-3-image, -klein). Descriptor +
+# /endpoints snapshot 2026-10-17: both tiers share five resolution tiers
+# (768/1K/1.5K/2K/4K), n pinned to 1, up to 10 input references, output-only
+# billing. It replaces the whole FLUX.2 line.
+# --------------------------------------------------------------------------
+
+FLUX_3_MODELS = (
+    "black-forest-labs/flux-3-image-klein",
+    "black-forest-labs/flux-3-image",
+)
+
+
+@pytest.mark.parametrize("model", FLUX_3_MODELS)
+class TestFlux3:
+    def test_in_supported_models(self, model):
+        assert model in OpenRouterProvider.supported_models()
+
+    def test_quality_choices_are_all_five_tiers(self, provider_with_key, model):
+        choices, default = provider_with_key.get_quality_choices(
+            model, "1024x1024", None, None, None
+        )
+        assert [c.split(" ")[0] for c in choices] == ["768", "1K", "1.5K", "2K", "4K"]
+        assert default == choices[0]
+
+    def test_payload_forwards_fractional_tier(self, provider_with_key, model):
+        req = GenerationRequest(
+            prompt="x",
+            model=model,
+            aspect_ratio="16:9",
+            res_key="1344x768",
+            quality_key="1.5K",
+        )
+        body = provider_with_key._build_payload(req)
+        assert body["aspect_ratio"] == "16:9"
+        assert body["resolution"] == "1.5K"
+        assert "size" not in body
+
+    def test_no_input_surcharge(self, model):
+        from imgprompt.presets import COSTS
+
+        assert "input_mp_rate" not in COSTS[model]
+        assert "input_flat" not in COSTS[model]
+
+    def test_n_clamped_to_one_without_descriptor(self, provider_with_key, model):
+        with patch(
+            "imgprompt.providers.openrouter_provider.requests.post"
+        ) as mock_post:
+            _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
+            req = GenerationRequest(
+                prompt="x",
+                model=model,
+                aspect_ratio="1:1",
+                res_key="1024x1024",
+                quality_key="1K",
+                n=4,
+            )
+            provider_with_key._call_api(req, n=4)
+        assert mock_post.call_args.kwargs["json"]["n"] == 1
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "black-forest-labs/flux.2-klein-4b",
+        "black-forest-labs/flux.2-flex",
+        "black-forest-labs/flux.2-pro",
+        "black-forest-labs/flux.2-max",
+    ],
+)
+def test_flux2_is_retired(model):
+    from imgprompt.presets import COSTS
+
+    assert model not in OpenRouterProvider.supported_models()
+    assert model not in COSTS
+
+
+# --------------------------------------------------------------------------
 # GPT Image 2.5 family (openai/gpt-image-2.5-sunburst, -flare): the first
 # models in the catalog whose ONLY price axis is `quality`. Descriptor +
 # /endpoints snapshot 2026-09-12: eight aspect ratios (no 4:5/5:4), NO
@@ -1935,21 +2012,25 @@ class TestMuseImage:
         assert mock_post.call_args.kwargs["json"]["n"] == 1
 
 
-def test_muse_is_the_cheapest_flat_priced_openrouter_model():
-    """$0.01/image is the whole reason Muse sits with the cheap entries in
-    the picker. If a cheaper FLAT-priced model lands, revisit that ordering.
+def test_flux3_klein_is_the_cheapest_flat_priced_openrouter_model():
+    """FLUX 3 Klein ($0.008 at 768, $0.009 at 1K) took over from Meta Muse
+    ($0.01) as the cheapest flat-priced model in the catalog. If a cheaper
+    FLAT-priced model lands, revisit the picker ordering and the comments
+    that call these the cheap entries.
 
     The GPT Image 2.5 family is excluded on purpose. It is token-billed, so
     its COSTS rows are nominal ~1MP-square estimates that move with the
     quality tier AND the chosen aspect ratio, not flat per-image charges:
-    its `low` estimate ($0.006) is under Muse's flat $0.01, but its `max`
+    its `low` estimate ($0.006) is under these flat prices, but its `max`
     estimate is ~80x Muse. Folding an estimate spanning two orders of
     magnitude into a "cheapest" comparison against a verified flat price
     would make the assertion meaningless in both directions.
     """
     from imgprompt.presets import COSTS
 
+    klein = "black-forest-labs/flux-3-image-klein"
     assert COSTS[MUSE]["Standard"]["fixed"] == 0.01
+    assert COSTS[klein]["768"]["fixed"] == 0.008
     flat_priced = [
         m for m in OpenRouterProvider.supported_models() if m not in GPT_IMAGE_25_MODELS
     ]
@@ -1959,7 +2040,7 @@ def test_muse_is_the_cheapest_flat_priced_openrouter_model():
         for key, tier in COSTS[model].items()
         if isinstance(tier, dict)
     )
-    assert COSTS[MUSE]["Standard"]["fixed"] == cheapest
+    assert COSTS[klein]["768"]["fixed"] == cheapest
 
 
 # --------------------------------------------------------------------------
@@ -2277,7 +2358,7 @@ class TestSeedreamPixelFloor:
     def test_models_without_floor_are_untouched(self, provider_with_key):
         req = GenerationRequest(
             prompt="x",
-            model="black-forest-labs/flux.2-pro",
+            model="black-forest-labs/flux-3-image",
             aspect_ratio="9:16",
             res_key="768x1344",
             quality_key="2K",
@@ -2304,10 +2385,10 @@ class TestSeedreamPixelFloor:
         from imgprompt.providers import openrouter_provider as orp
 
         monkeypatch.setitem(
-            orp._MODEL_PIXEL_FLOORS, "black-forest-labs/flux.2-pro", 5_000_000
+            orp._MODEL_PIXEL_FLOORS, "black-forest-labs/flux-3-image", 5_000_000
         )
         choices, _ = provider_with_key.get_quality_choices(
-            "black-forest-labs/flux.2-pro", "768x1344", None, None, None
+            "black-forest-labs/flux-3-image", "768x1344", None, None, None
         )
         one_k = next(c for c in choices if c.startswith("1K"))
         two_k = next(c for c in choices if c.startswith("2K"))
@@ -2468,11 +2549,11 @@ class TestResolveEffectivePixels:
         assert abs(w / h - 4 / 5) < 0.02
 
     def test_returns_none_for_models_without_floor_or_ceiling(self, provider_with_key):
-        # flux.2-pro has no clamp entries — wizard falls back to the
+        # flux-3-image has no clamp entries — wizard falls back to the
         # ``RATIO_TO_RESOLUTION`` preset as before.
         assert (
             provider_with_key.resolve_effective_pixels(
-                "black-forest-labs/flux.2-pro", "4:5", "2K"
+                "black-forest-labs/flux-3-image", "4:5", "2K"
             )
             is None
         )
@@ -2739,11 +2820,13 @@ class TestMultiInput:
         assert (
             provider_with_key.max_input_images("bytedance-seed/seedream-5-0-pro") == 14
         )
-        # Specific prefix beats the family prefix: klein-4b is 4, flux is 8.
         assert (
-            provider_with_key.max_input_images("black-forest-labs/flux.2-klein-4b") == 4
+            provider_with_key.max_input_images("black-forest-labs/flux-3-image") == 10
         )
-        assert provider_with_key.max_input_images("black-forest-labs/flux.2-pro") == 8
+        assert (
+            provider_with_key.max_input_images("black-forest-labs/flux-3-image-klein")
+            == 10
+        )
         assert provider_with_key.max_input_images("sourceful/riverflow-v2.5-fast") == 4
         assert provider_with_key.max_input_images("sourceful/riverflow-v2.5-pro") == 10
         assert provider_with_key.max_input_images("krea/krea-2-medium") == 1

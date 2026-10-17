@@ -126,7 +126,7 @@ python imgedit.py photo.jpg --replay
 python imgedit.py --replay --model bytedance-seed/seedream-5-0-lite
 
 # Swap the provider too (case-insensitive):
-python imgedit.py --replay --provider openrouter --model black-forest-labs/flux.2-pro
+python imgedit.py --replay --provider openrouter --model black-forest-labs/flux-3-image
 ```
 
 `--model` / `--provider` are replay-only modifiers: the override is validated against the target provider's supported models **before** any network call, and the overridden request is saved as the new "last generation", so a further bare `--replay` repeats the successful attempt.
@@ -181,8 +181,8 @@ you pass more than the model accepts, only the first N are sent and priced
 
 **Input limits** (max reference images in one combined call, from OpenRouter's
 live capability descriptor; the built-in offline fallback matches it): GPT
-Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; Flux
-**8** (klein-4b **4**); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
+Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; FLUX 3
+**10** (both tiers); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
 Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
 trimmed and the summary says the limit is not advertised. On OpenRouter the limit comes from the
@@ -235,10 +235,10 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 14 images per call. The default Seed model.
     - `bytedance-seed/seedream-5-0-pro`: $0.045 (1K), $0.09 (2K), **capped at 2K** (no 4K). Input reference images cost a flat $0.003 each, up to 14 per call; single output image per call (`n` capped at 1 upstream). The editing-precision tier.
   - ~~`bytedance-seed/seedream-4.5`~~: removed in this release, superseded by Seedream 5.0 Lite — cheaper ($0.035 vs $0.04), same 4K ceiling and the same aspect ratios. Its nominal "1K" tier was never really 1K: the upstream floor of 3,686,400 px silently raised every 1K request to ~1920x1920, so you paid $0.04 for 3.69MP where Lite now gives 4.19MP for $0.035. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
-  - `black-forest-labs/flux.2-klein-4b`: $0.014 (1K), $0.017 (2K).
-  - `black-forest-labs/flux.2-flex`: Output $0.06 (1K), $0.24 (2K); Input $0.06/MP.
-  - `black-forest-labs/flux.2-pro`: Output $0.03 (1K), $0.075 (2K); Input $0.015/MP.
-  - `black-forest-labs/flux.2-max`: Output $0.07 (1K), $0.16 (2K); Input $0.03/MP.
+  - **FLUX 3 family** (both tiers share one descriptor: five resolution tiers — `768`, `1K`, `1.5K`, `2K`, `4K` — up to 10 input references, single image per call (`n` capped at 1 upstream). Billed on output only: no input-image surcharge):
+    - `black-forest-labs/flux-3-image-klein`: $0.008 (768), $0.009 (1K), $0.011 (1.5K), $0.014 (2K), $0.036 (4K). The open-weights, low-cost tier.
+    - `black-forest-labs/flux-3-image`: $0.041 (768), $0.048 (1K), $0.07 (1.5K), $0.10 (2K), $0.607 (4K). The flagship tier.
+  - ~~`black-forest-labs/flux.2-klein-4b`~~, ~~`flux.2-flex`~~, ~~`flux.2-pro`~~, ~~`flux.2-max`~~: removed in this release, superseded by the FLUX 3 family above (more resolution tiers, 10 references instead of 8, no per-megapixel input surcharge). Existing `.last_generation.json` entries that still point to them will refuse to replay with an explicit error.
   - **MAI Image 2.6 family** (both tiers share one descriptor: no resolution tiers — the model picks the output size from the aspect ratio (1:1, 2:3, 3:2, 3:4, 4:3, 9:16, 16:9) — up to 5 input references, single image per call (`n` capped at 1 upstream). Token-billed, so the pre-call figure is an estimate for a typical ~1MP image and `usage.cost` reports the real charge):
     - `microsoft/mai-image-2.6-flash`: output $19/Mtok, input image $2.50/Mtok, input text $1.75/Mtok (≈$0.08 per image) — the low-latency, high-throughput tier.
     - `microsoft/mai-image-2.6`: output $38/Mtok, input image $8/Mtok, input text $5/Mtok (≈$0.15 per image) — the precision tier, for design-ready visuals.
@@ -255,7 +255,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `krea/krea-2-medium-turbo`: $0.015 — distilled speed tier, for rapid iteration.
     - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.
     - `krea/krea-2-large`: $0.06 — 2x+ the size of Medium, lighter post-training: rawer, more textured.
-  - `meta/muse-image`: **$0.01 per image — the cheapest flat-priced model in the catalog.** (A `low`-quality GPT Image 2.5 render estimates lower still, but that family is token-billed: its price moves with quality and output size rather than being a flat per-image charge.) Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
+  - `meta/muse-image`: **$0.01 per image — the cheapest flat-priced model in the catalog after FLUX 3 Klein** ($0.008 at 768, $0.009 at 1K). (A `low`-quality GPT Image 2.5 render estimates lower still, but that family is token-billed: its price moves with quality and output size rather than being a flat per-image charge.) Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
 
     Unlike every other model here, OpenRouter publishes **no** capability descriptor and **no** endpoints entry for it, so everything below was measured against real calls (2026-09-12) rather than read from the API:
 

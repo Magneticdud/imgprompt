@@ -489,7 +489,7 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
 
     # OpenRouter is the only provider that reports usage.cost, so it's the only
     # one whose estimate feeds reconciliation. `n` variants ride in one call, so
-    # multiply the per-image quality cost. Input surcharges (Flux per-MP, Grok
+    # multiply the per-image quality cost. Input surcharges (per-MP, Grok
     # flat) aren't folded in here — the replay path keeps the estimate simple —
     # but this is still far closer than the previous verbatim carry-over of the
     # *source* model's cost.
@@ -1529,19 +1529,13 @@ def main():
             input_cost = 0.0
             if provider == "OpenRouter" and input_images:
                 model_costs = COSTS.get(model_choice, {})
-                input_mp_rate = (
-                    model_costs.get("input_mp_rate")
-                    if model_choice
-                    in [
-                        "black-forest-labs/flux.2-flex",
-                        "black-forest-labs/flux.2-pro",
-                        "black-forest-labs/flux.2-max",
-                    ]
-                    else None
-                )
+                # Per-megapixel input billing, for any COSTS row that
+                # declares it (none since FLUX.2 was retired; FLUX 3 bills
+                # output only).
+                input_mp_rate = model_costs.get("input_mp_rate")
                 # Flat per-input-image billing (e.g. Grok Imagine: $0.01 per
                 # reference image regardless of size), as opposed to the
-                # per-megapixel Flux rate above.
+                # per-megapixel rate above.
                 input_flat = model_costs.get("input_flat")
                 input_cost = input_cost_per_call(
                     input_images,
@@ -1584,7 +1578,7 @@ def main():
                     )
             else:
                 # Single-input mode: only show the Output/Input breakdown
-                # when there's an input cost (Flux models). A pure output
+                # when there's an input cost (e.g. Grok, Qwen). A pure output
                 # line next to Total would be a tautology.
                 if provider == "OpenRouter":
                     output_cost = final_cost * n_variants
