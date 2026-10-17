@@ -881,12 +881,12 @@ class TestDescriptorDriven:
         _patch_caps(
             monkeypatch,
             ModelCapabilities(
-                model="google/gemini-3.1-flash-image",
+                model="google/gemini-nano-banana-2.1",
                 resolutions=("512", "1K", "2K", "4K"),  # 512 has no COSTS row
             ),
         )
         choices, _ = provider_with_key.get_quality_choices(
-            "google/gemini-3.1-flash-image", "1024x1024", None, None, None
+            "google/gemini-nano-banana-2.1", "1024x1024", None, None, None
         )
         assert [c.split(" ")[0] for c in choices] == ["1K", "2K", "4K"]
 
@@ -895,7 +895,7 @@ class TestDescriptorDriven:
 
         _patch_caps(
             monkeypatch,
-            ModelCapabilities(model="google/gemini-3.1-flash-image", n_max=1),
+            ModelCapabilities(model="sourceful/riverflow-v2.5-fast", n_max=1),
         )
         with patch(
             "imgprompt.providers.openrouter_provider.requests.post"
@@ -903,7 +903,7 @@ class TestDescriptorDriven:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="google/gemini-3.1-flash-image",
+                model="sourceful/riverflow-v2.5-fast",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="1K",
@@ -3052,29 +3052,40 @@ class TestGeminiFlashLite:
 
 
 # --------------------------------------------------------------------------
-# Gemini 3.1 Flash Image (non-Lite). Google's model page documents the same
-# 14-ratio set as Lite (Nano Banana 2), so we expose it on OpenRouter.
-# Quality choices remain 1K/2K/4K (no 0.5K — left for a future change).
+# Nano Banana 2.1 (gemini-nano-banana-2.1), the Flash-tier successor to
+# Nano Banana 2 (gemini-3.1-flash-image, now retired). Its descriptor
+# advertises the same 14 ratios as Lite and 1K/2K/4K (no 512 tier).
 # 3-Pro Image stays on the conservative 10+21:9 list pending per-model
 # Google confirmation or a clean upstream test through OpenRouter.
 # --------------------------------------------------------------------------
 
 
-class TestGeminiFlashNonLite:
-    """Gemini 3.1 Flash Image (non-Lite): same 14-ratio surface as Lite.
-    Added when the OpenRouter gate was extended from Lite-only to Lite +
-    non-Lite Flash; mirrors the Lite tests so a future regression that
-    reverts the gate is caught here too.
+class TestNanoBanana21:
+    """Nano Banana 2.1: same 14-ratio surface as Lite, plus 2K/4K.
+    Mirrors the Lite tests so a regression that drops it from the
+    14-ratio gate is caught here too.
     """
 
     def test_flash_in_supported_models(self):
-        assert "google/gemini-3.1-flash-image" in OpenRouterProvider.supported_models()
+        assert "google/gemini-nano-banana-2.1" in OpenRouterProvider.supported_models()
+
+    def test_flash_offline_n_cap_is_one(self):
+        # Descriptor `n` range is 1..1; without live caps the prefix table
+        # must not fall through to the global cap and price 10 variants.
+        from imgprompt.providers.openrouter_provider import _max_n_for
+
+        assert _max_n_for("google/gemini-nano-banana-2.1") == 1
+
+    def test_flash_offline_costs_quote_every_tier(self):
+        from imgprompt.presets import COSTS
+
+        assert set(COSTS["google/gemini-nano-banana-2.1"]) == {"1K", "2K", "4K"}
 
     def test_flash_resolution_choices_exposes_all_14(self, provider_with_key):
         from imgprompt.presets import OPENROUTER_RESOLUTIONS
 
         choices, default = provider_with_key.get_resolution_choices(
-            "google/gemini-3.1-flash-image", None
+            "google/gemini-nano-banana-2.1", None
         )
         # Same 14-entry set Lite exposes (incl. 21:9 and the four extreme
         # ratios 1:4, 4:1, 1:8, 8:1). Pinned so a regression to the
@@ -3094,7 +3105,7 @@ class TestGeminiFlashNonLite:
         p = tmp_path / "wide.png"
         Image.new("RGB", (3200, 900), (10, 20, 30)).save(p)
         choices, default = provider_with_key.get_resolution_choices(
-            "google/gemini-3.1-flash-image", str(p)
+            "google/gemini-nano-banana-2.1", str(p)
         )
         assert (
             default == "4:1"
@@ -3108,15 +3119,15 @@ class TestGeminiFlashNonLite:
         from imgprompt.presets import OPENROUTER_RESOLUTIONS
 
         out = provider_with_key.resolve_resolution(
-            "google/gemini-3.1-flash-image", ratio
+            "google/gemini-nano-banana-2.1", ratio
         )
         assert out == (OPENROUTER_RESOLUTIONS[ratio], None, None)
 
     def test_flash_quality_choices_include_1k_2k_4k(self, provider_with_key):
-        # Regression pin: extending the ratio set must not silently drop
-        # any of the three resolution tiers.
+        # Regression pin: all three tiers, and no 512 (2.1 dropped the
+        # tier Nano Banana 2 had).
         choices, default = provider_with_key.get_quality_choices(
-            "google/gemini-3.1-flash-image",
+            "google/gemini-nano-banana-2.1",
             "1024x1024",
             None,
             None,
@@ -3151,7 +3162,7 @@ class TestGeminiFlashNonLite:
         # (no size shorthand; resolution tier still forwarded).
         req = GenerationRequest(
             prompt="x",
-            model="google/gemini-3.1-flash-image",
+            model="google/gemini-nano-banana-2.1",
             aspect_ratio="4:1",
             res_key="2048x512",
             quality_key="1K",
@@ -3179,6 +3190,7 @@ class TestGeminiFlashNonLite:
         "openai/gpt-5.4-image-2",
         "bytedance-seed/seedream-4.5",
         "google/gemini-2.5-flash-image",  # upstream shutdown 2 Oct 2026
+        "google/gemini-3.1-flash-image",  # superseded by Nano Banana 2.1
     ],
 )
 def test_retired_models_stay_out_of_the_picker(retired):

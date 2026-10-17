@@ -1,6 +1,6 @@
 # Multi-Model Image Editor
 
-A simple tool to edit or create images using various models via API (OpenAI, Google, Black Forest Labs, Bytedance, Sourceful, Stable Diffusion XL, etc.) via a terminal user interface (TUI).
+A simple tool to edit or create images using various models via API (OpenAI, Google via OpenRouter, Black Forest Labs, Bytedance, Sourceful, Stable Diffusion XL, etc.) via a terminal user interface (TUI).
 
 ## Features
 - Direct image path input via CLI.
@@ -26,7 +26,6 @@ A simple tool to edit or create images using various models via API (OpenAI, Goo
    # Optional: dedicated key for image generation (separate billing).
    # When set, the OpenAI provider uses it instead of OPENAI_API_KEY.
    # OPENAI_IMAGE_API_KEY=your_openai_image_key
-   GOOGLE_API_KEY=your_google_key
    OPENROUTER_API_KEY=your_openrouter_key
    OVH_AI_ENDPOINTS_ACCESS_TOKEN=your_ovh_token
    ```
@@ -181,7 +180,7 @@ you pass more than the model accepts, only the first N are sent and priced
 
 **Input limits** (max reference images in one combined call, from OpenRouter's
 live capability descriptor; the built-in offline fallback matches it): GPT
-Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini 3.x image **14**; FLUX 3
+Image 2.5 **16**; Seedream 5.0 Lite/Pro **14**; Gemini image (Nano Banana) **14**; FLUX 3
 **10** (both tiers); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
 Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea K3 Edit **8**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
@@ -189,9 +188,9 @@ trimmed and the summary says the limit is not advertised. On OpenRouter the limi
 model's live capability descriptor (`supported_parameters.input_references`)
 when discovery is available; the built-in table in
 `imgprompt/providers/openrouter_provider.py` is the offline fallback. The
-direct providers have no comparable endpoint, so they mirror the equivalent
-OpenRouter models: **OpenAI 16**, **Google 14** (every model each offers
-belongs to that family — `gpt-image-*` and Gemini 3.x image respectively).
+direct OpenAI provider has no comparable endpoint, so it mirrors the
+equivalent OpenRouter models: **16** (every model it offers is a
+`gpt-image-*`).
 **OVH** is text-to-image only and accepts no input images.
 
 ### Inline Preview
@@ -211,13 +210,13 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
   - The **2.5 pair** differs from `gpt-image-2` only in the quality ladder, which gained two rungs and shifted down one. At 1024x1024: $0.0059 (`low`), $0.0132 (`medium`), $0.0527 (`high`), $0.0937 (`xhigh`), $0.2107 (`max`) — against `gpt-image-2`'s $0.0059 (`Low`), $0.0527 (`Medium`), $0.2107 (`High`). ⚠️ So **the same quality name costs 4x less on 2.5**: its `high` does the work `gpt-image-2` called `medium`, and its `max` what `gpt-image-2` called `high`. Switching models without adjusting the quality name is the easy mistake. `sunburst` is the precision default; `flare` costs exactly the same per image (verified: identical token count and charge) and is the faster tier.
    - The same two models are also reachable through OpenRouter (`openai/gpt-image-2.5-*`), where they are priced identically — both routes share one pricing path. Note the billing route differs: OpenRouter `openai/*` calls always bill via `OPENROUTER_API_KEY`; `OPENAI_IMAGE_API_KEY` applies only to the direct OpenAI provider.
   - ⚠️ **Note**: `gpt-image-2` is also available on OpenRouter, but requests are sent server-side with quality set to `high`, making it significantly more expensive than using OpenAI directly.
-- **Google (Nano Banana)** (direct or via OpenRouter):
-  - `gemini-3.1-flash-lite-image`: $0.034 per image. **1K only**, supports all 14 aspect ratios of the Gemini 3.x family (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 + 1:4, 4:1, 1:8, 8:1). Cheapest 1K option — recommended when 2K/4K isn't needed.
-  - `gemini-3.1-flash-image`: $0.07 (1K), $0.10 (2K), $0.15 (4K).
-  - `gemini-3-pro-image`: $0.15 (1K/2K) or $0.25 (4K).
-  - ~~`gemini-2.5-flash-image`~~: removed in this release. Google retires it on 2 Oct 2026; existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
+- **Google (Nano Banana)** (via OpenRouter only):
+  - `google/gemini-nano-banana-2.1` (Nano Banana 2.1): $0.034 (1K), $0.05 (2K), $0.113 (4K). All 14 aspect ratios of the Gemini image family (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 + 1:4, 4:1, 1:8, 8:1), up to 14 input references, one image per call. Billed per output token at half Nano Banana 2's rate; the 4K figure is Google's published price and sits above the token arithmetic (~$0.076), so the estimate errs high.
+  - `google/gemini-3.1-flash-lite-image` (Nano Banana 2 Lite): $0.034 per image. **1K only**, same 14 ratios. Same price as 2.1 at 1K; pick it for speed.
+  - `google/gemini-3-pro-image` (Nano Banana Pro): $0.14 (1K/2K) or $0.25 (4K).
+  - Discontinued: `gemini-3.1-flash-image` (Nano Banana 2, superseded by 2.1 at half the price) and `gemini-2.5-flash-image` (shut down by Google on 2 Oct 2026). Existing `.last_generation.json` entries that still point to either refuse to replay with an explicit error.
 
-  > ⚠️ **Google direct API is currently untested.** Only the OpenRouter path is verified end-to-end in this project — the `Google` provider in `imgprompt/providers/google_provider.py` prints a banner on first use and may drift from Google's API without warning. Prefer the OpenRouter route for Gemini unless you have a specific reason to hit Google's API directly.
+  > The direct Google provider (`GOOGLE_API_KEY`, `google-genai`) has been removed: it was never verified end to end, and OpenRouter is the only tested route to Gemini. Replays saved under the old `Google` provider refuse to run; start a new generation and pick the model under OpenRouter.
 - **OpenRouter**:
   - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.5-sunburst` is the default OpenRouter model**, matching the direct OpenAI provider):
 
@@ -288,7 +287,7 @@ The wizard's OpenRouter ratio/resolution choices and prices are driven by OpenRo
 - Flat per-image prices come from each model's `/endpoints` pricing when available, so the wizard estimate tracks OpenRouter price changes; token-billed models keep the hardcoded estimates.
 - After each call, if the provider-reported `usage.cost` differs from the wizard estimate by more than 10%, a warning line is printed. When the estimate came from the hardcoded tables, that likely means a price in `imgprompt/presets.py` drifted; when it came from live pricing, it means the billed cost includes something the estimate didn't model (e.g. input-image charges) — worth a look either way.
 
-OpenAI, Google direct and OVH expose no comparable pricing/capability API, so their tables stay hardcoded on purpose.
+OpenAI and OVH expose no comparable pricing/capability API, so their tables stay hardcoded on purpose.
 
 ## Testing
 The pure logic (dimension/DPI math, pricing-token estimates, image helpers, and

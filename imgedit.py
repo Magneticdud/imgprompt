@@ -52,13 +52,11 @@ from imgprompt.images import (
 from imgprompt.history import save_last_generation, load_last_generation
 from imgprompt.providers.base import GenerationRequest
 from imgprompt.providers.openai_provider import OpenAIProvider
-from imgprompt.providers.google_provider import GoogleProvider
 from imgprompt.providers.openrouter_provider import OpenRouterProvider
 from imgprompt.providers.ovh_provider import OVHProvider
 
 PROVIDER_MAP = {
     OpenAIProvider.provider_name(): OpenAIProvider,
-    GoogleProvider.provider_name(): GoogleProvider,
     OpenRouterProvider.provider_name(): OpenRouterProvider,
     OVHProvider.provider_name(): OVHProvider,
 }
@@ -300,6 +298,13 @@ def run_replay(
     provider_cls = PROVIDER_MAP.get(provider)
     if provider_cls is None:
         print(f"Error: unknown provider in saved generation: {provider}")
+        if provider == "Google":
+            # The direct Google provider was removed; Gemini models are
+            # reachable only through OpenRouter now.
+            print(
+                "The direct Google provider has been removed; run the wizard "
+                "again and pick a Gemini model under OpenRouter."
+            )
         sys.exit(1)
 
     if model_override:
@@ -308,7 +313,7 @@ def run_replay(
     # Catch retired-model references (e.g. .last_generation.json saved when
     # gemini-2.5-flash-image was still shipped) AND bad --model overrides.
     # Without this we'd POST to the upstream API and surface a cryptic 404
-    # from OpenRouter / Google. Better to bail early with an actionable
+    # from OpenRouter. Better to bail early with an actionable
     # message, before any network call. We check *before* constructing a
     # provider instance: a side-effecting constructor on a stale-model
     # OVHProvider could otherwise noisily fail.
@@ -1085,7 +1090,7 @@ def input_cost_per_call(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GPT-Image & Gemini Image Editor")
+    parser = argparse.ArgumentParser(description="Multi-provider AI Image Editor")
     parser.add_argument(
         "images",
         nargs="*",
@@ -1569,7 +1574,7 @@ def main():
                     print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
                 else:
                     # Only OpenRouter delivers `n` variants in one HTTP call.
-                    # For Google/OVH the wizard forces n_variants=1 anyway;
+                    # For OVH the wizard forces n_variants=1 anyway;
                     # here we keep the cost math honest if someone calls
                     # directly with a GenerationRequest having n>1.
                     if provider == "OpenRouter":

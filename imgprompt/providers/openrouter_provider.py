@@ -59,6 +59,7 @@ _MODEL_MAX_N_PREFIXES = {
     "bytedance-seed/seedream-5-0-pro": 1,
     "x-ai/grok-imagine-image-2.0": 1,
     "black-forest-labs/": 1,  # FLUX 3 family: descriptor `n` range 1..1
+    "google/": 1,  # Gemini image family: descriptor `n` range 1..1
 }
 
 
@@ -90,7 +91,7 @@ _MODEL_MAX_INPUT_PREFIXES = {
     # Riverflow: pro caps at 10, fast at 4.
     "sourceful/riverflow-v2.5-pro": 10,
     "sourceful/": 4,
-    "google/": 14,  # Gemini 3.x image family
+    "google/": 14,  # Gemini image family (Nano Banana 2.1, Pro, 2 Lite)
     "qwen/": 4,  # Qwen Image 3 and 2.1 Turbo
     "x-ai/grok-imagine-image-2.0": 3,
     "krea/k3-edit": 8,  # must precede the family prefix below
@@ -574,11 +575,8 @@ class OpenRouterProvider(ImageProvider):
     def provider_name(cls) -> str:
         return "OpenRouter"
 
-    # Order is mostly flat (one entry per upstream provider). Within the
-    # Google trio we keep non-Lite Flash first and Lite last — mirroring the
-    # Google provider — so the model *order* in pickers is consistent across
-    # the two providers even though OpenRouter's overall default is
-    # `openai/gpt-image-2.5-sunburst` (first entry).
+    # Order is mostly flat (one entry per upstream provider); the overall
+    # default is `openai/gpt-image-2.5-sunburst` (first entry).
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
@@ -601,7 +599,11 @@ class OpenRouterProvider(ImageProvider):
             "black-forest-labs/flux-3-image",
             "sourceful/riverflow-v2.5-fast",
             "sourceful/riverflow-v2.5-pro",
-            "google/gemini-3.1-flash-image",
+            # Gemini image family. Nano Banana 2.1 supersedes Nano Banana 2
+            # (gemini-3.1-flash-image) outright: same 14 ratios and 1K-4K
+            # tiers at half the per-token rate, so 2 is retired. Lite stays
+            # as the 1K-only fast tier, Pro as the premium one.
+            "google/gemini-nano-banana-2.1",
             "google/gemini-3-pro-image",
             "google/gemini-3.1-flash-lite-image",
             # MAI 2.6 family, cheaper tier first (flash ≈$0.08 → 2.6 ≈$0.15).
@@ -642,12 +644,11 @@ class OpenRouterProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import OPENROUTER_RESOLUTIONS, OPENROUTER_STANDARD_RATIOS
 
-        # Google's model page documents all 14 Gemini 3.x image ratios for
-        # both non-Lite Flash and Lite (Nano Banana 2):
-        # https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-image
-        # OpenRouter's /api/v1/images is a pass-through with provider-side
-        # clamping ("Providers clamp to their supported subset"), so the
-        # upstream allowlist is the only real gate. 3-Pro Image's model
+        # The descriptors of Nano Banana 2.1 and 2 Lite both advertise all
+        # 14 Gemini image ratios (verified 2026-10-17). OpenRouter's
+        # /api/v1/images is a pass-through with provider-side clamping
+        # ("Providers clamp to their supported subset"), so the upstream
+        # allowlist is the only real gate. 3-Pro Image's model
         # page only links back to the family-level docs without enumerating
         # the ratios, so we keep it on the conservative 10+21:9 list until
         # either Google lists them per-model or we verify against real
@@ -657,7 +658,7 @@ class OpenRouterProvider(ImageProvider):
             # for why the generic fallback below is wrong for this family.
             ratio_options = list(_GPT_IMAGE_25_RATIOS)
         elif model in (
-            "google/gemini-3.1-flash-image",
+            "google/gemini-nano-banana-2.1",
             "google/gemini-3.1-flash-lite-image",
         ):
             ratio_options = list(OPENROUTER_RESOLUTIONS.keys())
@@ -855,8 +856,10 @@ class OpenRouterProvider(ImageProvider):
             sizes = ["768", "1K", "1.5K", "2K", "4K"]
         elif model in (
             "google/gemini-3-pro-image",
-            "google/gemini-3.1-flash-image",
+            "google/gemini-nano-banana-2.1",
         ):
+            # 2.1 drops the 512 tier Nano Banana 2 had: its `resolution`
+            # enum is exactly 1K/2K/4K (verified 2026-10-17).
             sizes = ["1K", "2K", "4K"]
         elif model == "google/gemini-3.1-flash-lite-image":
             # Nano Banana 2 Lite is documented as 1K-only — cheap is the

@@ -340,20 +340,30 @@ def validate_gpt_image2_dims(width, height):
 
 # Pricing constants (approximate, for reference only)
 COSTS = {
-    "gemini-3.1-flash-image": {
-        "1K": {"fixed": 0.07},
-        "2K": {"fixed": 0.10},
-        "4K": {"fixed": 0.15},
+    # Gemini image family (Nano Banana), OpenRouter only since the direct
+    # Google provider was removed. All three are token-billed upstream, so
+    # live pricing never overrides these: the per-image figures below are
+    # what the wizard quotes.
+    #
+    # Nano Banana 2.1: billed $0.00003/output token (verified 2026-10-17
+    # against /endpoints), half Nano Banana 2's rate, which it replaces.
+    # 1K/2K follow the family's 1120/1680-token counts; 4K uses the
+    # $0.113 Google publishes rather than the 2520-token arithmetic
+    # ($0.076), so the estimate errs high rather than low.
+    "google/gemini-nano-banana-2.1": {
+        "1K": {"fixed": 0.034},
+        "2K": {"fixed": 0.05},
+        "4K": {"fixed": 0.113},
     },
-    "gemini-3-pro-image": {
+    "google/gemini-3-pro-image": {
         "1K": {"fixed": 0.14},
         "2K": {"fixed": 0.14},
         "4K": {"fixed": 0.25},
     },
     # Nano Banana 2 Lite: 1K only, all 14 aspect ratios of the Gemini 3.x
-    # image family. Cheapest 1K option — supersedes the now-removed
-    # gemini-2.5-flash-image.
-    "gemini-3.1-flash-lite-image": {
+    # image family. Same per-token rate as 2.1, so at 1K the two cost the
+    # same; Lite stays for its speed.
+    "google/gemini-3.1-flash-lite-image": {
         "1K": {"fixed": 0.034},
     },
     # Riverflow 2.5, re-verified 2026-09-11 against /endpoints. Both tiers
@@ -406,14 +416,6 @@ COSTS = {
         "4K": {"fixed": 0.607},
     },
 }
-
-# OpenRouter prefixed versions for Gemini models
-# OpenRouter-prefixed Gemini models (share COSTS entries with their bare-name
-# counterparts so the wizard — which only ever sees raw model IDs — works the
-# same on both providers).
-COSTS["google/gemini-3.1-flash-image"] = COSTS["gemini-3.1-flash-image"]
-COSTS["google/gemini-3-pro-image"] = COSTS["gemini-3-pro-image"]
-COSTS["google/gemini-3.1-flash-lite-image"] = COSTS["gemini-3.1-flash-lite-image"]
 
 
 # OpenRouter OpenAI models (using token-based pricing like gpt-image-2).
@@ -599,7 +601,6 @@ RATIO_TO_RESOLUTION = {
     "8:1": "4096x512",
 }
 
-GEMINI_RESOLUTIONS = RATIO_TO_RESOLUTION
 OPENROUTER_RESOLUTIONS = RATIO_TO_RESOLUTION
 
 OPENROUTER_STANDARD_RATIOS = [

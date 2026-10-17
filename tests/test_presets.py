@@ -248,7 +248,6 @@ class TestCostsTable:
         import re-execs into .venv and loads .env; a new provider with COSTS
         rows fails here until it is added."""
         from imgprompt.presets import COSTS
-        from imgprompt.providers.google_provider import GoogleProvider
         from imgprompt.providers.openai_provider import OpenAIProvider
         from imgprompt.providers.openrouter_provider import OpenRouterProvider
         from imgprompt.providers.ovh_provider import OVHProvider
@@ -256,7 +255,6 @@ class TestCostsTable:
         supported = {
             model
             for provider in (
-                GoogleProvider,
                 OpenAIProvider,
                 OpenRouterProvider,
                 OVHProvider,

@@ -24,9 +24,9 @@ session only (one request per model actually selected).
 Failure policy everywhere: degrade to "no live data" — callers keep their
 hardcoded behaviour — and never print more than one note per session.
 
-NOTE: only OpenRouter gets live discovery. OpenAI, Google direct and OVH
-expose no comparable pricing/capability API, so their tables in
-presets.py stay hardcoded on purpose.
+NOTE: only OpenRouter gets live discovery. OpenAI and OVH expose no
+comparable pricing/capability API, so their tables in presets.py stay
+hardcoded on purpose.
 """
 
 import json
