@@ -68,6 +68,38 @@ def _max_n_for(model: str) -> int:
     return _MAX_N
 
 
+# Per-model cap on the number of INPUT reference images accepted in one
+# combined call. This is the offline/cache-miss fallback for the live
+# `input_references` range in each model's capability descriptor; the
+# descriptor always wins when discovery is available (see
+# `OpenRouterProvider.max_input_images`).
+#
+# Figures mirror a live survey of /api/v1/images/models on 2026-10-04 (57
+# models), covering every model this provider offers. Entries are prefixes
+# checked in insertion order, so a specific id/prefix MUST precede the
+# family prefix it belongs to (klein before the flux family, riverflow-pro
+# before sourceful). Absence from the table means "no bound advertised" ->
+# None, so the wizard says so instead of inventing a limit. `meta/` is
+# deliberately absent: its descriptor advertises no `input_references`, and a
+# made-up cap would silently drop IMG_2 from dual mode, which main sends.
+_MODEL_MAX_INPUT_PREFIXES = {
+    "openai/": 16,  # gpt-image / gpt-5-image families
+    "microsoft/mai-image-2.6": 5,  # covers the flash tier too
+    "bytedance-seed/": 14,  # Seedream 5.0 Lite and Pro (README's old "4" was stale)
+    # Flux: klein-4b caps at 4, the rest of the family at 8.
+    "black-forest-labs/flux.2-klein": 4,
+    "black-forest-labs/": 8,
+    # Riverflow: pro caps at 10, fast at 4.
+    "sourceful/riverflow-v2.5-pro": 10,
+    "sourceful/": 4,
+    "google/": 14,  # Gemini 3.x image family
+    "qwen/": 4,  # Qwen Image 3 family
+    "x-ai/grok-imagine-image-2.0": 3,
+    "krea/": 1,  # Krea 2 family
+    "recraft/": 1,  # Recraft v4.1 family
+}
+
+
 # (connect_timeout, read_timeout) for POST /api/v1/images. The legacy adapter
 # inherited the OpenAI SDK's built-in defaults; bare `requests.post` has no
 # timeout by default, so without this the CLI would hang indefinitely on
@@ -963,6 +995,17 @@ class OpenRouterProvider(ImageProvider):
     def supports_dual(self) -> bool:
         return True
 
+    def max_input_images(self, model: str) -> int | None:
+        """Max input references for a model: live descriptor first, then the
+        hardcoded per-family table, else None (no advertised bound)."""
+        caps = get_capabilities(model)
+        if caps is not None and caps.input_refs_max is not None:
+            return caps.input_refs_max
+        for prefix, cap in _MODEL_MAX_INPUT_PREFIXES.items():
+            if model.startswith(prefix):
+                return cap
+        return None
+
     def preflight_warnings(
         self, model: str, aspect_ratio: str | None, quality_key: str | None
     ) -> list[str]:
@@ -1037,10 +1080,11 @@ class OpenRouterProvider(ImageProvider):
     def _run_variants(self, request: GenerationRequest) -> None:
         """Single-call path: returns 1..N images depending on request.n.
 
-        Used for text-to-image (no input image), 1-image edits, and dual
-        mode (both input images as input_references of the same call).
-        Server-side batching via the `n` parameter means a single HTTP call
-        yields all variants in parallel instead of looping N times.
+        Used for text-to-image (no input image), 1-image edits, and combined
+        mode (all input images as input_references of the same call — dual for
+        exactly 2, multi for 3+). Server-side batching via the `n` parameter
+        means a single HTTP call yields all variants in parallel instead of
+        looping N times.
         """
         n = max(1, min(_MAX_N, getattr(request, "n", 1)))
         img_paths = request.images or None
@@ -1333,20 +1377,18 @@ class OpenRouterProvider(ImageProvider):
         """
         caps = get_capabilities(request.model)
 
-        # Per-model input_references cap (descriptor-driven): trim instead
-        # of letting upstream 400 on "too many references".
-        if (
-            img_paths
-            and caps
-            and caps.input_refs_max is not None
-            and len(img_paths) > caps.input_refs_max
-        ):
+        # Per-model input_references cap: trim instead of letting upstream
+        # 400 on "too many references". Descriptor-driven when discovery is
+        # available, with the hardcoded per-family table as the offline
+        # fallback (see max_input_images).
+        input_limit = self.max_input_images(request.model)
+        if img_paths and input_limit is not None and len(img_paths) > input_limit:
             print(
                 f"\n[OpenRouter] {request.model} accepts at most "
-                f"{caps.input_refs_max} input reference(s); using the first "
-                f"{caps.input_refs_max} of {len(img_paths)}."
+                f"{input_limit} input reference(s); using the first "
+                f"{input_limit} of {len(img_paths)}."
             )
-            img_paths = img_paths[: caps.input_refs_max]
+            img_paths = img_paths[:input_limit]
 
         payload = self._build_payload(request, img_paths=img_paths)
         requested_n = max(1, min(_max_n_for(request.model), n))

@@ -155,6 +155,124 @@ class TestRecraftDefaults:
         assert first.value == "vector_illustration"
 
 
+class TestInputCostPerCall:
+    """Input-image cost of ONE call: combined sums its images, batch is one
+    image per call (so per-call x N must equal the true total, not N^2)."""
+
+    @staticmethod
+    def _imgs(tmp_path, sizes):
+        from PIL import Image
+
+        paths = []
+        for i, size in enumerate(sizes):
+            p = tmp_path / f"{i}.png"
+            Image.new("RGB", size).save(p)
+            paths.append(str(p))
+        return paths
+
+    def test_batch_per_call_times_n_is_the_true_total(self, tmp_path):
+        imgs = self._imgs(tmp_path, [(1000, 1000), (2000, 1000), (1000, 3000)])
+        per_call = imgedit.input_cost_per_call(
+            imgs, mp_rate=0.06, flat_rate=None, batch=True
+        )
+        assert per_call * len(imgs) == pytest.approx(0.06 * (1 + 2 + 3))
+
+    def test_combined_sums_every_image_in_the_call(self, tmp_path):
+        imgs = self._imgs(tmp_path, [(1000, 1000)] * 3)
+        assert imgedit.input_cost_per_call(
+            imgs, mp_rate=0.06, flat_rate=None, batch=False
+        ) == pytest.approx(0.18)
+
+    def test_combined_prices_only_images_left_after_trim(self, tmp_path):
+        imgs = self._imgs(tmp_path, [(1000, 1000)] * 5)
+        assert imgedit.input_cost_per_call(
+            imgs, mp_rate=None, flat_rate=0.01, batch=False, input_limit=3
+        ) == pytest.approx(0.03)
+
+    def test_batch_flat_rate_is_one_image_per_call(self, tmp_path):
+        imgs = self._imgs(tmp_path, [(10, 10)] * 4)
+        assert imgedit.input_cost_per_call(
+            imgs, mp_rate=None, flat_rate=0.01, batch=True
+        ) == pytest.approx(0.01)
+
+    def test_no_rates_is_free(self, tmp_path):
+        imgs = self._imgs(tmp_path, [(10, 10)] * 2)
+        assert (
+            imgedit.input_cost_per_call(imgs, mp_rate=None, flat_rate=None, batch=False)
+            == 0.0
+        )
+
+
+class TestSelectInputsCombinedOrder:
+    """The checkbox returns picks in listing order; the user must still be
+    able to choose which image is IMG_1."""
+
+    def test_chosen_first_image_becomes_img_1(self, monkeypatch):
+        monkeypatch.setattr(
+            imgedit, "get_images_in_cwd", lambda: ["a.png", "b.png", "c.png"]
+        )
+        monkeypatch.setattr(imgedit, "load_last_generation", lambda: None)
+        answers = iter([imgedit.MULTI_INPUT_OPTION, "c.png"])
+        monkeypatch.setattr(
+            imgedit.questionary,
+            "select",
+            lambda *a, **k: _FakeQuestion(next(answers)),
+        )
+        monkeypatch.setattr(
+            imgedit.questionary,
+            "checkbox",
+            lambda *a, **k: _FakeQuestion(["a.png", "c.png"]),
+        )
+        paths, combined, replay = imgedit.select_inputs(None)
+        assert paths == ["c.png", "a.png"]
+        assert combined is True
+        assert replay is None
+
+
+class TestStepPromptLists:
+    """The prompt list offered depends on the combined-image mode: dual for
+    exactly 2, multi for 3+."""
+
+    def _capture(self, monkeypatch, input_images, combined):
+        captured = {}
+
+        def fake_select(message, choices=None, **kwargs):
+            captured["titles"] = [
+                c.title if hasattr(c, "title") else c for c in choices
+            ]
+            return _FakeQuestion(None)
+
+        monkeypatch.setattr(imgedit.questionary, "select", fake_select)
+        imgedit.step_prompt(input_images, combined)
+        return captured
+
+    @staticmethod
+    def _title(prompt: str) -> str:
+        # Mirror the exact title transform step_prompt applies.
+        title = prompt.replace("\n", " ").strip()
+        if len(title) > 100:
+            title = title[:97] + "..."
+        return title
+
+    def test_three_combined_images_use_multi_presets(self, monkeypatch):
+        from imgprompt.presets import PRESET_PROMPTS_MULTI
+
+        captured = self._capture(monkeypatch, ["a.jpg", "b.jpg", "c.jpg"], True)
+        assert self._title(PRESET_PROMPTS_MULTI[0]) in captured["titles"]
+
+    def test_two_combined_images_use_dual_presets(self, monkeypatch):
+        from imgprompt.presets import PRESET_PROMPTS_DUAL
+
+        captured = self._capture(monkeypatch, ["a.jpg", "b.jpg"], True)
+        assert self._title(PRESET_PROMPTS_DUAL[0]) in captured["titles"]
+
+    def test_single_image_uses_edit_presets(self, monkeypatch):
+        from imgprompt.presets import PRESET_PROMPTS_EDIT
+
+        captured = self._capture(monkeypatch, ["a.jpg"], False)
+        assert self._title(PRESET_PROMPTS_EDIT[0]) in captured["titles"]
+
+
 # --------------------------------------------------------------------------
 # --replay --model/--provider override (issue #12)
 # --------------------------------------------------------------------------
