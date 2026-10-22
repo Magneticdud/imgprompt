@@ -12,3 +12,4 @@ __pycache__
 !gui/app/icons/*.png
 gui/target/
 gui/app/gen/
+gui/dist/

@@ -12,10 +12,18 @@ use imgprompt_core::images::image_extension;
 use imgprompt_core::{all_providers, provider_by_name, Choices, GenerationRequest, ImageProvider};
 use serde::Serialize;
 
-/// Prototype shortcut: the repo root is located from the source tree, so
-/// `.env` and `.last_generation.json` are shared with the Python CLI.
+/// Where `.env` and `.last_generation.json` live. Run from the source tree,
+/// that is the repo root, so both are shared with the Python CLI; a copied
+/// binary (e.g. the Windows build) uses its own folder instead.
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if source_root.join("imgedit.py").exists() {
+        return source_root;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn provider(name: &str) -> Result<Box<dyn ImageProvider>, String> {
