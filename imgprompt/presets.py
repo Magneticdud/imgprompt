@@ -498,9 +498,11 @@ COSTS["krea/k3-edit"] = {
 # references are free and live pricing cannot quote a per-image figure —
 # this table is the only estimate source. The token count per image is NOT
 # published; the rows assume one token per 16x16 pixel block (1K = 4,096
-# tokens), i.e. tier pixels / 256 x $1.6/Mtok. Not yet confirmed by a real
-# call: usage.cost is the authoritative charge, and the >10% reconciliation
-# warning will flag it if the assumption is wrong.
+# tokens), i.e. tier pixels / 256 x $1.6/Mtok, for a SQUARE output. The tier
+# names the long edge, so the provider scales these by short/long edge for
+# other ratios. One real call (2026-10-22, 4K on 4:1 -> 4096x1024) billed
+# 15,000 tokens / $0.024 against the scaled estimate of 16,384 / $0.0262:
+# ~8.5% high, inside the >10% reconciliation threshold.
 COSTS["tencent/hy-image-v3.5-preview"] = {
     "1K": {"fixed": 0.0066},  # 1024² / 256 = 4,096 tokens
     "1.5K": {"fixed": 0.0147},  # 1536² / 256 = 9,216 tokens

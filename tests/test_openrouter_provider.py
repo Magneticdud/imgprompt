@@ -1276,6 +1276,22 @@ class TestTencentHyImage:
         assert prices == sorted(prices)
         assert "input_flat" not in row
 
+    def test_estimate_scales_with_aspect_ratio(self, provider_with_key):
+        # The tier names the long edge: 4K on 4:1 is 4096x1024, a quarter of
+        # the square's pixels (real call 2026-10-22 billed $0.024).
+        from imgprompt.presets import COSTS
+
+        square = COSTS[_HY]["4K"]["fixed"]
+        _, cost = provider_with_key.resolve_quality(
+            _HY, "2048x512", None, None, "4K ($0.026)"
+        )
+        assert cost == pytest.approx(square / 4)
+        assert abs(cost - 0.024) / 0.024 < 0.10
+        _, cost = provider_with_key.resolve_quality(
+            _HY, "1024x1024", None, None, "4K ($0.105)"
+        )
+        assert cost == pytest.approx(square)
+
     def test_input_limit_fallback(self, provider_with_key):
         assert provider_with_key.max_input_images(_HY) == 20
         assert provider_with_key.min_input_images(_HY) == 0

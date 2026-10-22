@@ -236,6 +236,18 @@ _QWEN_RATIOS = [
 # output only; see the COSTS row for how the per-tier estimate is derived.
 _TENCENT_MODELS = ("tencent/hy-image-v3.5-preview",)
 
+
+def _short_long_fraction(res_key: str | None) -> float:
+    """Short edge / long edge of a "WxH" res_key; 1.0 when unparseable."""
+    try:
+        w, h = (int(v) for v in (res_key or "").split("x"))
+    except ValueError:
+        return 1.0
+    if w <= 0 or h <= 0:
+        return 1.0
+    return min(w, h) / max(w, h)
+
+
 # Meta Muse Image on /api/v1/images. The odd one out of the whole catalog:
 # its capability descriptor is EMPTY (`supported_parameters: {}`) and
 # /api/v1/images/models/meta/muse-image/endpoints returns `{"endpoints":
@@ -1004,7 +1016,7 @@ class OpenRouterProvider(ImageProvider):
         floor = _MODEL_PIXEL_FLOORS.get(model)
         choices = []
         for s in sizes:
-            label = f"{s} (${self._tier_price(model, s):.3f})"
+            label = f"{s} (${self._tier_price(model, s, res_key):.3f})"
             # Pre-flight signal for tiers the upstream floor overrides: the
             # user should know before confirming that the output will be
             # larger than the tier name suggests. No shipped model triggers
@@ -1016,7 +1028,7 @@ class OpenRouterProvider(ImageProvider):
             choices.append(label)
         return choices, choices[0]
 
-    def _tier_price(self, model: str, tier: str) -> float:
+    def _tier_price(self, model: str, tier: str, res_key: str | None = None) -> float:
         """Per-image price for a tier: live OpenRouter pricing when the
         model is flat-priced per image (issue #3), hardcoded COSTS estimate
         otherwise (token-billed models, network down)."""
@@ -1025,7 +1037,13 @@ class OpenRouterProvider(ImageProvider):
         live = output_image_price(model, tier)
         if live is not None:
             return live
-        return COSTS[model][tier]["fixed"]
+        price = COSTS[model][tier]["fixed"]
+        if model in _TENCENT_MODELS:
+            # The COSTS rows price the square case. Hy Image's tier names the
+            # LONG edge (4K on 4:1 came back 4096x1024, not 4096x4096), and
+            # billing is per output token, so scale by short/long edge.
+            price *= _short_long_fraction(res_key)
+        return price
 
     def resolve_quality(
         self,
@@ -1052,7 +1070,7 @@ class OpenRouterProvider(ImageProvider):
             return quality_key, gpt_image_2_quality_cost(
                 width_px, height_px, quality_key, q_map
             )
-        return quality_key, self._tier_price(model, quality_key)
+        return quality_key, self._tier_price(model, quality_key, res_key)
 
     @property
     def supports_batch(self) -> bool:
