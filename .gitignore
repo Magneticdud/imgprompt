@@ -9,3 +9,6 @@ __pycache__
 .env
 .last_generation.json
 .cache/
+!gui/app/icons/*.png
+gui/target/
+gui/app/gen/

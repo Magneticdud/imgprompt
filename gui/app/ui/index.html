@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>imgprompt</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="settings">
+      <header class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">imgprompt</span>
+      </header>
+
+      <section class="field">
+        <h2>Provider</h2>
+        <div class="chips" id="providers" role="radiogroup" aria-label="Provider"></div>
+        <p class="note" id="status-note"></p>
+      </section>
+
+      <section class="field">
+        <h2>Model</h2>
+        <div class="chips chips-stack" id="models" role="radiogroup" aria-label="Model"></div>
+      </section>
+
+      <section class="field">
+        <h2>Aspect ratio</h2>
+        <div class="chips" id="resolutions" role="radiogroup" aria-label="Aspect ratio"></div>
+      </section>
+
+      <section class="field">
+        <h2>Quality</h2>
+        <div class="chips" id="qualities" role="radiogroup" aria-label="Quality"></div>
+      </section>
+
+      <section class="field">
+        <h2>Reference images</h2>
+        <div class="dropzone" id="dropzone"></div>
+      </section>
+
+      <section class="field">
+        <h2><label for="output-dir">Save to</label></h2>
+        <input id="output-dir" class="text-input mono" spellcheck="false">
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <div class="stage" id="stage">
+        <div class="empty" id="empty">
+          <div class="empty-frame" aria-hidden="true"></div>
+          <p>Describe an image below and press <kbd>Ctrl</kbd> + <kbd>Enter</kbd>.</p>
+        </div>
+        <figure class="result" id="result" hidden>
+          <img id="result-img" alt="">
+          <figcaption id="result-path" class="mono"></figcaption>
+        </figure>
+        <div class="working" id="working" hidden>
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Generating… <span id="elapsed" class="mono">0s</span></p>
+        </div>
+      </div>
+
+      <div class="strip" id="strip" aria-label="This session" hidden></div>
+
+      <form class="composer" id="composer">
+        <textarea id="prompt" rows="3" placeholder="A lighthouse on a cliff at dusk, oil painting…" aria-label="Prompt"></textarea>
+        <div class="composer-bar">
+          <div class="cost" id="cost" aria-live="polite">
+            <span class="cost-label">Estimated cost</span>
+            <span class="cost-value" id="cost-value">—</span>
+            <span class="cost-detail mono" id="cost-detail"></span>
+          </div>
+          <p class="error" id="error" role="alert"></p>
+          <button type="submit" class="generate" id="generate">Generate</button>
+        </div>
+      </form>
+    </main>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
