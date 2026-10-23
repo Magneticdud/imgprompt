@@ -32,6 +32,8 @@ from imgprompt.presets import (
     COSTS,
     CUSTOM_DIMS,
     PRESET_PROMPTS_EDIT,
+    TARGET_RATIO_PLACEHOLDER,
+    describe_target_ratio,
     PRESET_PROMPTS_GENERATE,
     PRESET_PROMPTS_DUAL,
     PRESET_PROMPTS_MULTI,
@@ -889,8 +891,14 @@ def _ask_required(
     return value
 
 
-def step_prompt(input_images: list, combined: bool) -> tuple[str | None, str]:
-    """Step 5: Select prompt. Returns (final_prompt or BACK_OPTION, original_selection)."""
+def step_prompt(
+    input_images: list, combined: bool, target_ratio: str = "the requested aspect ratio"
+) -> tuple[str | None, str]:
+    """Step 5: Select prompt. Returns (final_prompt or BACK_OPTION, original_selection).
+
+    ``target_ratio`` (from describe_target_ratio) replaces
+    TARGET_RATIO_PLACEHOLDER in presets that adapt to the chosen resolution.
+    """
     if combined and len(input_images) > 2:
         prompt_list = PRESET_PROMPTS_MULTI
     elif combined:
@@ -899,6 +907,9 @@ def step_prompt(input_images: list, combined: bool) -> tuple[str | None, str]:
         prompt_list = PRESET_PROMPTS_EDIT
     else:
         prompt_list = PRESET_PROMPTS_GENERATE
+    prompt_list = [
+        p.replace(TARGET_RATIO_PLACEHOLDER, target_ratio) for p in prompt_list
+    ]
 
     prompt_choices = []
     for p in prompt_list:
@@ -1401,7 +1412,11 @@ def main():
                 final_prompt = cli_prompt
                 current_step = 5
                 continue
-            result_prompt, prompt_selection = step_prompt(input_images, combined)
+            result_prompt, prompt_selection = step_prompt(
+                input_images,
+                combined,
+                describe_target_ratio(aspect_ratio, dim_width, dim_height),
+            )
             if result_prompt == BACK_OPTION:
                 current_step = 3
                 continue

@@ -1,4 +1,5 @@
 import math
+import re
 
 BACK_OPTION = "← Go back"
 CUSTOM_DIMS = "Custom dimensions"
@@ -660,6 +661,35 @@ ASPECT_RATIO_VALUES = {
     "1536x1024 (Horizontal)": 1536 / 1024,
 }
 
+# Presets containing this token get the resolution chosen in the previous
+# wizard step spelled out in the text (see describe_target_ratio), so the
+# model knows how far and in which direction to outpaint.
+TARGET_RATIO_PLACEHOLDER = "{target_ratio}"
+
+
+def describe_target_ratio(
+    selection: str | None, width: int | None, height: int | None
+) -> str:
+    """Phrase the chosen resolution for a prompt, e.g. 'a 16:9 aspect ratio (2560x1440 px)'.
+
+    The ratio is read from the label first ("16:9", "16:9 — 4K (...)"),
+    because reducing snapped dims like 1920x1088 gives 30:17. Labels with
+    no ratio ("1024x1536 (Vertical)", custom dims) fall back to the dims.
+    Without either (Recraft/gpt-image-2 "Auto") it stays generic.
+    """
+    ratio = None
+    match = re.match(r"\s*(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)", selection or "")
+    if match:
+        ratio = f"{match.group(1)}:{match.group(2)}"
+    elif width and height:
+        g = math.gcd(width, height)
+        ratio = f"{width // g}:{height // g}"
+    if ratio is None:
+        return "the requested aspect ratio"
+    pixels = f" ({width}x{height} px)" if width and height else ""
+    return f"a {ratio} aspect ratio{pixels}"
+
+
 PRESET_PROMPTS_EDIT = [
     "Outpaint the provided image, maintain all existing details. Preserve the exact composition and identity.",
     "The quality of this logo is poor, recreate it faithfully as if it were vector-based, with sharp edges and limited colors.",
@@ -684,6 +714,9 @@ PRESET_PROMPTS_EDIT = [
 3. gentle noise/grain reduction while preserving natural film grain
 Hard constraints: do not add, remove, move, or alter any real objects or people; do not change faces, bodies, clothing, background, geometry, perspective, cropping, or composition. Do not invent missing details. No style transfer. Output must look like the same photograph, only corrected.""",
     "Upscale without any deformation, and add an empty 10% outpainting margin around the edges, keeping the same background style.",
+    "Upscale this image and adapt it to "
+    + TARGET_RATIO_PLACEHOLDER
+    + ". Do not stretch, squash, or distort the original content, and do not crop away any of it. Fill the extra area by outpainting, seamlessly continuing the existing background, lighting, and style. Preserve the exact subject, composition, identity, colors, and text. Remove compression artifacts and enhance real details only. High-resolution output.",
     "Custom Prompt",
 ]
 

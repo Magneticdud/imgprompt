@@ -262,3 +262,50 @@ class TestCostsTable:
             for model in provider.supported_models()
         }
         assert sorted(set(COSTS) - supported) == []
+
+
+class TestDescribeTargetRatio:
+    """The ratio text injected into the 'adapt to ratio' upscale preset."""
+
+    def test_plain_openrouter_ratio(self):
+        from imgprompt.presets import describe_target_ratio
+
+        assert describe_target_ratio("16:9", None, None) == "a 16:9 aspect ratio"
+
+    def test_label_ratio_wins_over_snapped_dims(self):
+        # 1920x1088 reduces to 30:17; the label's 16:9 is what the user picked.
+        from imgprompt.presets import describe_target_ratio
+
+        assert (
+            describe_target_ratio("16:9 — 2K (1920×1088)", 1920, 1088)
+            == "a 16:9 aspect ratio (1920x1088 px)"
+        )
+
+    def test_dims_only_label_is_reduced(self):
+        from imgprompt.presets import describe_target_ratio
+
+        assert (
+            describe_target_ratio("1024x1536 (Vertical)", 1024, 1536)
+            == "a 2:3 aspect ratio (1024x1536 px)"
+        )
+
+    def test_custom_dims(self):
+        from imgprompt.presets import describe_target_ratio
+
+        assert (
+            describe_target_ratio("Custom (1000x700)", 1000, 700)
+            == "a 10:7 aspect ratio (1000x700 px)"
+        )
+
+    @pytest.mark.parametrize("selection", ["Auto", "Auto (model decides)", None])
+    def test_auto_stays_generic(self, selection):
+        from imgprompt.presets import describe_target_ratio
+
+        assert (
+            describe_target_ratio(selection, None, None) == "the requested aspect ratio"
+        )
+
+    def test_placeholder_is_filled_in_shipped_preset(self):
+        from imgprompt.presets import PRESET_PROMPTS_EDIT, TARGET_RATIO_PLACEHOLDER
+
+        assert sum(TARGET_RATIO_PLACEHOLDER in p for p in PRESET_PROMPTS_EDIT) == 1
