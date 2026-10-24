@@ -928,6 +928,7 @@ def step_prompt(
     prompts_needing_input = [
         "Custom Prompt",
         "Object Removal (High Quality)",
+        "Translate Text",
         "A retro-style BW lettering with thick outline",
         "1990s Memphis Style Logo",
         "Business Card",
@@ -959,6 +960,33 @@ def step_prompt(
             final_prompt = base_prompt
         else:
             final_prompt = f"{base_prompt} Remove {remove_input}."
+    elif prompt_selection == "Translate Text":
+        language = (
+            questionary.text("Translate into which language?", default="Italian").ask()
+            or ""
+        ).strip()
+        if not language:
+            return BACK_OPTION, prompt_selection
+        clean_scan = questionary.confirm("Also clean up the scan?", default=False).ask()
+        if clean_scan is None:
+            return BACK_OPTION, prompt_selection
+        cleanup = (
+            "Also clean up the scan, non-destructively only: remove dust, specks, scan noise, paper texture, stains, and show-through from the back of the page; "
+            "make the paper background uniform; correct slight skew. Do not redraw or reinterpret any non-text content. "
+            if clean_scan
+            else ""
+        )
+        final_prompt = (
+            f"Translate all visible text in this image into {language}. "
+            f"Replace the original text in place with the translation, matching the original layout, position, alignment, font style, weight, size hierarchy, color, and line spacing as closely as possible; "
+            f"if a translation is longer, reduce its font size slightly so it fits its original area, never overflow or overlap other elements. "
+            f"Translate accurately and completely: headings, body text, captions, labels and callouts inside diagrams, table cells, and footnotes. "
+            f"Keep proper nouns, brand names, product and model codes, part numbers, numbers, units, and measurements unchanged. "
+            f"Do not alter anything that is not text: keep photos, illustrations, diagrams, icons, logos, background, margins, and composition exactly as they are. "
+            f"Do not summarize, omit, or add content. If a word is unreadable, leave it as it is rather than guessing. "
+            f"{cleanup}"
+            f"Output the same page at the same resolution and aspect ratio."
+        )
     elif prompt_selection == "A retro-style BW lettering with thick outline":
         text_input = _ask_required("What text to write?")
         if not text_input:

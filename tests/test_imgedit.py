@@ -273,6 +273,43 @@ class TestStepPromptLists:
         assert self._title(PRESET_PROMPTS_EDIT[0]) in captured["titles"]
 
 
+class TestTranslatePreset:
+    """The translate preset asks for the target language and embeds it."""
+
+    def _run(self, monkeypatch, language, clean=False):
+        answers = iter(["Translate Text", "Yes"])
+        monkeypatch.setattr(
+            imgedit.questionary,
+            "select",
+            lambda *a, **k: _FakeQuestion(next(answers)),
+        )
+        monkeypatch.setattr(
+            imgedit.questionary, "text", lambda *a, **k: _FakeQuestion(language)
+        )
+        monkeypatch.setattr(
+            imgedit.questionary, "confirm", lambda *a, **k: _FakeQuestion(clean)
+        )
+        return imgedit.step_prompt(["page.png"], False)
+
+    def test_language_is_embedded(self, monkeypatch):
+        prompt, selection = self._run(monkeypatch, "German")
+        assert selection == "Translate Text"
+        assert "into German." in prompt
+        assert "clean up the scan" not in prompt
+
+    def test_scan_cleanup_is_appended_on_request(self, monkeypatch):
+        prompt, _ = self._run(monkeypatch, "German", clean=True)
+        assert "clean up the scan" in prompt
+
+    def test_cancelled_cleanup_question_steps_back(self, monkeypatch):
+        prompt, _ = self._run(monkeypatch, "German", clean=None)
+        assert prompt == imgedit.BACK_OPTION
+
+    def test_empty_language_steps_back(self, monkeypatch):
+        prompt, _ = self._run(monkeypatch, "  ")
+        assert prompt == imgedit.BACK_OPTION
+
+
 # --------------------------------------------------------------------------
 # --replay --model/--provider override (issue #12)
 # --------------------------------------------------------------------------
