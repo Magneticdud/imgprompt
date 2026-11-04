@@ -2,6 +2,60 @@
 
 A simple tool to edit or create images using various models via API (OpenAI, Google via OpenRouter, Black Forest Labs, Bytedance, Sourceful, Stable Diffusion XL, etc.) via a terminal user interface (TUI).
 
+You can also use its presets in Codex with your ChatGPT subscription through the bundled [imgprompt-codex skill](skills/imgprompt-codex/SKILL.md), without running the API-based terminal wizard.
+
+## Use with ChatGPT Plus (Codex skill)
+
+Sign in to Codex with your ChatGPT account and use a session that provides the built-in image generation tool (`image_gen`). Image generation then uses your plan's included usage limits; it is not unlimited. If you use Codex with an API key, API pricing applies instead. See the [official plan and image-generation usage documentation](https://learn.chatgpt.com/docs/pricing).
+
+The skill reuses imgprompt's prompts through Codex's image tool. It does not run `imgedit.py` or call the project's OpenAI, OpenRouter, or OVH providers. You do not need to install the Python dependencies or configure `.env` for this workflow. Running the terminal wizard still requires provider API credentials and uses that provider's billing.
+
+### Install the skill
+
+From the root of a downloaded or cloned copy of this repository, run on Linux or macOS:
+
+```bash
+skill_root="${CODEX_HOME:-$HOME/.codex}/skills"
+mkdir -p "$skill_root"
+cp -R skills/imgprompt-codex "$skill_root/"
+```
+
+For an existing installation, update its contents instead:
+
+```bash
+skill_root="${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/imgprompt-codex/. "$skill_root/imgprompt-codex/"
+```
+
+On Windows, copy the complete `skills/imgprompt-codex` folder into `%USERPROFILE%\.codex\skills` (or the `skills` folder under your custom `CODEX_HOME`). Keep `SKILL.md`, `agents/`, and `references/` together.
+
+Start a new Codex chat after installation or an update. You can work in the folder containing your photos: the skill includes its own preset catalog and templates, so the imgprompt checkout does not need to be in that folder. If you are working in a known imgprompt checkout, the skill can read its current presets instead of the bundled copies.
+
+### Use it in a Codex chat
+
+Attach an image or give its local path, then ask, for example:
+
+```text
+Use $imgprompt-codex to list the available presets.
+Use $imgprompt-codex to restore "old photo.jpg" conservatively.
+Use $imgprompt-codex to turn this photo into a manga illustration.
+Use $imgprompt-codex to create comic-book lettering saying "SUPER MYSELF".
+Use $imgprompt-codex to combine these two images: image 1 is the subject,
+image 2 is the background. Save the result in output/.
+```
+
+Italian requests also work, for example: `Usa $imgprompt-codex su "a banca.jpg" con il preset manga`.
+
+The skill asks for missing details such as the exact lettering or translation language. Image files must be accessible to the Codex session. If the built-in image tool is unavailable, the skill provides the prompt and explains the limitation; it does not automatically switch to a paid API call. API model selection, quality settings, replay history, and PDF rasterization belong to the terminal wizard and are not reproduced by this skill. Requested print dimensions or DPI are prompt instructions, not guarantees of a print-ready file.
+
+### Share the skill
+
+The distributable skill is the entire [`skills/imgprompt-codex`](skills/imgprompt-codex) directory. It includes the prompts, parameterized templates, and Codex metadata, with no user-specific paths or API keys. Share this repository or that folder; recipients can install it using the instructions above. Update the bundled references when changing the project's presets or prompt templates.
+
+### Use the prompts in regular ChatGPT
+
+You can also attach your image in ChatGPT and paste a prompt from the [bundled catalog](skills/imgprompt-codex/references/presets.md). For named presets such as lettering, business cards, or translation, use the corresponding [parameterized template](skills/imgprompt-codex/references/templates.md) and supply your text or language. This is a manual workflow; the Codex skill itself is installed in Codex.
+
 ## Features
 - Direct image path input via CLI.
 - Interactive file selection if no path is provided.

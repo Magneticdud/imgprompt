@@ -1,0 +1,4 @@
+interface:
+  display_name: "imgprompt in Codex"
+  short_description: "Usa i preset imgprompt con immagini generate in Codex"
+  default_prompt: "Usa $imgprompt-codex per applicare un preset imgprompt alla mia immagine con lo strumento integrato."
