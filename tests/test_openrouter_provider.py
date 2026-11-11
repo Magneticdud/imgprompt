@@ -1095,7 +1095,7 @@ class TestMaiImage:
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not MAI.
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
@@ -1161,7 +1161,7 @@ class TestKrea2:
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Krea.
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
@@ -1410,7 +1410,7 @@ class TestGrokImagine:
     def test_in_supported_models(self):
         assert self.MODEL in OpenRouterProvider.supported_models()
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key):
@@ -1532,7 +1532,7 @@ class TestQwenImage:
         assert model in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Qwen.
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     def test_resolution_choices_match_descriptor(self, provider_with_key, model):
@@ -1722,6 +1722,8 @@ def test_flux2_is_retired(model):
 # --------------------------------------------------------------------------
 
 GPT_IMAGE_25_MODELS = (
+    "openai/gpt-image-2.6-flare",
+    "openai/gpt-image-2.6-sunburst",
     "openai/gpt-image-2.5-sunburst",
     "openai/gpt-image-2.5-flare",
 )
@@ -1736,7 +1738,7 @@ class TestGptImage25:
         # Sunburst inherited the first slot to match the direct OpenAI
         # provider's default: the precision tier, at the same rate card.
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
@@ -2075,7 +2077,7 @@ class TestMuseImage:
         assert MUSE in OpenRouterProvider.supported_models()
         # Default must stay the first entry, not Muse.
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     def test_resolution_choices_are_the_three_measured_shapes(self, provider_with_key):
@@ -2224,7 +2226,7 @@ class TestRecraftFamily:
 
     def test_default_model_unchanged(self):
         assert (
-            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.5-sunburst"
+            OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
     @pytest.mark.parametrize("model", RECRAFT_MODELS)
@@ -2359,7 +2361,7 @@ class TestSeedream50:
             models.index(self.FLASH) < models.index(self.LITE) < models.index(self.PRO)
         )
         # ...but the overall default stays the first entry, not Seedream.
-        assert models[0] == "openai/gpt-image-2.5-sunburst"
+        assert models[0] == "openai/gpt-image-2.6-sunburst"
 
     def test_lite_tiers_are_2k_and_4k(self, provider_with_key):
         choices, default = provider_with_key.get_quality_choices(

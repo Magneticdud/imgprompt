@@ -320,6 +320,9 @@ class _DummyProvider:
 
     runs: list = []
 
+    def validate_output(self, request):
+        pass
+
     @classmethod
     def provider_name(cls):
         return "Dummy"

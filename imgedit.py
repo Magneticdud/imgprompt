@@ -353,6 +353,14 @@ def run_replay(
         print("Image:      None (Text-to-Image)")
     print(f"Prompt:     {request.prompt}")
 
+    if request.extras.get("output_format"):
+        print(f"Format:     {request.extras['output_format']}")
+    try:
+        provider_obj.validate_output(request)
+    except ValueError as exc:
+        print(f"Error: {exc}. Start the wizard again to choose a supported format.")
+        sys.exit(1)
+
     maybe_edit_prompt(request)
 
     # Persist the (possibly overridden) request so a further bare --replay
@@ -410,6 +418,7 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
     n_variants = request.n
     recraft_style = None
     recraft_colors: list[str] = []
+    output_format = None
 
     while current_step >= 0:
         if current_step == 0:
@@ -470,6 +479,17 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
                 current_step = 2
                 continue
             quality_key = result_quality
+            formats = provider_obj.get_output_formats(model, bool(request.images))
+            output_format = None
+            if formats:
+                output_format = questionary.select(
+                    "Output format:", choices=formats + [BACK_OPTION], default="png"
+                ).ask()
+                if output_format is None:
+                    print("Cancelled.")
+                    return
+                if output_format == BACK_OPTION:
+                    continue
             current_step = 4
 
         elif current_step == 4:
@@ -487,6 +507,11 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
             break
 
     extras = {}
+    if output_format:
+        extras["output_format"] = output_format
+    if output_format == "gif":
+        aspect_ratio, res_key = "Auto", "auto"
+        dim_width = dim_height = None
     if is_recraft_model(provider, model):
         from imgprompt.presets import recraft_default_style
 
@@ -501,7 +526,7 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
     # but this is still far closer than the previous verbatim carry-over of the
     # *source* model's cost.
     estimated_call_cost = None
-    if provider == "OpenRouter":
+    if provider == "OpenRouter" and output_format not in ("svg", "gif"):
         estimated_call_cost = final_cost * n_variants
 
     new_request = GenerationRequest(
@@ -523,6 +548,10 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
     print("\n--- Replaying last generation on a different model ---")
     print(f"Provider:   {provider}")
     print(f"Model:      {model}")
+    if output_format:
+        print(f"Format:     {output_format}")
+    if output_format in ("svg", "gif"):
+        print("Cost:       depends on vector conversion/animation usage")
     if new_request.images:
         print(f"Images:     {', '.join(new_request.images)}")
     else:
@@ -1358,6 +1387,8 @@ def main():
     recraft_style = None  # populated by step_recraft_style (Recraft only)
     recraft_colors: list[str] = []
     estimated_call_cost = None  # per-call USD estimate for reconciliation
+    output_format = None
+    still_geometry = None
 
     while current_step >= 0:
         if current_step == 0:
@@ -1399,6 +1430,7 @@ def main():
             # stale style/colors that the summary happily prints.
             recraft_style = None
             recraft_colors = []
+            still_geometry = None
             # Step 3: Select Resolution
             result_res, result_key, result_width, result_height = step_resolution(
                 provider_obj, model_choice, image_path
@@ -1425,6 +1457,9 @@ def main():
 
         elif current_step == 3:
             # Step 4: Select Quality
+            if still_geometry is not None:
+                aspect_ratio, res_key, dim_width, dim_height = still_geometry
+                still_geometry = None
             result_quality, final_cost = step_quality(
                 provider_obj, model_choice, res_key, dim_width, dim_height, image_path
             )
@@ -1432,6 +1467,26 @@ def main():
                 current_step = 2
                 continue
             quality_key = result_quality
+            formats = provider_obj.get_output_formats(model_choice, bool(input_images))
+            output_format = None
+            if formats:
+                output_format = questionary.select(
+                    "Output format:", choices=formats + [BACK_OPTION], default="png"
+                ).ask()
+                if output_format is None:
+                    print("Cancelled.")
+                    return
+                if output_format == BACK_OPTION:
+                    continue
+                if output_format == "svg" and args.iterations not in (None, 1):
+                    parser.error("SVG output requires --iterations 1")
+                if output_format == "gif":
+                    # Let the model choose frame dimensions within the total
+                    # animation pixel budget, rather than reuse a still preset.
+                    still_geometry = (aspect_ratio, res_key, dim_width, dim_height)
+                    aspect_ratio, res_key = "Auto", "auto"
+                    dim_width = dim_height = None
+                    print("GIF frame size: auto (fits the animation pixel budget).")
             current_step = 4
 
         elif current_step == 4:
@@ -1489,6 +1544,12 @@ def main():
                 print(f"Image:      None (Text-to-Image)")
             print(f"Provider:   {provider}")
             print(f"Model:      {model_choice}")
+            if output_format:
+                print(f"Format:     {output_format}")
+            if output_format in ("svg", "gif"):
+                print(
+                    "Cost note: raster estimates below exclude vector conversion/animation; final cost may differ."
+                )
             min_inputs = provider_obj.min_input_images(model_choice)
             if len(input_images) < min_inputs:
                 print(
@@ -1605,7 +1666,9 @@ def main():
 
             total_cost = final_cost + input_cost
 
-            if is_batch_mode:
+            if output_format in ("svg", "gif"):
+                print("Total Cost: depends on vector conversion/animation usage")
+            elif is_batch_mode:
                 if provider == "OpenAI" and model_choice in GPT_IMAGE_2_FAMILY:
                     print(f"Per Image:  varies by input size")
                     print(
@@ -1646,7 +1709,7 @@ def main():
             # Remember the per-call estimate the user just saw so the
             # provider can flag a >10% divergence from usage.cost after
             # the call (issue #3). Only OpenRouter reports usage.cost.
-            if provider == "OpenRouter":
+            if provider == "OpenRouter" and output_format not in ("svg", "gif"):
                 if is_batch_mode:
                     estimated_call_cost = per_call_cost
                 else:
@@ -1685,6 +1748,10 @@ def main():
         n_variants = max(1, args.iterations)
 
     extras = {}
+    if output_format:
+        extras["output_format"] = output_format
+    if output_format in ("svg", "gif"):
+        estimated_call_cost = None
     if is_recraft_model(provider, model_choice):
         from imgprompt.presets import recraft_default_style
 

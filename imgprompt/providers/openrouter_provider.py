@@ -298,7 +298,10 @@ _META_OUTPUT_SIZES = {
 
 # GPT Image 2.5 family on /api/v1/images — the whole OpenAI presence in
 # this catalog since gpt-5.4-image-2 was retired (see the README note).
-# Both tiers ship an IDENTICAL descriptor AND identical /endpoints pricing,
+# The 2.6 pair shares this geometry/quality path with 2.5; its advertised
+# output image rate is also $30/M tokens (2026-11-11). Measurements below
+# refer to 2.5, and remain the basis of the shared token estimator.
+# Both 2.5 tiers ship an IDENTICAL descriptor AND identical /endpoints pricing,
 # and bill identically in practice — the same probe on each returned
 # image_tokens=140, reasoning_tokens=0, cost $0.00425 (verified
 # 2026-09-12). Sunburst's premium is generation time, not money: eight aspect ratios plus "auto" (which the wizard
@@ -321,6 +324,8 @@ _META_OUTPUT_SIZES = {
 # That is what retired gpt-5.4-image-2 from this provider — its 1K/2K/4K
 # menu priced tiers the API does not have.
 _GPT_IMAGE_25_MODELS = (
+    "openai/gpt-image-2.6-sunburst",
+    "openai/gpt-image-2.6-flare",
     "openai/gpt-image-2.5-sunburst",
     "openai/gpt-image-2.5-flare",
 )
@@ -605,12 +610,13 @@ class OpenRouterProvider(ImageProvider):
         return "OpenRouter"
 
     # Order is mostly flat (one entry per upstream provider); the overall
-    # default is `openai/gpt-image-2.5-sunburst` (first entry).
+    # default is `openai/gpt-image-2.6-sunburst` (first entry).
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
-            # GPT Image 2.5 family, precision tier first — and the catalog
-            # default, matching the direct OpenAI provider. Priced on a
+            "openai/gpt-image-2.6-sunburst",
+            "openai/gpt-image-2.6-flare",
+            # Previous GPT Image 2.5 family, retained for replay. Priced on a
             # quality axis rather than a resolution one, so a `low` render
             # is the cheapest OpenAI option here by a wide margin and `max`
             # the most expensive thing on offer.
@@ -1151,6 +1157,7 @@ class OpenRouterProvider(ImageProvider):
     # ------------------------------------------------------------------ entry
 
     def run(self, request: GenerationRequest) -> None:
+        self.validate_output(request)
         if not self._api_key:
             print(
                 "Error: OPENROUTER_API_KEY not found. Please set it in your .env file."
@@ -1320,6 +1327,18 @@ class OpenRouterProvider(ImageProvider):
 
     # ------------------------------------------------------------------ HTTP
 
+    def get_output_formats(self, model: str, has_images: bool = False) -> list[str]:
+        if model in ("openai/gpt-image-2.6-sunburst", "openai/gpt-image-2.6-flare"):
+            # OpenRouter currently advertises GIF but not SVG.
+            return ["png", "jpeg", "webp", "gif"]
+        return []
+
+    def validate_output(self, request: GenerationRequest) -> None:
+        # Preserve the existing Recraft vector workflow.
+        if request.model.startswith("recraft/"):
+            return
+        super().validate_output(request)
+
     def _headers(self) -> dict:
         return {
             "Authorization": f"Bearer {self._api_key}",
@@ -1414,6 +1433,11 @@ class OpenRouterProvider(ImageProvider):
                 # shorthand or the no-resolution path.
                 if tier in _VALID_TIER_QUALITY_KEYS:
                     payload["resolution"] = tier
+
+        if request.model in _GPT_IMAGE_25_MODELS and request.res_key == "auto":
+            payload.pop("aspect_ratio", None)
+            payload.pop("resolution", None)
+            payload["size"] = "auto"
 
         if img_paths:
             payload["input_references"] = [
