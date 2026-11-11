@@ -234,7 +234,12 @@ class TestReportUsage:
 # the quality ladder, which 2.5 both lengthened and shifted.
 # --------------------------------------------------------------------------
 
-GPT_IMAGE_25 = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]
+GPT_IMAGE_25 = [
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.6-flare",
+    "gpt-image-2.6-sunburst",
+]
 
 
 class TestGptImage25Direct:
@@ -245,7 +250,7 @@ class TestGptImage25Direct:
     def test_sunburst_is_the_default(self):
         """Same price as gpt-image-2 at equal work, finer ladder — sunburst
         is the precision tier and the preferred OpenAI default."""
-        assert OpenAIProvider.supported_models()[0] == "gpt-image-2.5-sunburst"
+        assert OpenAIProvider.supported_models()[0] == "gpt-image-2.6-sunburst"
 
     @pytest.mark.parametrize("model", GPT_IMAGE_25)
     def test_geometry_contract_is_inherited_verbatim(self, model, provider):

@@ -30,13 +30,12 @@ class OpenAIProvider(ImageProvider):
     def provider_name(cls) -> str:
         return "OpenAI"
 
-    # GPT Image 2.5 first: same rate card as gpt-image-2 and the same
-    # constraints, but a finer quality ladder (five rungs instead of
-    # three), so it is both the better default and the cheaper one at any
-    # given quality NAME — see gpt_image_2_quality_ladder.
+    # Latest precision tier first; retain older models for replay.
     @classmethod
     def supported_models(cls) -> list[str]:
         return [
+            "gpt-image-2.6-sunburst",
+            "gpt-image-2.6-flare",
             "gpt-image-2.5-sunburst",
             "gpt-image-2.5-flare",
             "gpt-image-2",
@@ -163,6 +162,7 @@ class OpenAIProvider(ImageProvider):
         return 16
 
     def run(self, request: GenerationRequest) -> None:
+        self.validate_output(request)
         api_key, source = resolve_openai_api_key()
         if not api_key:
             print(
@@ -213,6 +213,7 @@ class OpenAIProvider(ImageProvider):
                 )
                 if request.res_key:
                     kwargs["size"] = request.res_key
+                kwargs.update(self._output_kwargs(request))
                 response = client.images.edit(**kwargs)
                 image_url = None
                 image_b64 = None
@@ -274,7 +275,24 @@ class OpenAIProvider(ImageProvider):
             size=request.res_key,
             quality=request.quality_key.lower(),
         )
+        kwargs.update(self._output_kwargs(request))
         return client.images.generate(**kwargs)
+
+    def get_output_formats(self, model: str, has_images: bool = False) -> list[str]:
+        if model not in ("gpt-image-2.6-sunburst", "gpt-image-2.6-flare"):
+            return []
+        return ["png", "jpeg", "webp", "gif"] + ([] if has_images else ["svg"])
+
+    def _output_kwargs(self, request: GenerationRequest) -> dict:
+        self.validate_output(request)
+        # New wire fields go through extra_body so older OpenAI SDK releases
+        # can still use them. Keep the persisted extras separate from kwargs.
+        extras = dict(request.extras)
+        output_format = extras.pop("output_format", None)
+        kwargs = {"output_format": output_format} if output_format else {}
+        if extras:
+            kwargs["extra_body"] = extras
+        return kwargs
 
     def _save_response(self, response, original_path: str | None) -> None:
         image_url = None
@@ -313,6 +331,7 @@ class OpenAIProvider(ImageProvider):
             )
             if request.res_key:
                 kwargs["size"] = request.res_key
+            kwargs.update(self._output_kwargs(request))
             response = client.images.edit(**kwargs)
             self._save_response(response, request.primary_image)
             # Report the real token count + cost the API actually charged

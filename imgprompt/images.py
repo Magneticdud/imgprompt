@@ -243,6 +243,9 @@ def get_closest_aspect_ratio(image_path: str, supported_ratios: list[str]) -> st
 
 def get_image_extension(img_data: bytes) -> str:
     """Detects the image format from bytes and returns the appropriate extension."""
+    head = img_data.lstrip(b"\xef\xbb\xbf \t\r\n")[:1024].lower()
+    if head.startswith(b"<svg") or (head.startswith(b"<?xml") and b"<svg" in head):
+        return ".svg"
     try:
         img = Image.open(io.BytesIO(img_data))
         fmt = img.format
@@ -254,6 +257,8 @@ def get_image_extension(img_data: bytes) -> str:
                 return ".png"
             elif fmt == "WEBP":
                 return ".webp"
+            elif fmt == "GIF":
+                return ".gif"
     except Exception:
         pass
     return ".png"

@@ -61,6 +61,29 @@ class GenerationRequest:
 
 
 class ImageProvider(ABC):
+    def get_output_formats(self, model: str, has_images: bool = False) -> list[str]:
+        """Optional format picker; an empty list keeps the existing workflow."""
+        return []
+
+    def validate_output(self, request: GenerationRequest) -> None:
+        fmt = request.extras.get("output_format")
+        formats = self.get_output_formats(request.model, bool(request.images))
+        if fmt in ("svg", "gif") and fmt not in formats:
+            raise ValueError(
+                f"{fmt.upper()} output is unavailable for this model/input combination"
+            )
+        if fmt == "svg" and request.n != 1:
+            raise ValueError("SVG output requires exactly one result (n=1)")
+        if fmt != "gif" and any(
+            key in request.extras for key in ("frame_count", "frame_duration_ms")
+        ):
+            raise ValueError("Animation frame parameters require GIF output")
+        if fmt in ("svg", "gif") and any(
+            request.extras.get(key) is not None
+            for key in ("output_compression", "partial_images", "stream")
+        ):
+            raise ValueError("SVG/GIF output does not support compression or streaming")
+
     @abstractmethod
     def run(self, request: GenerationRequest) -> None:
         """Execute the generation/edit request and save result(s) to disk."""

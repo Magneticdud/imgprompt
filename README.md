@@ -260,7 +260,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 - PCX, PNG, JPG/JPEG, BMP, TIFF, WEBP
 
 ## Supported Models & Costs
-- **OpenAI**: `gpt-image-2.5-sunburst` (default), `gpt-image-2.5-flare`, `gpt-image-2`. All three are token-billed on the same rate card — $30/Mtok image output, $8/Mtok image input — and share the same geometry: 15 preset ratio/size combinations up to 4K, `Auto (model decides)`, or custom dimensions (multiples of 16, 0.66–8.3 MP, longest edge 3840, aspect ratio at most 3:1). Cost is quoted exactly, token count included, from the dimensions you pick. (Discontinued: `gpt-image-1.5`, `gpt-image-1-mini`.)
+- **OpenAI**: `gpt-image-2.6-sunburst` (default), `gpt-image-2.6-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`. These models are token-billed on the same rate card — $30/Mtok image output, $8/Mtok image input — and share the same geometry: 15 preset ratio/size combinations up to 4K, `Auto (model decides)`, or custom dimensions (multiples of 16, 0.66–8.3 MP, longest edge 3840, aspect ratio at most 3:1). Cost is quoted exactly, token count included, from the dimensions you pick. (Discontinued: `gpt-image-1.5`, `gpt-image-1-mini`.)
   - The **2.5 pair** differs from `gpt-image-2` only in the quality ladder, which gained two rungs and shifted down one. At 1024x1024: $0.0059 (`low`), $0.0132 (`medium`), $0.0527 (`high`), $0.0937 (`xhigh`), $0.2107 (`max`) — against `gpt-image-2`'s $0.0059 (`Low`), $0.0527 (`Medium`), $0.2107 (`High`). ⚠️ So **the same quality name costs 4x less on 2.5**: its `high` does the work `gpt-image-2` called `medium`, and its `max` what `gpt-image-2` called `high`. Switching models without adjusting the quality name is the easy mistake. `sunburst` is the precision default; `flare` costs exactly the same per image (verified: identical token count and charge) and is the faster tier.
    - The same two models are also reachable through OpenRouter (`openai/gpt-image-2.5-*`), where they are priced identically — both routes share one pricing path. Note the billing route differs: OpenRouter `openai/*` calls always bill via `OPENROUTER_API_KEY`; `OPENAI_IMAGE_API_KEY` applies only to the direct OpenAI provider.
   - ⚠️ **Note**: `gpt-image-2` is also available on OpenRouter, but requests are sent server-side with quality set to `high`, making it significantly more expensive than using OpenAI directly.
@@ -272,10 +272,10 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
   > The direct Google provider (`GOOGLE_API_KEY`, `google-genai`) has been removed: it was never verified end to end, and OpenRouter is the only tested route to Gemini. Replays saved under the old `Google` provider refuse to run; start a new generation and pick the model under OpenRouter.
 - **OpenRouter**:
-  - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.5-sunburst` is the default OpenRouter model**, matching the direct OpenAI provider):
+  - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.6-sunburst` is the default OpenRouter model**, matching the direct OpenAI provider):
 
     These have **no resolution tiers at all** — no `resolution` parameter exists upstream. Their only price axis is `quality`, so the wizard's resolution step offers the quality ladder instead: `low` / `medium` / `high` / `xhigh` / `max`, cheapest first. Both tiers bill at the same rate (output $30/Mtok, input image $8/Mtok, input text $5/Mtok) and differ only in what they are tuned for:
-    - `openai/gpt-image-2.5-sunburst`: the precision tier, for detailed creative work — the default.
+    - `openai/gpt-image-2.5-sunburst`: the previous precision tier, retained for replay.
     - `openai/gpt-image-2.5-flare`: the speed tier, for high-volume everyday work.
 
     **Output size is still yours to choose**, via the `size` field rather than a resolution tier: pick one of the eight ratios and the wizard pins the matching ~1MP box, or pick **Custom dimensions** for an exact width x height (rounded to multiples of 16 and validated against OpenAI's limits — 0.66-8.3 MP, longest edge 3840, aspect ratio at most 3:1, the same rules as `gpt-image-2`). Verified 2026-09-12: a request for a non-standard `1824x1024` came back at exactly 1824x1024.
@@ -382,3 +382,34 @@ is a human–AI collaboration, and it's reviewed before it ships.
 
 ## License
 This is licensed under GPL-3.0-or-later
+
+### GPT Image 2.6 formats
+
+Both providers offer **Sunburst** (detail/precision, default) and **Flare**
+(fast iteration): `gpt-image-2.6-sunburst` / `gpt-image-2.6-flare` on OpenAI,
+with the `openai/` prefix on OpenRouter. The 2.5 models remain available.
+The 2.6 pair uses the five quality tiers (`low`, `medium`, `high`, `xhigh`,
+`max`), the existing geometry controls, and the $30/M image-output token rate.
+Still-image cost previews use the existing family token estimator.
+
+After quality, the wizard offers PNG, JPEG, WebP and animated GIF on both
+routes, plus **SVG on direct OpenAI when generating from text** (`--free`).
+SVG requires a single result and cannot edit reference images. OpenRouter's
+published output-format enum currently lists PNG/JPEG/WebP/GIF, so SVG is
+not offered there. SVG and GIF bytes are saved unchanged as `.svg` / `.gif`.
+GIF uses automatic frame dimensions to fit the animation pixel budget;
+describe motion and looping in the prompt. The format is saved in replay history.
+SVG/GIF costs depend on conversion/animation usage; the still-image estimate
+is not a quote for the final asset.
+
+Programmatic requests can set `extras={"output_format": "svg"}` or
+`extras={"output_format": "gif"}`. Direct OpenAI also accepts `complexity`
+(`low`/`medium`/`high`) and GIF-only `frame_count` (2–16, default 9) /
+`frame_duration_ms` (20–2000, default 200) in `extras`. New fields are sent
+through SDK `extra_body` for compatibility. Neither SVG nor GIF supports
+compression or streaming. GIF is an output format; SVG/GIF are not added
+as editable input formats.
+
+Sources: [OpenAI image generation](https://developers.openai.com/api/docs/guides/image-generation),
+[OpenRouter Sunburst](https://openrouter.ai/openai/gpt-image-2.6-sunburst),
+[OpenRouter Flare](https://openrouter.ai/openai/gpt-image-2.6-flare).

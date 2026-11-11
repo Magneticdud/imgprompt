@@ -91,6 +91,8 @@ GPT_IMAGE_2_5_QUALITIES = ["low", "medium", "high", "xhigh", "max"]
 # OpenRouter provider instead; `gpt_image_2_quality_ladder` below handles
 # both spellings.
 GPT_IMAGE_2_FAMILY = (
+    "gpt-image-2.6-sunburst",
+    "gpt-image-2.6-flare",
     "gpt-image-2",
     "gpt-image-2.5-flare",
     "gpt-image-2.5-sunburst",
@@ -111,7 +113,7 @@ def gpt_image_2_quality_ladder(model: str) -> tuple[list[str], dict]:
     substring match for the 2.5 ids' family test — "gpt-image-2.5" is
     checked, and plain "gpt-image-2" does not contain it.
     """
-    if "gpt-image-2.5" in model:
+    if "gpt-image-2.5" in model or "gpt-image-2.6" in model:
         return list(GPT_IMAGE_2_5_QUALITIES), GPT_IMAGE_2_5_Q_MAP
     return list(GPT_IMAGE_2_QUALITIES), GPT_IMAGE_2_Q_MAP
 
