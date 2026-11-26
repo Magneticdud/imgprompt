@@ -3303,3 +3303,47 @@ class TestNanoBanana21:
 )
 def test_retired_models_stay_out_of_the_picker(retired):
     assert retired not in OpenRouterProvider.supported_models()
+
+
+class TestSummaryPixels:
+    """The summary's Pixels line must not present the ~1MP preset as the
+    output size of a 2K/4K request (a Nano Banana 2.1 4K 4:1 run printed
+    2048x512 and came back 8256x2048)."""
+
+    GEMINI = "google/gemini-nano-banana-2.1"
+
+    def test_model_sized_4k_does_not_claim_1k_preset(self, provider_with_key):
+        text = provider_with_key.summary_pixels(self.GEMINI, "4:1", "4K", "2048x512")
+        assert text.startswith("chosen by the model at 4K")
+        assert text != "2048x512"
+
+    def test_model_sized_1k_keeps_preset(self, provider_with_key):
+        assert (
+            provider_with_key.summary_pixels(self.GEMINI, "4:1", "1K", "2048x512")
+            == "2048x512"
+        )
+
+    def test_compound_tier_key_is_split(self, provider_with_key):
+        text = provider_with_key.summary_pixels(
+            "x-ai/grok-imagine-image-2.0", "16:9", "2K low", "1344x768"
+        )
+        assert text.startswith("chosen by the model at 2K")
+
+    def test_non_tier_key_keeps_res_key(self, provider_with_key):
+        assert (
+            provider_with_key.summary_pixels(
+                "recraft/recraft-v4.1", "Auto", "Standard", "Auto"
+            )
+            == "Auto"
+        )
+
+    def test_exact_size_wins(self, provider_with_key):
+        w, h = provider_with_key.resolve_effective_pixels(
+            "bytedance-seed/seedream-5-0-lite", "4:5", "4K"
+        )
+        assert (
+            provider_with_key.summary_pixels(
+                "bytedance-seed/seedream-5-0-lite", "4:5", "4K", "896x1152"
+            )
+            == f"{w}x{h}"
+        )

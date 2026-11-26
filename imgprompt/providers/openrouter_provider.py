@@ -854,6 +854,31 @@ class OpenRouterProvider(ImageProvider):
         width, height, _floor_active, _ceiling_active = result
         return width, height
 
+    def summary_pixels(
+        self,
+        model: str,
+        aspect_ratio: str | None,
+        quality_key: str | None,
+        res_key: str | None,
+    ) -> str:
+        """Text for the wizard summary's Pixels line.
+
+        The exact WxH when :meth:`resolve_effective_pixels` knows it.
+        Otherwise ``res_key`` is the ~1MP ``RATIO_TO_RESOLUTION`` preset,
+        which only describes the 1K tier: printing it under a 2K/4K
+        request claimed 2048x512 for a Nano Banana 2.1 4K 4:1 run that
+        came back 8256x2048. Tier semantics differ per model (Hy Image's
+        tier names the long edge, Gemini's the area), so rather than guess
+        a size, say the model picks it.
+        """
+        eff = self.resolve_effective_pixels(model, aspect_ratio, quality_key)
+        if eff is not None:
+            return f"{eff[0]}x{eff[1]}"
+        tier, _quality = _split_quality_key(quality_key, model)
+        if res_key and tier in _VALID_TIER_QUALITY_KEYS and tier != "1K":
+            return f"chosen by the model at {tier} ({res_key} is the 1K shape)"
+        return str(res_key)
+
     def get_quality_choices(
         self,
         model: str,
