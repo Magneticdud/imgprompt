@@ -10,7 +10,7 @@ from PIL import Image
 
 from imgprompt.providers.base import ImageProvider, GenerationRequest
 from imgprompt.providers.capabilities import get_capabilities, output_image_price
-from imgprompt.images import save_image_bytes
+from imgprompt.images import read_image_for_upload, save_image_bytes
 
 # OpenRouter Image API base URL (replaces the legacy /chat/completions+modalities path).
 OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images"
@@ -1665,21 +1665,14 @@ class OpenRouterProvider(ImageProvider):
         unchanged so existing input sizes still work the same way with the
         new endpoint.
         """
-        mime_types = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-        }
-        ext = os.path.splitext(img_path)[1].lower()
-        mime = mime_types.get(ext, "image/png")
+        _, source, mime = read_image_for_upload(img_path)
 
         # Black Forest Labs models resize to ~4MP anyway — pre-downscale to
         # avoid sending bandwidth we know will be discarded.
         use_resized = False
         resized_data = None
         if model.startswith("black-forest-labs/"):
-            with Image.open(img_path) as img:
+            with Image.open(io.BytesIO(source)) as img:
                 mp = (img.width * img.height) / 1_000_000
                 if mp > _MAX_BFL_MEGAPIXELS:
                     print(
@@ -1698,7 +1691,7 @@ class OpenRouterProvider(ImageProvider):
                     use_resized = True
                     mime = "image/jpeg"
 
-        original_data = resized_data if use_resized else open(img_path, "rb").read()
+        original_data = resized_data if use_resized else source
 
         if len(original_data) <= _MAX_REQUEST_SIZE:
             print(
@@ -1714,7 +1707,7 @@ class OpenRouterProvider(ImageProvider):
             f"{len(original_data)/1024:.1f}KB, exceeding 4.5MB limit. "
             f"Compressing..."
         )
-        with Image.open(img_path) as img:
+        with Image.open(io.BytesIO(source)) as img:
             out_format = img.format if img.format else "JPEG"
             if out_format == "JPEG" and img.mode != "RGB":
                 img = img.convert("RGB")

@@ -168,31 +168,55 @@ def rasterize_pdf_all_pages(pdf_path: str, dpi: int = PDF_RASTER_DPI) -> list[st
     ]
 
 
+# Formats the APIs take as they are. Anything else we accept as input (BMP,
+# TIFF, PCX) has to be converted before upload.
+UPLOAD_MIME_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+
+def read_image_for_upload(image_path: str) -> tuple[str, bytes, str]:
+    """Return (filename, data, mime_type) in a format the APIs accept.
+
+    JPEG/PNG/WebP are returned byte-for-byte. Other formats are converted to
+    PNG in memory (first frame only); the source file is left alone.
+    """
+    filename = os.path.basename(image_path)
+    stem, ext = os.path.splitext(filename)
+    mime_type = UPLOAD_MIME_TYPES.get(ext.lower())
+    if mime_type:
+        with open(image_path, "rb") as f:
+            return filename, f.read(), mime_type
+
+    print(f"Converting {filename} to PNG for upload...")
+    output = io.BytesIO()
+    with Image.open(image_path) as img:
+        if img.mode not in ("L", "LA", "RGB", "RGBA"):
+            # Palette, 1-bit, CMYK, 16-bit...: keep transparency if present.
+            has_alpha = "A" in img.getbands() or "transparency" in img.info
+            img = img.convert("RGBA" if has_alpha else "RGB")
+        img.save(output, format="PNG")
+    return f"{stem}.png", output.getvalue(), "image/png"
+
+
 def process_image_for_api(image_path: str, target_res: str) -> tuple:
     """
     Checks if the image needs resizing and returns a tuple (filename, data, mime_type).
     If the image is larger than the target resolution in any dimension, it is resized.
     Pass target_res="auto" to skip resizing and send the image as-is.
     """
-    filename = os.path.basename(image_path)
-
-    mime_types = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }
-    ext = os.path.splitext(image_path)[1].lower()
-    mime_type = mime_types.get(ext, "image/png")
+    filename, source, mime_type = read_image_for_upload(image_path)
 
     if target_res == "auto":
-        print("Auto size: sending image as-is.")
-        with open(image_path, "rb") as f:
-            return (filename, io.BytesIO(f.read()), mime_type)
+        print("Auto size: sending image without resizing.")
+        return (filename, io.BytesIO(source), mime_type)
 
     target_width, target_height = map(int, target_res.split("x"))
 
-    with Image.open(image_path) as img:
+    with Image.open(io.BytesIO(source)) as img:
         original_width, original_height = img.size
 
         if original_width > target_width or original_height > target_height:
@@ -203,9 +227,8 @@ def process_image_for_api(image_path: str, target_res: str) -> tuple:
 
             output = io.BytesIO()
             fmt = img.format if img.format else "PNG"
-            if ext in (".jpg", ".jpeg"):
+            if mime_type == "image/jpeg":
                 fmt = "JPEG"
-                mime_type = "image/jpeg"
 
             if fmt == "JPEG" and img.mode != "RGB":
                 img = img.convert("RGB")
@@ -214,11 +237,8 @@ def process_image_for_api(image_path: str, target_res: str) -> tuple:
             output.seek(0)
             return (filename, output, mime_type)
         else:
-            print(
-                f"Input image {original_width}x{original_height} is within limits. Sending untouched."
-            )
-            with open(image_path, "rb") as f:
-                return (filename, io.BytesIO(f.read()), mime_type)
+            print(f"Input image {original_width}x{original_height} is within limits.")
+            return (filename, io.BytesIO(source), mime_type)
 
 
 def get_closest_aspect_ratio(image_path: str, supported_ratios: list[str]) -> str:

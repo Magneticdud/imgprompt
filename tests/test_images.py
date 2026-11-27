@@ -102,6 +102,22 @@ class TestProcessImageForApi:
         _, _, mime = process_image_for_api(p, "1024x1024")
         assert mime == "image/jpeg"
 
+    @pytest.mark.parametrize("ext", ["bmp", "tiff", "pcx"])
+    @pytest.mark.parametrize("target", ["auto", "1024x1024", "32x32"])
+    def test_unsupported_format_is_sent_as_png(self, tmp_path, ext, target):
+        fmt = ext.upper()
+        p = _write_image(tmp_path / f"scan.{ext}", size=(64, 64), fmt=fmt)
+        filename, data, mime = process_image_for_api(p, target)
+        assert filename == "scan.png"
+        assert mime == "image/png"
+        assert Image.open(data).format == "PNG"
+
+    def test_cmyk_tiff_is_converted(self, tmp_path):
+        p = tmp_path / "print.tiff"
+        Image.new("CMYK", (64, 64)).save(p, format="TIFF")
+        _, data, _ = process_image_for_api(str(p), "auto")
+        assert Image.open(data).mode == "RGB"
+
 
 class TestSaveImageBytes:
     def test_generated_filename(self, tmp_path, monkeypatch):
