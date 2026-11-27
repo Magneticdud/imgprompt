@@ -18,7 +18,7 @@ def test_save_then_load_roundtrip(monkeypatch, tmp_path):
     _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
         prompt="a red fox",
-        model="gpt-image-2",
+        model="gpt-image-2.6-sunburst",
         aspect_ratio="1:1",
         res_key="1K",
         quality_key="high",
@@ -77,7 +77,7 @@ def test_pre_dual_history_file_loads_with_default(monkeypatch, tmp_path):
     target = _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
         prompt="x",
-        model="gpt-image-2",
+        model="gpt-image-2.6-sunburst",
         aspect_ratio="1:1",
         res_key="1K",
         quality_key="high",
@@ -95,7 +95,7 @@ def test_is_multi_survives_roundtrip(monkeypatch, tmp_path):
     _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
         prompt="blend every input image",
-        model="openai/gpt-image-2.5-flare",
+        model="openai/gpt-image-2.6-flare",
         aspect_ratio="1:1",
         res_key="1024x1024",
         quality_key="low",
@@ -118,7 +118,7 @@ def test_pre_multi_history_file_loads_with_default(monkeypatch, tmp_path):
     target = _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
         prompt="x",
-        model="gpt-image-2",
+        model="gpt-image-2.6-sunburst",
         aspect_ratio="1:1",
         res_key="1K",
         quality_key="high",
@@ -154,7 +154,7 @@ def test_multiline_prompt_survives_roundtrip(monkeypatch, tmp_path):
     _patch_file(monkeypatch, tmp_path)
     req = GenerationRequest(
         prompt="line one\nline two\nline three",
-        model="gpt-image-2",
+        model="gpt-image-2.6-sunburst",
         aspect_ratio="1:1",
         res_key="1K",
         quality_key="high",

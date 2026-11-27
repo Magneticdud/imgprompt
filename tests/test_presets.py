@@ -109,7 +109,7 @@ class TestAutoAdjustGptImage2Dims:
         assert aspect == pytest.approx(GPT_IMAGE_2_MAX_ASPECT, abs=0.05)
 
     def test_output_always_passes_validation_over_a_grid(self):
-        # The adjusted dimensions must satisfy every gpt-image-2 constraint for
+        # The adjusted dimensions must satisfy every GPT Image constraint for
         # any plausible input, plus hand-picked edges the grid steps over:
         # far too small, too big, and extreme aspect in both orientations.
         grid = [(w, h) for w in range(1, 8001, 137) for h in range(1, 8001, 137)]
@@ -167,8 +167,7 @@ class TestGptImage2TokenCost:
         assert cost == pytest.approx(tokens * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000)
 
     def test_label_echoes_quality_casing_verbatim(self):
-        """The OpenAI provider shows "High", OpenRouter "high"; the shared
-        builder must not normalise either into the other's house style."""
+        """The shared builder must not normalise the caller's casing."""
         from imgprompt.presets import gpt_image_2_quality_label
 
         assert gpt_image_2_quality_label(1024, 1024, "High").startswith("High (~")
@@ -192,42 +191,17 @@ class TestGptImage2TokenCost:
             ("max", 7024),
         ],
     )
-    def test_reproduces_openai_published_2_5_token_table(self, quality, tokens):
+    def test_reproduces_openai_published_token_table(self, quality, tokens):
         """OpenAI publishes these 1024x1024 output-token counts for the GPT
         Image 2.5 family. All five invert cleanly through the grid formula
         onto integer q values (16/24/48/64/96), which is why the mapping is
         documented fact rather than a fitted curve — and why this table is
         the right thing to pin."""
-        from imgprompt.presets import GPT_IMAGE_2_5_Q_MAP, calc_gpt_image2_tokens
+        from imgprompt.presets import GPT_IMAGE_2_6_Q_MAP, calc_gpt_image2_tokens
 
         assert (
-            calc_gpt_image2_tokens(1024, 1024, quality, GPT_IMAGE_2_5_Q_MAP) == tokens
+            calc_gpt_image2_tokens(1024, 1024, quality, GPT_IMAGE_2_6_Q_MAP) == tokens
         )
-
-    @pytest.mark.parametrize(
-        "quality_2_5,quality_2",
-        [("low", "low"), ("high", "medium"), ("max", "high")],
-    )
-    def test_the_2_5_ladder_is_shifted_down_a_rung(self, quality_2_5, quality_2):
-        """The trap this guards: 2.5 renamed the tiers. Its `high` does the
-        work gpt-image-2 called `medium`, and its `max` what 2 called
-        `high`. Pricing 2.5 `high` off the old map overcharges 4x."""
-        from imgprompt.presets import (
-            GPT_IMAGE_2_5_Q_MAP,
-            GPT_IMAGE_2_Q_MAP,
-            calc_gpt_image2_tokens,
-        )
-
-        assert calc_gpt_image2_tokens(
-            1024, 1024, quality_2_5, GPT_IMAGE_2_5_Q_MAP
-        ) == calc_gpt_image2_tokens(1024, 1024, quality_2, GPT_IMAGE_2_Q_MAP)
-
-    def test_the_two_new_rungs_have_no_gpt_image_2_equivalent(self):
-        from imgprompt.presets import GPT_IMAGE_2_5_Q_MAP, GPT_IMAGE_2_Q_MAP
-
-        assert set(GPT_IMAGE_2_5_Q_MAP) - set(GPT_IMAGE_2_Q_MAP) == {"xhigh", "max"}
-        assert GPT_IMAGE_2_5_Q_MAP["medium"] not in GPT_IMAGE_2_Q_MAP.values()
-        assert GPT_IMAGE_2_5_Q_MAP["xhigh"] not in GPT_IMAGE_2_Q_MAP.values()
 
 
 class TestPresetTableConsistency:

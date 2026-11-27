@@ -234,7 +234,7 @@ you pass more than the model accepts, only the first N are sent and priced
 
 **Input limits** (max reference images in one combined call, from OpenRouter's
 live capability descriptor; the built-in offline fallback matches it): GPT
-Image 2.5 **16**; Seedream 5.0 Flash/Lite/Pro **14**; Gemini image (Nano Banana) **14**; FLUX 3
+Image 2.6 **16**; Seedream 5.0 Flash/Lite/Pro **14**; Gemini image (Nano Banana) **14**; FLUX 3
 **10** (both tiers); Riverflow 2.5 **4** fast / **10** pro; MAI 2.6 **5**;
 Hy Image 3.5 Preview **20**; Qwen Image 3 / 2.1 Turbo **4**; Grok Imagine 2.0 **3**; Recraft v4.1 **1**; Krea K3 Edit **8**; Krea 2 **1**.
 Models not listed (e.g. Meta Muse) advertise no numeric bound: nothing is
@@ -260,10 +260,10 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 - PCX, PNG, JPG/JPEG, BMP, TIFF, WEBP
 
 ## Supported Models & Costs
-- **OpenAI**: `gpt-image-2.6-sunburst` (default), `gpt-image-2.6-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`. These models are token-billed on the same rate card — $30/Mtok image output, $8/Mtok image input — and share the same geometry: 15 preset ratio/size combinations up to 4K, `Auto (model decides)`, or custom dimensions (multiples of 16, 0.66–8.3 MP, longest edge 3840, aspect ratio at most 3:1). Cost is quoted exactly, token count included, from the dimensions you pick. (Discontinued: `gpt-image-1.5`, `gpt-image-1-mini`.)
-  - The **2.5 pair** differs from `gpt-image-2` only in the quality ladder, which gained two rungs and shifted down one. At 1024x1024: $0.0059 (`low`), $0.0132 (`medium`), $0.0527 (`high`), $0.0937 (`xhigh`), $0.2107 (`max`) — against `gpt-image-2`'s $0.0059 (`Low`), $0.0527 (`Medium`), $0.2107 (`High`). ⚠️ So **the same quality name costs 4x less on 2.5**: its `high` does the work `gpt-image-2` called `medium`, and its `max` what `gpt-image-2` called `high`. Switching models without adjusting the quality name is the easy mistake. `sunburst` is the precision default; `flare` costs exactly the same per image (verified: identical token count and charge) and is the faster tier.
-   - The same two models are also reachable through OpenRouter (`openai/gpt-image-2.5-*`), where they are priced identically — both routes share one pricing path. Note the billing route differs: OpenRouter `openai/*` calls always bill via `OPENROUTER_API_KEY`; `OPENAI_IMAGE_API_KEY` applies only to the direct OpenAI provider.
-  - ⚠️ **Note**: `gpt-image-2` is also available on OpenRouter, but requests are sent server-side with quality set to `high`, making it significantly more expensive than using OpenAI directly.
+- **OpenAI**: `gpt-image-2.6-sunburst` (default), `gpt-image-2.6-flare`. Both are token-billed on the same rate card — $30/Mtok image output, $8/Mtok image input — and share the same geometry: 15 preset ratio/size combinations up to 4K, `Auto (model decides)`, or custom dimensions (multiples of 16, 0.66–8.3 MP, longest edge 3840, aspect ratio at most 3:1). Cost is quoted exactly, token count included, from the dimensions you pick. (Discontinued: `gpt-image-2`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` — the 2.5 pair also on OpenRouter; saved replays pointing to them refuse to run, use `--replay --model` to retry on another model — `gpt-image-1.5`, `gpt-image-1-mini`.)
+  - The quality ladder at 1024x1024: $0.0059 (`low`), $0.0132 (`medium`), $0.0527 (`high`), $0.0937 (`xhigh`), $0.2107 (`max`). `sunburst` is the precision default; `flare` is the faster tier.
+  - ⚠️ A replay saved on `gpt-image-2` and moved with `--model` keeps its quality *name*, and the names do not match: its `Medium` is today's `high`, and its `High` is today's `max`.
+  - The same two models are also reachable through OpenRouter (`openai/gpt-image-2.6-*`), where they are priced identically — both routes share one pricing path. Note the billing route differs: OpenRouter `openai/*` calls always bill via `OPENROUTER_API_KEY`; `OPENAI_IMAGE_API_KEY` applies only to the direct OpenAI provider.
 - **Google (Nano Banana)** (via OpenRouter only):
   - `google/gemini-nano-banana-2.1` (Nano Banana 2.1): $0.034 (1K), $0.05 (2K), $0.113 (4K). All 14 aspect ratios of the Gemini image family (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 + 1:4, 4:1, 1:8, 8:1), up to 14 input references, one image per call. Billed per output token at half Nano Banana 2's rate; the 4K figure is Google's published price and sits above the token arithmetic (~$0.076), so the estimate errs high.
   - `google/gemini-3.1-flash-lite-image` (Nano Banana 2 Lite): $0.034 per image. **1K only**, same 14 ratios. Same price as 2.1 at 1K; pick it for speed.
@@ -272,18 +272,16 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
 
   > The direct Google provider (`GOOGLE_API_KEY`, `google-genai`) has been removed: it was never verified end to end, and OpenRouter is the only tested route to Gemini. Replays saved under the old `Google` provider refuse to run; start a new generation and pick the model under OpenRouter.
 - **OpenRouter**:
-  - **GPT Image 2.5 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.6-sunburst` is the default OpenRouter model**, matching the direct OpenAI provider):
+  - **GPT Image 2.6 family** (both tiers share one descriptor: eight aspect ratios — `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `9:16`, `16:9`, `21:9`, note **no `4:5`/`5:4`** — up to 16 input references and up to 10 variants per call. **`openai/gpt-image-2.6-sunburst` is the default OpenRouter model**, matching the direct OpenAI provider):
 
     These have **no resolution tiers at all** — no `resolution` parameter exists upstream. Their only price axis is `quality`, so the wizard's resolution step offers the quality ladder instead: `low` / `medium` / `high` / `xhigh` / `max`, cheapest first. Both tiers bill at the same rate (output $30/Mtok, input image $8/Mtok, input text $5/Mtok) and differ only in what they are tuned for:
-    - `openai/gpt-image-2.5-sunburst`: the previous precision tier, retained for replay.
-    - `openai/gpt-image-2.5-flare`: the speed tier, for high-volume everyday work.
+    - `openai/gpt-image-2.6-sunburst`: the precision tier, for detailed creative work — the default.
+    - `openai/gpt-image-2.6-flare`: the speed tier, for high-volume everyday work.
 
-    **Output size is still yours to choose**, via the `size` field rather than a resolution tier: pick one of the eight ratios and the wizard pins the matching ~1MP box, or pick **Custom dimensions** for an exact width x height (rounded to multiples of 16 and validated against OpenAI's limits — 0.66-8.3 MP, longest edge 3840, aspect ratio at most 3:1, the same rules as `gpt-image-2`). Verified 2026-09-12: a request for a non-standard `1824x1024` came back at exactly 1824x1024.
+    **Output size is still yours to choose**, via the `size` field rather than a resolution tier: pick one of the eight ratios and the wizard pins the matching ~1MP box, or pick **Custom dimensions** for an exact width x height (rounded to multiples of 16 and validated against OpenAI's limits — 0.66-8.3 MP, longest edge 3840, aspect ratio at most 3:1, the same rules as the direct provider). Verified 2026-09-12 on the retired 2.5 pair: a request for a non-standard `1824x1024` came back at exactly 1824x1024.
 
-    **Prices are computed, not tabulated.** Billing is purely per output token, and output tokens are a function of the box and the quality, so the wizard quotes the exact figure for the dimensions you picked, token count included. At 1024x1024: **$0.0059 (low), $0.0132 (medium), $0.0527 (high), $0.0937 (xhigh), $0.2107 (max)**; the same ladder on 16:9 (1344x768) runs $0.0033 to $0.1201. These come from OpenAI's published 1024x1024 output-token counts (196 / 439 / 1,756 / 3,122 / 7,024), and a measured call confirms the arithmetic end to end: 1824x1024 at `low` billed $0.00425 against a $0.00420 quote.
-
-    ⚠️ **`high` here is not `high` on `gpt-image-2`.** GPT Image 2.5 kept the token rates but *shifted the ladder*: its `high` spends what `gpt-image-2`'s `medium` spent (1,756 tokens), and its `max` what `gpt-image-2`'s `high` spent (7,024), with `medium` and `xhigh` inserted as genuinely new rungs. So the same word costs 4x less here than on the direct provider — switching a prompt between the two without adjusting the quality name is the easy mistake.
-  - ~~`openai/gpt-5.4-image-2`~~: removed in this release. Its `1K`/`2K`/`4K` menu priced tiers that do not exist: **no** OpenAI model on OpenRouter's image API advertises a `resolution` parameter (surveyed across all eight entries, 2026-09-12), so the field went out un-advertised, `quality` was left at the upstream default, and the $0.02/$0.04/$0.08 estimates corresponded to nothing billable. Use the GPT Image 2.5 family above, where the quality axis is the real one. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
+    **Prices are computed, not tabulated.** Billing is purely per output token, and output tokens are a function of the box and the quality, so the wizard quotes the exact figure for the dimensions you picked, token count included. At 1024x1024: **$0.0059 (low), $0.0132 (medium), $0.0527 (high), $0.0937 (xhigh), $0.2107 (max)**; the same ladder on 16:9 (1344x768) runs $0.0033 to $0.1201. These come from OpenAI's 1024x1024 output-token counts published for 2.5 (196 / 439 / 1,756 / 3,122 / 7,024), and a call measured on 2.5 confirms the arithmetic end to end: 1824x1024 at `low` billed $0.00425 against a $0.00420 quote.
+  - ~~`openai/gpt-5.4-image-2`~~: removed in this release. Its `1K`/`2K`/`4K` menu priced tiers that do not exist: **no** OpenAI model on OpenRouter's image API advertises a `resolution` parameter (surveyed across all eight entries, 2026-09-12), so the field went out un-advertised, `quality` was left at the upstream default, and the $0.02/$0.04/$0.08 estimates corresponded to nothing billable. Use the GPT Image 2.6 family above, where the quality axis is the real one. Existing `.last_generation.json` entries that still point to it will refuse to replay with an explicit error.
   - **Seedream 5.0 family**: the tiers are asymmetric on purpose — pick by the resolution you need, not by "better/worse".
     - `bytedance-seed/seedream-5-0-flash`: $0.018 per image (1K and 2K cost the same, so 2K is the better deal), **capped at 2K**. Input references are free, up to 14 images per call; single output image per call (`n` capped at 1 upstream). The fast, cheap tier and the default Seed model.
     - `bytedance-seed/seedream-5-0-lite`: $0.035 per image (any size), **2K or 4K** (no 1K tier). Input references are free, up to 14 images per call. Pick it for 4K.
@@ -311,7 +309,7 @@ python imgedit.py --no-preview   # disable the inline preview for the whole run
     - `krea/krea-2-medium`: $0.03 — balanced default; heavy post-training, consistent output.
     - `krea/krea-2-large`: $0.06 — 2x+ the size of Medium, lighter post-training: rawer, more textured.
   - `krea/k3-edit`: **edit-only** — needs 1 to 8 input images and cannot generate from text alone (the wizard warns in the summary and the call is not sent without an image). `1K`/`2K`, the same seven ratios as Krea 2, single image per call. $0.03 (1K) / $0.06 (2K), Krea's list price "without image references"; plus an estimated $0.02 per input image, from OpenRouter's model listing and not yet confirmed by a real call. As with Krea 2, OpenRouter's images API reports no pricing, so `usage.cost` is the authoritative charge.
-  - `meta/muse-image`: **$0.01 per image — the cheapest flat-priced model in the catalog after FLUX 3 Klein** ($0.008 at 768, $0.009 at 1K). (A `low`-quality GPT Image 2.5 render estimates lower still, but that family is token-billed: its price moves with quality and output size rather than being a flat per-image charge.) Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
+  - `meta/muse-image`: **$0.01 per image — the cheapest flat-priced model in the catalog after FLUX 3 Klein** ($0.008 at 768, $0.009 at 1K). (A `low`-quality GPT Image 2.6 render estimates lower still, but that family is token-billed: its price moves with quality and output size rather than being a flat per-image charge.) Agentic: it reasons before it renders, decomposing multi-part prompts and refining inside its own chain of thought, and can invoke web search for factual accuracy. Expect it to be slower than a single-pass model.
 
     Unlike every other model here, OpenRouter publishes **no** capability descriptor and **no** endpoints entry for it, so everything below was measured against real calls (2026-09-12) rather than read from the API:
 
@@ -365,7 +363,7 @@ pytest tests/test_presets.py    # run a single file
 pytest -k physical_to_pixels    # run tests matching a name
 ```
 
-`tests/test_presets.py` covers the gpt-image-2 dimension logic, including a grid
+`tests/test_presets.py` covers the GPT Image dimension logic, including a grid
 test that asserts `auto_adjust_gpt_image2_dims` always returns valid dimensions —
 add new cases there when you touch that math.
 
@@ -387,7 +385,7 @@ This is licensed under GPL-3.0-or-later
 
 Both providers offer **Sunburst** (detail/precision, default) and **Flare**
 (fast iteration): `gpt-image-2.6-sunburst` / `gpt-image-2.6-flare` on OpenAI,
-with the `openai/` prefix on OpenRouter. The 2.5 models remain available.
+with the `openai/` prefix on OpenRouter.
 The 2.6 pair uses the five quality tiers (`low`, `medium`, `high`, `xhigh`,
 `max`), the existing geometry controls, and the $30/M image-output token rate.
 Still-image cost previews use the existing family token estimator.

@@ -17,6 +17,7 @@ from imgprompt.providers.openai_provider import (
 )
 from imgprompt.presets import (
     GPT_IMAGE_2_INPUT_PRICE_PER_MTOK,
+    CUSTOM_DIMS,
     GPT_IMAGE_2_PRICE_PER_MTOK,
 )
 
@@ -24,7 +25,7 @@ from imgprompt.presets import (
 def _resp_with_usage(usage) -> MagicMock:
     """Build a mock OpenAI ImagesResponse carrying the given `usage` value.
 
-    Passing `None` for usage simulates the legacy non-gpt-image-2 path
+    Passing `None` for usage simulates the path
     (dall-e-style) where the API returns no token accounting.
     """
     resp = MagicMock()
@@ -49,7 +50,7 @@ class TestReportUsage:
     `usage` block, and tolerate every shape the SDK has shown so far."""
 
     def test_split_pricing_with_input_only(self, provider, capsys):
-        """gpt-image-2 bills input at $8/MTok and output at $30/MTok, so
+        """GPT Image bills input at $8/MTok and output at $30/MTok, so
         a response where all tokens are input should charge at the input
         rate, not the (much higher) output rate. Regression test for the
         flat-$30 math that previously masked this asymmetry."""
@@ -108,7 +109,7 @@ class TestReportUsage:
     def test_total_tokens_used_when_split_missing(self, provider, capsys):
         """When only `total_tokens` is reported (no in/out split), the
         tokens are billed at the output rate — the higher tier — so we
-        over-estimate rather than under-charge. gpt-image-2 always
+        over-estimate rather than under-charge. GPT Image always
         returns the split in practice; this branch is the defensive
         fallback for older mock servers / SDK shapes."""
         usage = MagicMock()
@@ -155,7 +156,7 @@ class TestReportUsage:
         assert cost == pytest.approx(300 * GPT_IMAGE_2_PRICE_PER_MTOK / 1_000_000)
 
     def test_missing_usage_attribute_returns_none_silently(self, provider, capsys):
-        """Legacy / non-gpt-image-2 image endpoints never set `usage`.
+        """Legacy / non-token-billed image endpoints never set `usage`.
         The function must return None and *not* print anything — the user
         keeps relying on the wizard's pre-call estimate, which was already
         in the terminal. Crashing here would be the worst kind of surprise."""
@@ -229,49 +230,48 @@ class TestReportUsage:
 
 
 # --------------------------------------------------------------------------
-# GPT Image 2.5 on the direct provider. Same endpoint, same rate card and
-# the same geometry contract as gpt-image-2 — the one thing that differs is
-# the quality ladder, which 2.5 both lengthened and shifted.
+# GPT Image 2.6 on the direct provider: preset geometry and the five-rung
+# quality ladder.
 # --------------------------------------------------------------------------
 
-GPT_IMAGE_25 = [
-    "gpt-image-2.5-flare",
-    "gpt-image-2.5-sunburst",
+GPT_IMAGE_26 = [
     "gpt-image-2.6-flare",
     "gpt-image-2.6-sunburst",
 ]
 
 
-class TestGptImage25Direct:
-    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+class TestGptImage26Direct:
+    @pytest.mark.parametrize("model", GPT_IMAGE_26)
     def test_in_supported_models(self, model):
         assert model in OpenAIProvider.supported_models()
 
+    @pytest.mark.parametrize(
+        "model", ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]
+    )
+    def test_retired_models_are_not_offered(self, model):
+        from imgprompt.providers.openrouter_provider import OpenRouterProvider
+
+        assert model not in OpenAIProvider.supported_models()
+        assert f"openai/{model}" not in OpenRouterProvider.supported_models()
+
     def test_sunburst_is_the_default(self):
-        """Same price as gpt-image-2 at equal work, finer ladder — sunburst
-        is the precision tier and the preferred OpenAI default."""
+        """Sunburst is the precision tier and the preferred OpenAI default."""
         assert OpenAIProvider.supported_models()[0] == "gpt-image-2.6-sunburst"
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26)
     def test_geometry_contract_is_inherited_verbatim(self, model, provider):
-        """2.5 tops out at 4K like gpt-image-2 and takes the same boxes, so
-        the preset menu must be the identical list, custom entry included."""
-        assert provider.get_resolution_choices(
-            model, None
-        ) == provider.get_resolution_choices("gpt-image-2", None)
+        """The family tops out at 4K: the full preset menu, custom entry
+        included."""
+        choices, _ = provider.get_resolution_choices(model, None)
+        assert "16:9 — 4K (2560×1440)" in choices
+        assert choices[-1] == CUSTOM_DIMS
         assert provider.resolve_resolution(model, "16:9 — 4K (2560×1440)") == (
             "2560x1440",
             2560,
             1440,
         )
 
-    def test_gpt_image_2_keeps_its_three_rungs(self, provider):
-        choices, _ = provider.get_quality_choices(
-            "gpt-image-2", "1024x1024", 1024, 1024, None
-        )
-        assert [c.split(" ")[0] for c in choices] == ["Low", "Medium", "High"]
-
-    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26)
     def test_prices_match_the_published_table(self, model, provider):
         """The exact list also pins the five-rung ladder and its order."""
         choices, default = provider.get_quality_choices(
@@ -286,21 +286,7 @@ class TestGptImage25Direct:
             "max (~7,024 tokens, $0.2107)",
         ]
 
-    @pytest.mark.parametrize(
-        "quality_2_5,quality_2", [("low", "Low"), ("high", "Medium"), ("max", "High")]
-    )
-    def test_shifted_ladder_against_gpt_image_2(self, quality_2_5, quality_2, provider):
-        """Within ONE provider now: 2.5 `high` does the work gpt-image-2
-        called `medium`. Same trap as on the OpenRouter side, same guard."""
-        _, new = provider.resolve_quality(
-            "gpt-image-2.5-flare", "1024x1024", 1024, 1024, f"{quality_2_5} (label)"
-        )
-        _, old = provider.resolve_quality(
-            "gpt-image-2", "1024x1024", 1024, 1024, f"{quality_2} (label)"
-        )
-        assert new == pytest.approx(old)
-
-    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26)
     def test_direct_and_openrouter_quote_the_same_price(self, model, provider):
         """The same model reached two ways must cost the same. Both go
         through gpt_image_2_quality_ladder, which matches the bare id and
@@ -317,7 +303,7 @@ class TestGptImage25Direct:
             )
             assert direct == pytest.approx(routed)
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26)
     def test_auto_size_degrades_to_an_unpriced_label(self, model, provider):
         """ "Auto (model decides)" leaves nothing to bill against until the
         response lands; quoting a number there would be invented."""
@@ -380,10 +366,10 @@ class TestApiKeyResolution:
 
         request = GenerationRequest(
             prompt="p",
-            model="gpt-image-2",
+            model="gpt-image-2.6-sunburst",
             aspect_ratio="1:1",
             res_key="1024x1024",
-            quality_key="Low",
+            quality_key="low",
         )
         with pytest.raises(SystemExit):
             provider.run(request)
@@ -409,10 +395,10 @@ class TestApiKeyResolution:
 
         request = GenerationRequest(
             prompt="p",
-            model="gpt-image-2",
+            model="gpt-image-2.6-sunburst",
             aspect_ratio="1:1",
             res_key="1024x1024",
-            quality_key="Low",
+            quality_key="low",
         )
         provider.run(request)
 

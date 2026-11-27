@@ -37,7 +37,6 @@ from imgprompt.presets import (
     PRESET_PROMPTS_GENERATE,
     PRESET_PROMPTS_DUAL,
     PRESET_PROMPTS_MULTI,
-    GPT_IMAGE_2_FAMILY,
     gpt_image_2_quality_ladder,
     gpt_image_2_token_cost,
     validate_gpt_image2_dims,
@@ -1586,7 +1585,7 @@ def main():
                         f"Inputs:     {n_inputs} combined "
                         f"(model accepts up to {input_limit})"
                     )
-            if provider == "OpenAI" and model_choice in GPT_IMAGE_2_FAMILY:
+            if provider == "OpenAI":
                 print(f"Ratio:      {aspect_ratio}")
                 if dim_width and dim_height:
                     print(f"Dimensions: {dim_width}x{dim_height}")
@@ -1594,9 +1593,6 @@ def main():
                     print(f"Dimensions: auto")
                 print(f"Quality:    {quality_key}")
                 if dim_width and dim_height:
-                    # q_map per family: 2.5 reused the names `medium` and
-                    # `high` for a quarter of the work, so pricing one
-                    # family against the other's ladder is a 4x error.
                     _qualities, q_map = gpt_image_2_quality_ladder(model_choice)
                     tokens, cost_display = gpt_image_2_token_cost(
                         dim_width, dim_height, quality_key, q_map
@@ -1604,9 +1600,6 @@ def main():
                     print(f"Tokens:     ~{tokens:,} (${cost_display:.4f})")
                 else:
                     print(f"Tokens:     depends on output size")
-            elif provider == "OpenAI":
-                print(f"Resolution: {res_key}")
-                print(f"Quality:    {quality_key}")
             elif provider == "OpenRouter":
                 print(f"Ratio:      {aspect_ratio}")
                 print(f"Resolution: {quality_key}")
@@ -1669,15 +1662,11 @@ def main():
             if output_format in ("svg", "gif"):
                 print("Total Cost: depends on vector conversion/animation usage")
             elif is_batch_mode:
-                if provider == "OpenAI" and model_choice in GPT_IMAGE_2_FAMILY:
+                if provider == "OpenAI":
                     print(f"Per Image:  varies by input size")
                     print(
                         f"Total Cost: varies by input size ({len(input_images)} images)"
                     )
-                elif provider == "OpenAI":
-                    total_cost = final_cost * len(input_images)
-                    print(f"Per Image:  ${final_cost:.3f}")
-                    print(f"Total Cost: ${total_cost:.3f} ({len(input_images)} images)")
                 else:
                     # Only OpenRouter delivers `n` variants in one HTTP call.
                     # For OVH the wizard forces n_variants=1 anyway;

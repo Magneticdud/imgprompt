@@ -152,7 +152,7 @@ class TestBuildPayload:
         img_path = _fake_image(tmp_path)
         req = GenerationRequest(
             prompt="convert to watercolor",
-            model="openai/gpt-image-2.5-flare",
+            model="openai/gpt-image-2.6-flare",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="low",
@@ -259,7 +259,7 @@ class TestCallApi:
 
             req = GenerationRequest(
                 prompt="x",
-                model="openai/gpt-image-2.5-flare",
+                model="openai/gpt-image-2.6-flare",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="low",
@@ -332,7 +332,7 @@ class TestCallApi:
     def _byok_request(self):
         return GenerationRequest(
             prompt="x",
-            model="openai/gpt-image-2.5-sunburst",
+            model="openai/gpt-image-2.6-sunburst",
             aspect_ratio="3:2",
             res_key="1728x1152",
             quality_key="medium",
@@ -675,7 +675,7 @@ class TestRunVariants:
 
             req = GenerationRequest(
                 prompt="x",
-                model="openai/gpt-image-2.5-flare",
+                model="openai/gpt-image-2.6-flare",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="low",
@@ -796,7 +796,7 @@ class TestRunInputBatch:
 
             req = GenerationRequest(
                 prompt="x",
-                model="openai/gpt-image-2.5-flare",
+                model="openai/gpt-image-2.6-flare",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="low",
@@ -1713,24 +1713,22 @@ def test_flux2_is_retired(model):
 
 
 # --------------------------------------------------------------------------
-# GPT Image 2.5 family (openai/gpt-image-2.5-sunburst, -flare): the first
+# GPT Image 2.6 family (openai/gpt-image-2.6-sunburst, -flare): the first
 # models in the catalog whose ONLY price axis is `quality`. Descriptor +
-# /endpoints snapshot 2026-09-12: eight aspect ratios (no 4:5/5:4), NO
+# /endpoints snapshot 2026-09-12, taken on the retired 2.5 pair: eight aspect ratios (no 4:5/5:4), NO
 # `resolution` parameter, quality enum {auto,low,medium,high,xhigh,max},
 # n 1..10, up to 16 input references, output_image billed at $30/Mtok on
 # both tiers.
 # --------------------------------------------------------------------------
 
-GPT_IMAGE_25_MODELS = (
+GPT_IMAGE_26_MODELS = (
     "openai/gpt-image-2.6-flare",
     "openai/gpt-image-2.6-sunburst",
-    "openai/gpt-image-2.5-sunburst",
-    "openai/gpt-image-2.5-flare",
 )
 
 
-class TestGptImage25:
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+class TestGptImage26:
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_in_supported_models(self, model):
         assert model in OpenRouterProvider.supported_models()
 
@@ -1741,7 +1739,7 @@ class TestGptImage25:
             OpenRouterProvider.supported_models()[0] == "openai/gpt-image-2.6-sunburst"
         )
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_offline_ratios_exclude_the_unsupported_ones(
         self, model, provider_with_key
     ):
@@ -1764,7 +1762,7 @@ class TestGptImage25:
         assert "4:5" not in choices and "5:4" not in choices
         assert default == "1:1"
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_custom_dims_never_becomes_the_image_matched_default(
         self, model, provider_with_key, tmp_path
     ):
@@ -1777,7 +1775,7 @@ class TestGptImage25:
         assert CUSTOM_DIMS in choices
         assert default == "16:9"
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_quality_prices_are_ordered_cheapest_first(self, model, provider_with_key):
         prices = [
             provider_with_key.resolve_quality(model, "1024x1024", None, None, c)[1]
@@ -1793,10 +1791,10 @@ class TestGptImage25:
         flat table reappearing here would silently shadow the real math."""
         from imgprompt.presets import COSTS
 
-        for model in GPT_IMAGE_25_MODELS:
+        for model in GPT_IMAGE_26_MODELS:
             assert model not in COSTS
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_resolve_quality_returns_bare_quality_key(self, model, provider_with_key):
         key, cost = provider_with_key.resolve_quality(
             model, "1024x1024", None, None, choices_first(provider_with_key, model)
@@ -1805,7 +1803,7 @@ class TestGptImage25:
         # 1024x1024 low = 196 output tokens at $30/Mtok.
         assert cost == pytest.approx(196 * 30.0 / 1_000_000)
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_price_matches_the_measured_upstream_charge(self, model, provider_with_key):
         """The one hard data point: a real 1824x1024 `low` call on
         2026-09-12 reported image_tokens=140 and a completions cost of
@@ -1821,7 +1819,7 @@ class TestGptImage25:
         assert key == "low"
         assert cost == pytest.approx(0.0042, abs=5e-5)
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_quoted_prices_match_the_published_table(self, model, provider_with_key):
         """End-to-end at 1024x1024, straight off OpenAI's published
         1024x1024 token counts at $30/Mtok. The exact list also pins the
@@ -1841,21 +1839,21 @@ class TestGptImage25:
             "max (~7,024 tokens, $0.2107)",
         ]
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_ratio_pick_resolves_to_concrete_dimensions(self, model, provider_with_key):
-        """Same shape as the OpenAI provider's gpt-image-2 preset path: the
+        """Same shape as the OpenAI provider's GPT Image preset path: the
         resolution step hands the wizard real pixels, so the quality step
         can price them and `_build_payload` can pin `size`."""
         res_key, width, height = provider_with_key.resolve_resolution(model, "16:9")
         assert (res_key, width, height) == ("1344x768", 1344, 768)
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_unpinnable_ratio_keeps_the_ratio_only_path(self, model, provider_with_key):
         res_key, width, height = provider_with_key.resolve_resolution(model, "1:4")
         assert res_key == "512x2048"
         assert width is None and height is None
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_price_tracks_the_chosen_geometry(self, model, provider_with_key):
         """A flat per-quality table could not express this: the same
         quality costs more on a bigger box."""
@@ -1870,7 +1868,7 @@ class TestGptImage25:
         )[1]
         assert big > small
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_payload_sends_quality_and_never_resolution(self, model, provider_with_key):
         """The whole point of the quality-only axis: `high` must land in the
         `quality` field, not be mistaken for a resolution tier (which the
@@ -1886,7 +1884,7 @@ class TestGptImage25:
         assert body["quality"] == "high"
         assert "resolution" not in body
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_ratio_goes_out_as_an_explicit_size(self, model, provider_with_key):
         """`size` and `aspect_ratio` are mutually exclusive upstream, and we
         pin the box so the token estimate is exact and the Pixels line is
@@ -1903,7 +1901,7 @@ class TestGptImage25:
         assert body["size"] == "1344x768"
         assert "aspect_ratio" not in body
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_custom_dimensions_go_out_verbatim(self, model, provider_with_key):
         req = GenerationRequest(
             prompt="x",
@@ -1919,12 +1917,12 @@ class TestGptImage25:
         assert "aspect_ratio" not in body
         assert body["quality"] == "low"
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_every_offered_ratio_maps_to_a_legal_openai_box(
         self, model, provider_with_key
     ):
-        """Each preset must already satisfy gpt-image-2's constraints, or
-        _gpt_image_25_size drops it and we silently lose the explicit size
+        """Each preset must already satisfy GPT Image's constraints, or
+        _gpt_image_26_size drops it and we silently lose the explicit size
         (and with it the exact price)."""
         from imgprompt.presets import CUSTOM_DIMS, validate_gpt_image2_dims
 
@@ -1942,7 +1940,7 @@ class TestGptImage25:
             w, h = (int(v) for v in size.split("x"))
             assert validate_gpt_image2_dims(w, h) == [], f"{ratio} -> {size}"
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_stale_replay_ratio_falls_back_instead_of_400ing(
         self, model, provider_with_key
     ):
@@ -1964,7 +1962,7 @@ class TestGptImage25:
     def test_every_quality_reaches_the_wire_verbatim(self, quality, provider_with_key):
         req = GenerationRequest(
             prompt="x",
-            model="openai/gpt-image-2.5-flare",
+            model="openai/gpt-image-2.6-flare",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key=quality,
@@ -1973,7 +1971,7 @@ class TestGptImage25:
         assert body["quality"] == quality
         assert "resolution" not in body
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_effective_pixels_report_the_pinned_box(self, model, provider_with_key):
         """The summary must print the size that goes on the wire."""
         assert provider_with_key.resolve_effective_pixels(model, "16:9", "high") == (
@@ -1985,7 +1983,7 @@ class TestGptImage25:
             1024,
         )
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_effective_pixels_none_when_no_box_is_pinned(
         self, model, provider_with_key
     ):
@@ -1999,7 +1997,7 @@ class TestGptImage25:
         )
         assert provider_with_key.resolve_effective_pixels(model, "1:4", "low") is None
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_custom_dims_label_does_not_trip_the_ratio_preflight(
         self, model, monkeypatch, provider_with_key
     ):
@@ -2019,7 +2017,7 @@ class TestGptImage25:
         # A real ratio the descriptor lacks must still warn.
         assert provider_with_key.preflight_warnings(model, "4:5", "low")
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_quality_key_never_trips_the_resolution_preflight(
         self, model, monkeypatch, provider_with_key
     ):
@@ -2040,7 +2038,7 @@ class TestGptImage25:
         )
         assert provider_with_key.preflight_warnings(model, "16:9", "max") == []
 
-    @pytest.mark.parametrize("model", GPT_IMAGE_25_MODELS)
+    @pytest.mark.parametrize("model", GPT_IMAGE_26_MODELS)
     def test_n_is_not_clamped_below_the_global_cap(self, model, provider_with_key):
         """The descriptor pins n at 1..10, matching the global cap — the
         prefix table must not accidentally catch "openai/"."""
@@ -2172,7 +2170,7 @@ def test_flux3_klein_is_the_cheapest_flat_priced_openrouter_model():
     FLAT-priced model lands, revisit the picker ordering and the comments
     that call these the cheap entries.
 
-    The GPT Image 2.5 family is excluded on purpose. It is token-billed, so
+    The GPT Image 2.6 family is excluded on purpose. It is token-billed, so
     its COSTS rows are nominal ~1MP-square estimates that move with the
     quality tier AND the chosen aspect ratio, not flat per-image charges:
     its `low` estimate ($0.006) is under these flat prices, but its `max`
@@ -2192,7 +2190,7 @@ def test_flux3_klein_is_the_cheapest_flat_priced_openrouter_model():
     flat_priced = [
         m
         for m in OpenRouterProvider.supported_models()
-        if m not in GPT_IMAGE_25_MODELS and m != _HY
+        if m not in GPT_IMAGE_26_MODELS and m != _HY
     ]
     cheapest = min(
         tier["fixed"]
@@ -2305,7 +2303,7 @@ class TestRecraftFamily:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="x",
-                model="openai/gpt-image-2.5-flare",
+                model="openai/gpt-image-2.6-flare",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="low",
@@ -2948,7 +2946,7 @@ class TestMultiInput:
     def test_is_multi_three_images_is_not_batch(self):
         req = GenerationRequest(
             prompt="blend IMG_1..IMG_3",
-            model="openai/gpt-image-2.5-flare",
+            model="openai/gpt-image-2.6-flare",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="low",
@@ -2961,7 +2959,7 @@ class TestMultiInput:
     def test_three_images_without_flag_stays_batch(self):
         req = GenerationRequest(
             prompt="x",
-            model="openai/gpt-image-2.5-flare",
+            model="openai/gpt-image-2.6-flare",
             aspect_ratio="1:1",
             res_key="1024x1024",
             quality_key="low",
@@ -2985,7 +2983,7 @@ class TestMultiInput:
             _stub_post(mock_post, data=[{"b64_json": _TINY_PNG_B64}])
             req = GenerationRequest(
                 prompt="blend all three",
-                model="openai/gpt-image-2.5-flare",
+                model="openai/gpt-image-2.6-flare",
                 aspect_ratio="1:1",
                 res_key="1024x1024",
                 quality_key="low",
@@ -3001,7 +2999,7 @@ class TestMultiInput:
     def test_fallback_table_caps_known_families(self, provider_with_key):
         # Autouse fixture pins get_capabilities to None, so this exercises the
         # hardcoded per-family fallback (mirrors the 2026-10-04 live survey).
-        assert provider_with_key.max_input_images("openai/gpt-image-2.5-flare") == 16
+        assert provider_with_key.max_input_images("openai/gpt-image-2.6-flare") == 16
         assert (
             provider_with_key.max_input_images("bytedance-seed/seedream-5-0-lite") == 14
         )
