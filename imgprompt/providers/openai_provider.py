@@ -36,9 +36,6 @@ class OpenAIProvider(ImageProvider):
         return [
             "gpt-image-2.6-sunburst",
             "gpt-image-2.6-flare",
-            "gpt-image-2.5-sunburst",
-            "gpt-image-2.5-flare",
-            "gpt-image-2",
         ]
 
     def get_resolution_choices(
@@ -46,53 +43,25 @@ class OpenAIProvider(ImageProvider):
     ) -> tuple[list[str], str]:
         from imgprompt.presets import (
             GPT_IMAGE_2_PRESET_CHOICES,
-            GPT_IMAGE_2_FAMILY,
             CUSTOM_DIMS,
             GPT_IMAGE_2_AUTO,
         )
 
-        # The 2.5 tiers inherit gpt-image-2's geometry contract unchanged:
-        # same preset boxes, same limits (multiples of 16, 0.66-8.3MP,
-        # longest edge 3840, aspect <= 3), both topping out at 4K.
-        if model in GPT_IMAGE_2_FAMILY:
-            labels = [label for label, _, _, _, _ in GPT_IMAGE_2_PRESET_CHOICES]
-            if image_path:
-                default = GPT_IMAGE_2_AUTO
-            else:
-                default = labels[0]
-            return [GPT_IMAGE_2_AUTO] + labels + [CUSTOM_DIMS], default
-        else:
-            res_options = [
-                "1024x1024 (Square)",
-                "1024x1536 (Vertical)",
-                "1536x1024 (Horizontal)",
-            ]
-            if image_path:
-                from imgprompt.images import get_closest_aspect_ratio
-
-                default = get_closest_aspect_ratio(image_path, res_options)
-            else:
-                default = res_options[0]
-            return res_options, default
+        labels = [label for label, _, _, _, _ in GPT_IMAGE_2_PRESET_CHOICES]
+        default = GPT_IMAGE_2_AUTO if image_path else labels[0]
+        return [GPT_IMAGE_2_AUTO] + labels + [CUSTOM_DIMS], default
 
     def resolve_resolution(
         self, model: str, selection: str
     ) -> tuple[str, int | None, int | None]:
-        from imgprompt.presets import (
-            GPT_IMAGE_2_AUTO,
-            GPT_IMAGE_2_FAMILY,
-            GPT_IMAGE_2_PRESET_CHOICES,
-        )
+        from imgprompt.presets import GPT_IMAGE_2_AUTO, GPT_IMAGE_2_PRESET_CHOICES
 
-        if model in GPT_IMAGE_2_FAMILY:
-            if selection == GPT_IMAGE_2_AUTO:
-                return "auto", None, None
-            for label, _, _, w, h in GPT_IMAGE_2_PRESET_CHOICES:
-                if label == selection:
-                    return f"{w}x{h}", w, h
-            return "1024x1024", 1024, 1024
-        else:
-            return selection.split(" ")[0], None, None
+        if selection == GPT_IMAGE_2_AUTO:
+            return "auto", None, None
+        for label, _, _, w, h in GPT_IMAGE_2_PRESET_CHOICES:
+            if label == selection:
+                return f"{w}x{h}", w, h
+        return "1024x1024", 1024, 1024
 
     def get_quality_choices(
         self,
@@ -103,24 +72,14 @@ class OpenAIProvider(ImageProvider):
         image_path: str | None,
     ) -> tuple[list[str], str]:
         from imgprompt.presets import (
-            COSTS,
-            GPT_IMAGE_2_FAMILY,
             gpt_image_2_quality_choices,
             gpt_image_2_quality_ladder,
         )
 
-        if model in GPT_IMAGE_2_FAMILY:
-            # Ladder and q_map are the only per-family inputs; the step
-            # itself is shared with the OpenRouter GPT Image 2.5 path.
-            qualities, q_map = gpt_image_2_quality_ladder(model)
-            choices = gpt_image_2_quality_choices(width, height, qualities, q_map)
-            return choices, choices[0]
-        else:
-            choices = [
-                f"{q} (${COSTS[model][q][res_key]:.3f})"
-                for q in ["Low", "Medium", "High"]
-            ]
-            return choices, choices[0]
+        # The step itself is shared with the OpenRouter GPT Image path.
+        qualities, q_map = gpt_image_2_quality_ladder(model)
+        choices = gpt_image_2_quality_choices(width, height, qualities, q_map)
+        return choices, choices[0]
 
     def resolve_quality(
         self,
@@ -131,20 +90,13 @@ class OpenAIProvider(ImageProvider):
         selection: str,
     ) -> tuple[str, float]:
         from imgprompt.presets import (
-            COSTS,
-            GPT_IMAGE_2_FAMILY,
             gpt_image_2_quality_cost,
             gpt_image_2_quality_ladder,
         )
 
         quality_key = selection.split(" ")[0]
-        if model in GPT_IMAGE_2_FAMILY:
-            _qualities, q_map = gpt_image_2_quality_ladder(model)
-            return quality_key, gpt_image_2_quality_cost(
-                width, height, quality_key, q_map
-            )
-        else:
-            return quality_key, COSTS[model][quality_key][res_key]
+        _qualities, q_map = gpt_image_2_quality_ladder(model)
+        return quality_key, gpt_image_2_quality_cost(width, height, quality_key, q_map)
 
     @property
     def supports_batch(self) -> bool:
@@ -362,10 +314,10 @@ class OpenAIProvider(ImageProvider):
         - ``response.usage`` set with both ``input_tokens`` and
           ``output_tokens``: used directly, cost computed with split
           per-modality pricing (input is cheaper than output on
-          gpt-image-2 — they're billed at different rates).
+          GPT Image — they're billed at different rates).
         - ``response.usage`` set with only ``total_tokens``: total is
           assumed to be output-only (the higher rate), so we over-estimate
-          the bill rather than under-charge. gpt-image-2 always returns
+          the bill rather than under-charge. GPT Image always returns
           both fields in practice; this branch is the defensive fallback.
         - ``response.usage`` as a plain ``dict`` instead of an SDK object:
           tolerated because some wrappers / mock servers return it that
@@ -376,10 +328,8 @@ class OpenAIProvider(ImageProvider):
         Cost is computed with split per-million-token pricing from
         ``GPT_IMAGE_2_INPUT_PRICE_PER_MTOK`` and
         ``GPT_IMAGE_2_PRICE_PER_MTOK`` (the latter is the output rate).
-        The legacy OpenAI image models that this provider still supports
-        (the non-gpt-image-2 "dall-e" branch with fixed per-image
-        pricing) don't return a ``usage`` block at all, which is the
-        documented fallback path.
+        A response without a ``usage`` block falls back as described
+        above.
 
         Returns ``(tokens, cost)`` when usage was readable, otherwise
         ``(None, None)``. ``tokens`` is the sum of input + output for the
@@ -420,7 +370,7 @@ class OpenAIProvider(ImageProvider):
 
         # Fallback when only ``total_tokens`` is present (no per-modality
         # split): bill everything at the output rate. The output rate is the
-        # more expensive tier on gpt-image-2, so this over-estimates rather
+        # more expensive tier on GPT Image, so this over-estimates rather
         # than under-charges if the SDK ever flips the API's response shape.
         if input_tokens == 0 and output_tokens == 0:
             total_raw = _read("total_tokens")

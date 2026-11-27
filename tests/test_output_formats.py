@@ -42,7 +42,7 @@ def test_formats_depend_on_route_and_inputs(tier):
 
 @pytest.mark.parametrize(
     "changes",
-    [{"images": ["reference.png"]}, {"n": 2}, {"model": "gpt-image-2.5-flare"}],
+    [{"images": ["reference.png"]}, {"n": 2}, {"model": "unsupported-model"}],
 )
 def test_invalid_svg_rejected_before_network(changes):
     with pytest.raises(ValueError):

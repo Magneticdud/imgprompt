@@ -17,7 +17,7 @@ pytest -k physical_to_pixels           # tests matching a name expression
 python imgedit.py [options] [paths...] # run the tool (see README for the full flag set)
 ```
 
-Only pure logic is tested — dimension/DPI math, pricing-token estimates, image helpers, capability parsing, and the replay-history round-trip. **Network calls to providers are intentionally not tested**; do not add tests that hit real APIs. `tests/test_presets.py` is the home for gpt-image-2 dimension math, including a grid test asserting `auto_adjust_gpt_image2_dims` always returns valid dims — extend it when touching that code.
+Only pure logic is tested — dimension/DPI math, pricing-token estimates, image helpers, capability parsing, and the replay-history round-trip. **Network calls to providers are intentionally not tested**; do not add tests that hit real APIs. `tests/test_presets.py` is the home for GPT Image dimension math, including a grid test asserting `auto_adjust_gpt_image2_dims` always returns valid dims — extend it when touching that code.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Only pure logic is tested — dimension/DPI math, pricing-token estimates, image
 - **`imgprompt/providers/base.py`** — the contract. `GenerationRequest` is the single dataclass passed end-to-end (wizard → provider → history JSON). `ImageProvider` is the ABC every provider implements: `run`, `supported_models`, `provider_name`, and the four wizard-driving hooks (`get_resolution_choices`/`resolve_resolution`, `get_quality_choices`/`resolve_quality`). The wizard asks the provider what choices to offer and how to resolve a selection, so provider-specific capability logic never leaks into `imgedit.py`.
 - **`imgprompt/providers/{openai,openrouter,ovh}_provider.py`** — one class each. OpenRouter is by far the largest (multiple model families, per-model resolution/`n` clamping, SVG handling for Recraft vector models). There is no direct Google provider: it was removed because it could not be verified, and Gemini is reached only through OpenRouter.
 - **`imgprompt/providers/capabilities.py`** — **OpenRouter-only** live discovery. Fetches `/api/v1/images/models` (capability descriptors) and per-model `/endpoints` (live pricing), cached to `.cache/openrouter_models.json` (24h TTL, gitignored). Degrade-gracefully by design: no cache + no network → hardcoded fallback in `presets.py`, one note per session max. OpenAI/OVH expose no such API, so their tables stay hardcoded on purpose.
-- **`imgprompt/presets.py`** — hardcoded pricing/dimension tables and the math: gpt-image-2 token/cost estimation, dimension validation and auto-adjustment, physical-unit (cm/inch) → pixel conversion, Recraft defaults. This is the fallback source of truth when live discovery is unavailable.
+- **`imgprompt/presets.py`** — hardcoded pricing/dimension tables and the math: GPT Image token/cost estimation, dimension validation and auto-adjustment, physical-unit (cm/inch) → pixel conversion, Recraft defaults. This is the fallback source of truth when live discovery is unavailable.
 - **`imgprompt/images.py`** — image I/O helpers: cwd listing, PDF detection/rasterization (PyMuPDF), pre-upload processing/downscaling, closest-aspect-ratio matching, and saving API results (including detecting SVG bytes to write a real `.svg`).
 - **`imgprompt/history.py`** — dumps `(provider, GenerationRequest)` to gitignored `.last_generation.json` after every completed run and reloads it for `--replay`.
 

@@ -296,15 +296,16 @@ _META_OUTPUT_SIZES = {
     "3:2": (1920, 1280),
 }
 
-# GPT Image 2.5 family on /api/v1/images — the whole OpenAI presence in
-# this catalog since gpt-5.4-image-2 was retired (see the README note).
-# The 2.6 pair shares this geometry/quality path with 2.5; its advertised
-# output image rate is also $30/M tokens (2026-11-11). Measurements below
-# refer to 2.5, and remain the basis of the shared token estimator.
-# Both 2.5 tiers ship an IDENTICAL descriptor AND identical /endpoints pricing,
-# and bill identically in practice — the same probe on each returned
-# image_tokens=140, reasoning_tokens=0, cost $0.00425 (verified
-# 2026-09-12). Sunburst's premium is generation time, not money: eight aspect ratios plus "auto" (which the wizard
+# GPT Image 2.6 family on /api/v1/images — the whole OpenAI presence in
+# this catalog. Its advertised output image rate is $30/M tokens
+# (2026-11-11). The measurements below were taken on the retired 2.5 pair,
+# which shared this geometry/quality path, and remain the basis of the
+# shared token estimator.
+# Both 2.5 tiers shipped an IDENTICAL descriptor AND identical /endpoints
+# pricing, and billed identically in practice — the same probe on each
+# returned image_tokens=140, reasoning_tokens=0, cost $0.00425 (verified
+# 2026-09-12). Sunburst's premium is generation time, not money. The
+# descriptor: eight aspect ratios plus "auto" (which the wizard
 # doesn't surface for OpenRouter), NO `resolution` parameter, `quality`
 # enum {auto,low,medium,high,xhigh,max}, n 1..10, up to 16 input
 # references, output_image $30/Mtok. They differ only in positioning —
@@ -323,11 +324,9 @@ _META_OUTPUT_SIZES = {
 # up the same shape every time: not one of them advertises `resolution`.
 # That is what retired gpt-5.4-image-2 from this provider — its 1K/2K/4K
 # menu priced tiers the API does not have.
-_GPT_IMAGE_25_MODELS = (
+_GPT_IMAGE_26_MODELS = (
     "openai/gpt-image-2.6-sunburst",
     "openai/gpt-image-2.6-flare",
-    "openai/gpt-image-2.5-sunburst",
-    "openai/gpt-image-2.5-flare",
 )
 
 # The family's eight ratios in the wizard's canonical
@@ -337,7 +336,7 @@ _GPT_IMAGE_25_MODELS = (
 # live discovery is unavailable (cold cache + no network). The descriptor
 # override further down already trims them on the online path; this list
 # makes the offline path agree.
-_GPT_IMAGE_25_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
+_GPT_IMAGE_26_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
 
 
 # Explicit-size support for the family. `size` is NOT a per-model
@@ -352,12 +351,12 @@ _GPT_IMAGE_25_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9
 # the wizard's Pixels line stops guessing, the token estimate becomes exact
 # (tokens scale with pixel count), and the user can override with custom
 # dimensions. Every one of the eight offered ratios maps to a
-# RATIO_TO_RESOLUTION preset that already satisfies gpt-image-2's
+# RATIO_TO_RESOLUTION preset that already satisfies GPT Image's
 # constraints — ~1MP, both edges multiples of 16, aspect well under 3 — so
 # the presets go out as-is; anything else (a stale replay carrying a ratio
 # the picker no longer offers) is validated below and dropped rather than
 # sent to a certain 400.
-def _gpt_image_25_size(aspect_ratio: str | None) -> str | None:
+def _gpt_image_26_size(aspect_ratio: str | None) -> str | None:
     """Explicit "WxH" for one of the family's ratios, or None to fall back.
 
     None means "let OpenRouter translate the aspect_ratio itself", which is
@@ -376,7 +375,7 @@ def _gpt_image_25_size(aspect_ratio: str | None) -> str | None:
     return preset
 
 
-def _gpt_image_25_dims(
+def _gpt_image_26_dims(
     res_key: str | None, width: int | None, height: int | None
 ) -> tuple[int, int]:
     """The (w, h) the price should be computed against.
@@ -455,7 +454,7 @@ def _split_quality_key(
     """Split a wizard quality_key into (tier, quality).
 
     ``"2K low"`` -> ``("2K", "low")`` for the two-axis models above;
-    ``"high"`` -> ``(None, "high")`` for the quality-only GPT Image 2.5
+    ``"high"`` -> ``(None, "high")`` for the quality-only GPT Image 2.6
     family, which has no resolution axis at all;
     ``"2K"`` / ``"Standard"`` / ``None`` -> ``(value, None)`` for everyone
     else, so single-axis callsites keep their exact previous behaviour.
@@ -463,13 +462,13 @@ def _split_quality_key(
     ``model`` is optional so the pure "does this string contain a compound
     key" reading still works standalone, but every in-tree callsite passes
     it: without the model there is no way to tell the bare quality ``"high"``
-    apart from a tier name, and the GPT Image 2.5 family would silently
+    apart from a tier name, and the GPT Image 2.6 family would silently
     send ``quality`` as a ``resolution`` (dropped by the payload gate) and
     no quality at all.
     """
     if not quality_key:
         return quality_key, None
-    if model in _GPT_IMAGE_25_MODELS:
+    if model in _GPT_IMAGE_26_MODELS:
         # Quality-only axis: the whole key IS the quality value. Returning
         # tier=None keeps it out of `_VALID_TIER_QUALITY_KEYS` at every
         # gate, so no `resolution` field is ever emitted for this family.
@@ -616,12 +615,10 @@ class OpenRouterProvider(ImageProvider):
         return [
             "openai/gpt-image-2.6-sunburst",
             "openai/gpt-image-2.6-flare",
-            # Previous GPT Image 2.5 family, retained for replay. Priced on a
-            # quality axis rather than a resolution one, so a `low` render
-            # is the cheapest OpenAI option here by a wide margin and `max`
-            # the most expensive thing on offer.
-            "openai/gpt-image-2.5-sunburst",
-            "openai/gpt-image-2.5-flare",
+            # The 2.6 pair is priced on a quality axis rather than a
+            # resolution one, so a `low` render is the cheapest OpenAI
+            # option here by a wide margin and `max` the most expensive
+            # thing on offer.
             # Seedream 5.0, cheapest tier first: Flash ($0.018 flat, 1K/2K)
             # is the family default. Lite stays for 4K and replaced
             # seedream-4.5 outright ($0.035 vs $0.04 flat, same 4K ceiling,
@@ -693,10 +690,10 @@ class OpenRouterProvider(ImageProvider):
         # the ratios, so we keep it on the conservative 10+21:9 list until
         # either Google lists them per-model or we verify against real
         # upstream responses.
-        if model in _GPT_IMAGE_25_MODELS:
-            # Eight concrete ratios, no 4:5/5:4 — see _GPT_IMAGE_25_RATIOS
+        if model in _GPT_IMAGE_26_MODELS:
+            # Eight concrete ratios, no 4:5/5:4 — see _GPT_IMAGE_26_RATIOS
             # for why the generic fallback below is wrong for this family.
-            ratio_options = list(_GPT_IMAGE_25_RATIOS)
+            ratio_options = list(_GPT_IMAGE_26_RATIOS)
         elif model in (
             "google/gemini-nano-banana-2.1",
             "google/gemini-3.1-flash-lite-image",
@@ -756,12 +753,12 @@ class OpenRouterProvider(ImageProvider):
             from imgprompt.images import get_closest_aspect_ratio
 
             default = get_closest_aspect_ratio(image_path, ratio_options)
-        if model in _GPT_IMAGE_25_MODELS:
+        if model in _GPT_IMAGE_26_MODELS:
             # Appended AFTER the closest-ratio default is computed:
             # get_closest_aspect_ratio parses every option as a ratio and
             # would choke on the label. The generic custom-dimensions step
             # in imgedit.step_resolution picks this up and validates the
-            # input against gpt-image-2's constraints, which is exactly the
+            # input against GPT Image's constraints, which is exactly the
             # contract this family inherits.
             from imgprompt.presets import CUSTOM_DIMS
 
@@ -777,16 +774,16 @@ class OpenRouterProvider(ImageProvider):
             # Recraft: geometry is model-chosen; "model default" keeps the
             # summary's Pixels line honest instead of a fake 1024x1024.
             return "model default", None, None
-        if model in _GPT_IMAGE_25_MODELS:
+        if model in _GPT_IMAGE_26_MODELS:
             # Resolve the ratio to concrete pixels here, mirroring the
-            # OpenAI provider's gpt-image-2 preset path (which also returns
+            # OpenAI provider's GPT Image preset path (which also returns
             # f"{w}x{h}", w, h). Downstream both families then look
             # identical: the wizard carries real dimensions into the
             # quality step, which prices them through the shared
             # `gpt_image_2_token_cost`, and `_build_payload` emits `size`.
-            # A ratio we refuse to pin (see _gpt_image_25_size) falls
+            # A ratio we refuse to pin (see _gpt_image_26_size) falls
             # through to the ratio-only path below.
-            explicit = _gpt_image_25_size(selection)
+            explicit = _gpt_image_26_size(selection)
             if explicit:
                 width, height = (int(v) for v in explicit.split("x"))
                 return explicit, width, height
@@ -830,12 +827,12 @@ class OpenRouterProvider(ImageProvider):
         # the shape the user will get, and here we know it exactly.
         if model in _META_MODELS:
             return _META_OUTPUT_SIZES.get(aspect_ratio or "")
-        if model in _GPT_IMAGE_25_MODELS:
+        if model in _GPT_IMAGE_26_MODELS:
             # Same purpose as the Muse branch: report the box that actually
             # goes on the wire. Returning None here (custom dimensions, or
             # a ratio we refuse to pin) lets the caller print `res_key`,
             # which is already the exact WxH in both of those cases.
-            explicit = _gpt_image_25_size(aspect_ratio)
+            explicit = _gpt_image_26_size(aspect_ratio)
             if explicit is None:
                 return None
             width, height = (int(v) for v in explicit.split("x"))
@@ -898,7 +895,7 @@ class OpenRouterProvider(ImageProvider):
         # Method kept named "quality" for backwards compatibility with the
         # wizard in imgedit.py, but the user-facing label is now "Resolution"
         # (tier like "1K"/"2K"/"4K" — matching the new docs).
-        if model in _GPT_IMAGE_25_MODELS:
+        if model in _GPT_IMAGE_26_MODELS:
             # No `resolution` parameter upstream at all: this family's only
             # price axis is `quality`, so the tier step offers the quality
             # enum directly (cheapest first). None of these values is in
@@ -1000,7 +997,7 @@ class OpenRouterProvider(ImageProvider):
         # tier keys, which can never match a compound "<tier> <quality>" key
         # (nor its COSTS row), so it would silently fall through to an empty
         # list and drop the quality axis from the menu. The quality-only GPT
-        # Image 2.5 family is exempt for the mirror-image reason: its keys
+        # Image 2.6 family is exempt for the mirror-image reason: its keys
         # are bare quality values, so a `resolution` enum appearing upstream
         # would replace a priced quality menu with unpriced tiers.
         caps = get_capabilities(model)
@@ -1008,7 +1005,7 @@ class OpenRouterProvider(ImageProvider):
             caps
             and caps.resolutions
             and model not in _TIER_QUALITY_MODELS
-            and model not in _GPT_IMAGE_25_MODELS
+            and model not in _GPT_IMAGE_26_MODELS
         ):
             from imgprompt.presets import COSTS as _costs
 
@@ -1029,10 +1026,10 @@ class OpenRouterProvider(ImageProvider):
         # would round $0.034 down to "$0.03" and look cheaper than 3.1's
         # $0.07, which is misleading. Trailing zero on $0.07 → $0.070 is
         # fine and matches OpenRouter's usage-report format.
-        if model in _GPT_IMAGE_25_MODELS:
+        if model in _GPT_IMAGE_26_MODELS:
             # Token-billed and exactly computable: show the token count
             # alongside the price, mirroring the OpenAI provider's
-            # gpt-image-2 labels, and quote 4 decimals because a `low`
+            # direct-provider labels, and quote 4 decimals because a `low`
             # render lands under half a cent.
             from imgprompt.presets import (
                 gpt_image_2_quality_choices,
@@ -1040,7 +1037,7 @@ class OpenRouterProvider(ImageProvider):
             )
 
             _qualities, q_map = gpt_image_2_quality_ladder(model)
-            width_px, height_px = _gpt_image_25_dims(res_key, width, height)
+            width_px, height_px = _gpt_image_26_dims(res_key, width, height)
             choices = gpt_image_2_quality_choices(width_px, height_px, sizes, q_map)
             return choices, choices[0]
 
@@ -1090,14 +1087,14 @@ class OpenRouterProvider(ImageProvider):
         # everything before " (" — including for the floor annotation that
         # can follow the price.
         quality_key = selection.split(" (")[0]
-        if model in _GPT_IMAGE_25_MODELS:
+        if model in _GPT_IMAGE_26_MODELS:
             from imgprompt.presets import (
                 gpt_image_2_quality_cost,
                 gpt_image_2_quality_ladder,
             )
 
             _qualities, q_map = gpt_image_2_quality_ladder(model)
-            width_px, height_px = _gpt_image_25_dims(res_key, width, height)
+            width_px, height_px = _gpt_image_26_dims(res_key, width, height)
             return quality_key, gpt_image_2_quality_cost(
                 width_px, height_px, quality_key, q_map
             )
@@ -1429,11 +1426,11 @@ class OpenRouterProvider(ImageProvider):
                 )
             payload["size"] = f"{width}x{height}"
         else:
-            if request.model in _GPT_IMAGE_25_MODELS:
+            if request.model in _GPT_IMAGE_26_MODELS:
                 # Always an explicit size for this family: it has no
                 # `resolution` axis, and pinning the box is what makes the
                 # token estimate exact and the Pixels line honest.
-                explicit = _gpt_image_25_size(request.aspect_ratio)
+                explicit = _gpt_image_26_size(request.aspect_ratio)
             else:
                 explicit = (floor or ceil) and self._floor_size(
                     request.model, request.aspect_ratio, tier
@@ -1459,7 +1456,7 @@ class OpenRouterProvider(ImageProvider):
                 if tier in _VALID_TIER_QUALITY_KEYS:
                     payload["resolution"] = tier
 
-        if request.model in _GPT_IMAGE_25_MODELS and request.res_key == "auto":
+        if request.model in _GPT_IMAGE_26_MODELS and request.res_key == "auto":
             payload.pop("aspect_ratio", None)
             payload.pop("resolution", None)
             payload["size"] = "auto"
