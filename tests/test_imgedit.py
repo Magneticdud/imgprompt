@@ -195,6 +195,19 @@ class TestInputCostPerCall:
             imgs, mp_rate=None, flat_rate=0.01, batch=True
         ) == pytest.approx(0.01)
 
+    def test_seedream_5_5_replay_matches_reported_cost(self, tmp_path):
+        """A 2K replay with one reference was billed $0.043 (2026-11-27):
+        $0.035 output + $0.008 input. The replay estimate used to drop the
+        input half and warn about a 23% divergence."""
+        from imgprompt.presets import COSTS
+
+        row = COSTS["bytedance-seed/seedream-5-5"]
+        imgs = self._imgs(tmp_path, [(10, 10)])
+        input_cost = imgedit.input_cost_per_call(
+            imgs, mp_rate=None, flat_rate=row["input_flat"], batch=False
+        )
+        assert row["2K"]["fixed"] + input_cost == pytest.approx(0.043)
+
     def test_no_rates_is_free(self, tmp_path):
         imgs = self._imgs(tmp_path, [(10, 10)] * 2)
         assert (

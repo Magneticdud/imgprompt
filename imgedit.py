@@ -520,13 +520,22 @@ def run_replay_on_different_model(iterations_arg: int | None) -> None:
 
     # OpenRouter is the only provider that reports usage.cost, so it's the only
     # one whose estimate feeds reconciliation. `n` variants ride in one call, so
-    # multiply the per-image quality cost. Input surcharges (per-MP, Grok
-    # flat) aren't folded in here — the replay path keeps the estimate simple —
-    # but this is still far closer than the previous verbatim carry-over of the
-    # *source* model's cost.
+    # multiply the per-image quality cost. Input surcharges are folded in the
+    # same way the wizard does it: a replayed request is ONE call carrying all
+    # its images (minus any trim to the model's input limit). Leaving them out
+    # made every replay on a model that bills references (Seedream 5.5: $0.008
+    # each) trip the >10% divergence warning.
     estimated_call_cost = None
     if provider == "OpenRouter" and output_format not in ("svg", "gif"):
-        estimated_call_cost = final_cost * n_variants
+        model_costs = COSTS.get(model, {})
+        input_cost = input_cost_per_call(
+            request.images or [],
+            mp_rate=model_costs.get("input_mp_rate"),
+            flat_rate=model_costs.get("input_flat"),
+            batch=False,
+            input_limit=provider_obj.max_input_images(model),
+        )
+        estimated_call_cost = final_cost * n_variants + input_cost
 
     new_request = GenerationRequest(
         prompt=request.prompt,
