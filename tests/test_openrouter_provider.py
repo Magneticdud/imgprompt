@@ -2339,24 +2339,25 @@ class TestRecraftFamily:
 
 
 # --------------------------------------------------------------------------
-# Seedream 5.0 family (snapshot 2026-09-11). The two tiers are deliberately
-# asymmetric — Lite is 2K/4K with n up to 4, Pro is 1K/2K pinned to n=1 —
-# so the cases below assert each one separately rather than parametrising
-# over both. They replace the retired seedream-4.5.
+# Seed family: Seedream 5.0 Flash/Lite (snapshot 2026-09-11) and 5.5
+# (snapshot 2026-11-27). The tiers are deliberately asymmetric — Lite is
+# 2K/4K with n up to 4, 5.5 is 1K/1.5K/2K pinned to n=1 — so the cases
+# below assert each one separately rather than parametrising over them.
+# 5.0 Lite replaced the retired seedream-4.5; 5.5 replaced 5.0 Pro.
 # --------------------------------------------------------------------------
 
 
-class TestSeedream50:
+class TestSeedFamily:
     FLASH = "bytedance-seed/seedream-5-0-flash"
     LITE = "bytedance-seed/seedream-5-0-lite"
-    PRO = "bytedance-seed/seedream-5-0-pro"
+    S55 = "bytedance-seed/seedream-5-5"
 
     def test_all_in_supported_models_with_flash_first(self):
         models = OpenRouterProvider.supported_models()
-        assert all(m in models for m in (self.FLASH, self.LITE, self.PRO))
-        # Flash is the family default: it must precede Lite and Pro.
+        assert all(m in models for m in (self.FLASH, self.LITE, self.S55))
+        # Flash is the family default: it must precede Lite and 5.5.
         assert (
-            models.index(self.FLASH) < models.index(self.LITE) < models.index(self.PRO)
+            models.index(self.FLASH) < models.index(self.LITE) < models.index(self.S55)
         )
         # ...but the overall default stays the first entry, not Seedream.
         assert models[0] == "openai/gpt-image-2.6-sunburst"
@@ -2368,11 +2369,11 @@ class TestSeedream50:
         assert [c.split(" ")[0] for c in choices] == ["2K", "4K"]
         assert default == choices[0]
 
-    def test_pro_tiers_are_1k_and_2k(self, provider_with_key):
+    def test_5_5_tiers_are_1k_1_5k_and_2k(self, provider_with_key):
         choices, default = provider_with_key.get_quality_choices(
-            self.PRO, "1024x1024", None, None, None
+            self.S55, "1024x1024", None, None, None
         )
-        assert [c.split(" ")[0] for c in choices] == ["1K", "2K"]
+        assert [c.split(" ")[0] for c in choices] == ["1K", "1.5K", "2K"]
         assert default == choices[0]
 
     def test_flash_tiers_are_1k_and_2k(self, provider_with_key):
@@ -2383,7 +2384,7 @@ class TestSeedream50:
         assert default == choices[0]
 
     def test_flash_is_the_cheapest_seed_tier(self):
-        """Flat $0.018 at both tiers, free inputs, under every Lite/Pro row."""
+        """Flat $0.018 at both tiers, free inputs, under every Lite/5.5 row."""
         from imgprompt.presets import COSTS
 
         row = COSTS[self.FLASH]
@@ -2391,7 +2392,7 @@ class TestSeedream50:
         assert "input_flat" not in row
         others = [
             t["fixed"]
-            for m in (self.LITE, self.PRO)
+            for m in (self.LITE, self.S55)
             for k, t in COSTS[m].items()
             if k != "input_flat"
         ]
@@ -2406,18 +2407,32 @@ class TestSeedream50:
         row = COSTS[self.LITE]
         assert row["2K"]["fixed"] == row["4K"]["fixed"] == 0.035
 
-    def test_pro_high_resolution_tier_costs_double(self):
+    def test_5_5_high_resolution_tier_prices(self):
         from imgprompt.presets import COSTS
 
-        row = COSTS[self.PRO]
-        assert row["2K"]["fixed"] == row["1K"]["fixed"] * 2
+        row = COSTS[self.S55]
+        assert row["1K"]["fixed"] == row["1.5K"]["fixed"] == 0.02
+        assert row["2K"]["fixed"] == 0.035
 
-    def test_pro_charges_flat_rate_per_input_reference(self):
-        """First model in the Seed family to bill input images at all."""
+    def test_5_5_charges_flat_rate_per_input_reference(self):
+        """The only model in the Seed family that bills input images."""
         from imgprompt.presets import COSTS
 
-        assert COSTS[self.PRO]["input_flat"] == 0.003
+        assert COSTS[self.S55]["input_flat"] == 0.008
         assert "input_flat" not in COSTS[self.LITE]
+        assert "input_flat" not in COSTS[self.FLASH]
+
+    def test_5_5_undercuts_retired_pro_with_any_reference_count(self):
+        """Why 5.0 Pro was dropped: at 2K, 5.5 is cheaper even with its
+        maximum of 10 references ($0.115 vs Pro's $0.12)."""
+        from imgprompt.presets import COSTS
+
+        row = COSTS[self.S55]
+        for k in range(0, 11):
+            assert row["2K"]["fixed"] + k * row["input_flat"] < 0.09 + k * 0.003
+
+    def test_5_5_input_limit_fallback(self, provider_with_key):
+        assert provider_with_key.max_input_images(self.S55) == 10
 
     def test_lite_undercuts_retired_4_5_at_every_tier(self):
         """The whole reason 4.5 was dropped: Lite is cheaper for the same
@@ -2426,11 +2441,12 @@ class TestSeedream50:
 
         assert all(t["fixed"] < 0.04 for t in COSTS[self.LITE].values())
 
-    @pytest.mark.parametrize("model,cap", [(FLASH, 1), (LITE, 4), (PRO, 1)])
+    @pytest.mark.parametrize("model,cap", [(FLASH, 1), (LITE, 4), (S55, 1)])
     def test_n_clamped_per_tier(self, provider_with_key, model, cap):
         """Offline safety net: the descriptors pin n at 1..4 (Lite) and 1..1
-        (Pro), and without the per-model entries both would inherit the
-        global cap of 10 — letting the wizard price batches Pro can't make."""
+        (Flash, 5.5), and without the per-model entries they would inherit
+        the global cap of 10 — letting the wizard price batches 5.5 can't
+        make."""
         with patch(
             "imgprompt.providers.openrouter_provider.requests.post"
         ) as mock_post:
@@ -2446,22 +2462,22 @@ class TestSeedream50:
             provider_with_key._call_api(req, n=10)
         assert mock_post.call_args.kwargs["json"]["n"] == cap
 
-    def test_pro_has_no_pixel_bounds(self):
-        """Pro advertises 1K (1.05MP) and prices it separately, so the old
+    def test_5_5_has_no_pixel_bounds(self):
+        """5.5 advertises 1K (1.05MP) and prices it separately, so the old
         3.69MP floor demonstrably does not apply; it also caps at 2K, far
         below the ceiling. Neither table may claim otherwise without a
         verified upstream response."""
         from imgprompt.providers import openrouter_provider as orp
 
-        assert self.PRO not in orp._MODEL_PIXEL_FLOORS
-        assert self.PRO not in orp._MODEL_PIXEL_CEILINGS
+        assert self.S55 not in orp._MODEL_PIXEL_FLOORS
+        assert self.S55 not in orp._MODEL_PIXEL_CEILINGS
 
-    def test_pro_uses_plain_shorthand_payload(self, provider_with_key):
-        """With no floor/ceiling entry, Pro delegates geometry to
+    def test_5_5_uses_plain_shorthand_payload(self, provider_with_key):
+        """With no floor/ceiling entry, 5.5 delegates geometry to
         OpenRouter's own (aspect_ratio, resolution) translation."""
         req = GenerationRequest(
             prompt="x",
-            model=self.PRO,
+            model=self.S55,
             aspect_ratio="9:16",
             res_key="768x1344",
             quality_key="2K",
@@ -3003,9 +3019,7 @@ class TestMultiInput:
         assert (
             provider_with_key.max_input_images("bytedance-seed/seedream-5-0-lite") == 14
         )
-        assert (
-            provider_with_key.max_input_images("bytedance-seed/seedream-5-0-pro") == 14
-        )
+        assert provider_with_key.max_input_images("bytedance-seed/seedream-5-5") == 10
         assert (
             provider_with_key.max_input_images("black-forest-labs/flux-3-image") == 10
         )
@@ -3297,6 +3311,7 @@ class TestNanoBanana21:
         "x-ai/grok-imagine-image-quality",
         "openai/gpt-5.4-image-2",
         "bytedance-seed/seedream-4.5",
+        "bytedance-seed/seedream-5-0-pro",  # superseded by Seedream 5.5
         "google/gemini-2.5-flash-image",  # upstream shutdown 2 Oct 2026
         "google/gemini-3.1-flash-image",  # superseded by Nano Banana 2.1
     ],

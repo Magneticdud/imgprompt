@@ -366,14 +366,16 @@ COSTS = {
         "2K": {"fixed": 0.035},
         "4K": {"fixed": 0.035},
     },
-    # Seedream 5.0 Pro: the first Seed tier with a genuine per-resolution
-    # price — 2K bills as the `high_resolution` pricing variant at double
-    # the 1K rate — and the first to charge for input references at all
-    # ($0.003 flat each, like Qwen). Caps at 2K (no 4K).
-    "bytedance-seed/seedream-5-0-pro": {
-        "1K": {"fixed": 0.045},
-        "2K": {"fixed": 0.09},
-        "input_flat": 0.003,
+    # Seedream 5.5: replaces 5.0 Pro as the editing tier. 2K bills as the
+    # `high_resolution` pricing variant ($0.035), the base rate ($0.02)
+    # covers 1K and — assumed, upstream does not say — 1.5K. Input
+    # references cost $0.008 flat each, up to 10. Caps at 2K (no 4K).
+    # Verified 2026-11-27 against /endpoints.
+    "bytedance-seed/seedream-5-5": {
+        "1K": {"fixed": 0.02},
+        "1.5K": {"fixed": 0.02},
+        "2K": {"fixed": 0.035},
+        "input_flat": 0.008,
     },
     # FLUX 3 family (both tiers share one descriptor: five resolution tiers
     # 768/1K/1.5K/2K/4K, up to 10 input references, n pinned to 1). Billed

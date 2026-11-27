@@ -341,17 +341,17 @@ GROK_2_PRICING = [
     },
 ]
 
-# Seedream 5.0 Pro, snapshot 2026-09-11: the only model in the catalog whose
-# tier variant is not spelled as a tier ("high_resolution" = 2K).
-SEEDREAM_5_PRO_PRICING = [
-    {"billable": "output_image", "unit": "image", "cost_usd": 0.045},
+# Seedream 5.5, snapshot 2026-11-27: its tier variant is not spelled as a
+# tier ("high_resolution" = 2K), like the retired 5.0 Pro's.
+SEEDREAM_5_5_PRICING = [
+    {"billable": "output_image", "unit": "image", "cost_usd": 0.02},
     {
         "billable": "output_image",
         "unit": "image",
-        "cost_usd": 0.09,
+        "cost_usd": 0.035,
         "variant": "high_resolution",
     },
-    {"billable": "input_image", "unit": "image", "cost_usd": 0.003},
+    {"billable": "input_image", "unit": "image", "cost_usd": 0.008},
 ]
 
 RECRAFT_PRICING = [
@@ -395,16 +395,17 @@ class TestLivePricing:
         assert mock_get.call_count == 1
 
     def test_aliased_variant_maps_to_its_tier(self):
-        """Seedream 5.0 Pro prices 2K as the `high_resolution` variant. Without
+        """Seedream 5.5 prices 2K as the `high_resolution` variant. Without
         the per-model alias the lookup would fall through to the variant-less
-        $0.045 entry and estimate 2K at half its real cost."""
+        $0.02 entry and underestimate 2K by ~43%."""
         from imgprompt.providers.capabilities import output_image_price
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_endpoints(mock_get, SEEDREAM_5_PRO_PRICING)
-            model = "bytedance-seed/seedream-5-0-pro"
-            assert output_image_price(model, "2K") == 0.09
-            assert output_image_price(model, "1K") == 0.045
+            _stub_endpoints(mock_get, SEEDREAM_5_5_PRICING)
+            model = "bytedance-seed/seedream-5-5"
+            assert output_image_price(model, "2K") == 0.035
+            assert output_image_price(model, "1K") == 0.02
+            assert output_image_price(model, "1.5K") == 0.02
 
     def test_quality_tier_variants_map_to_compound_keys(self):
         """Grok Imagine 2.0 prices the quality x tier matrix as "low_1k" /
@@ -431,10 +432,10 @@ class TestLivePricing:
         from imgprompt.providers.capabilities import output_image_price
 
         with patch("imgprompt.providers.capabilities.requests.get") as mock_get:
-            _stub_endpoints(mock_get, SEEDREAM_5_PRO_PRICING)
+            _stub_endpoints(mock_get, SEEDREAM_5_5_PRICING)
             # Unaliased model: "high_resolution" matches no tier, so the
             # variant-less entry is the answer for every tier.
-            assert output_image_price("other/model", "2K") == 0.045
+            assert output_image_price("other/model", "2K") == 0.02
 
     def test_flat_price_applies_to_any_tier(self):
         from imgprompt.providers.capabilities import output_image_price

@@ -292,10 +292,10 @@ def get_live_pricing(model: str) -> tuple[PriceEntry, ...] | None:
 # exceptions in the whole catalog (surveyed across all 52 image models,
 # 2026-09-12):
 #
-#   - Seedream 5.0 Pro prices its top tier as "high_resolution". Without the
-#     mapping the lookup falls through to the variant-less entry and
-#     estimates 2K at the 1K price — half the real charge, which then trips
-#     the >10% cost-reconciliation warning on every 2K run.
+#   - Seedream 5.5 prices its top tier as "high_resolution" (as the retired
+#     5.0 Pro did). Without the mapping the lookup falls through to the
+#     variant-less entry and estimates 2K at the 1K price ($0.02 vs $0.035),
+#     which then trips the >10% cost-reconciliation warning on every 2K run.
 #   - Grok Imagine 2.0 prices the quality+tier matrix as "low_1k" /
 #     "medium_2k"; the wizard's key for the same cell is the compound
 #     "1K low" / "2K medium" (see _TIER_QUALITY_MODELS in the OpenRouter
@@ -308,7 +308,7 @@ def get_live_pricing(model: str) -> tuple[PriceEntry, ...] | None:
 # a future model could use the same word for 4K. Values are compared
 # lowercased, hence the lowercase tier keys on the right-hand side.
 _MODEL_VARIANT_TIERS = {
-    "bytedance-seed/seedream-5-0-pro": {"high_resolution": "2k"},
+    "bytedance-seed/seedream-5-5": {"high_resolution": "2k"},
     "x-ai/grok-imagine-image-2.0": {
         "low_1k": "1k low",
         "medium_1k": "1k medium",
